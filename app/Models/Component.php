@@ -4,6 +4,14 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Spatie\Activitylog\Traits\LogsActivity;
+use App\Models\Supplier;
+use App\Models\StockLevel;
+use App\Models\StockMovement;
+use App\Models\Product;
+use App\Models\Alert;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\belongsToMany;
 
 /**
  * Modello Eloquent per la tabella 'components'.
@@ -13,6 +21,24 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class Component extends Model
 {
     use SoftDeletes;
+    use LogsActivity;
+
+    /**
+     * Attributi che devono essere registrati nel log delle attività.
+     *
+     * @var array<string>
+     */
+    protected static $logAttributes = [
+        'code',
+        'description',
+        'material',
+        'length',
+        'width',
+        'height',
+        'weight',
+    ];
+
+    protected static $logName = 'component';
 
     /**
      * Gli attributi assegnabili in massa.
@@ -27,7 +53,7 @@ class Component extends Model
         'width',       // Larghezza (cm)
         'height',      // Altezza (cm)
         'weight',      // Peso (kg)
-        'unit',        // Unità di misura
+        'unit_of_measure',        // Unità di misura
         'is_active',   // Flag attivo/inattivo
     ];
 

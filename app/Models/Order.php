@@ -3,6 +3,13 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Spatie\Activitylog\Traits\LogsActivity;
+use App\Models\Supplier;
+use App\Models\Customer;
+use App\Models\OrderItem;
+use App\Models\StockReservation;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * Modello per la tabella 'orders'.
@@ -11,6 +18,21 @@ use Illuminate\Database\Eloquent\Model;
  */
 class Order extends Model
 {
+    use LogsActivity;
+
+    /**
+     * Attributi che devono essere registrati nel log delle attività.
+     */
+    protected static $logAttributes = [
+        'supplier_id',
+        'customer_id',
+        'cause',      // purchase/production/return/scrap
+        'total',      // Valore totale
+        'ordered_at', // Data ordine
+    ];
+
+    protected static $logName = 'order';
+    
     /**
      * Attributi assegnabili in massa.
      */

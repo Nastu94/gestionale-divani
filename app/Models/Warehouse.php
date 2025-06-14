@@ -3,6 +3,10 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\StockLevel;
+use App\Models\StockMovement;
+use App\Models\StockReservation;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * Modello per la tabella 'warehouses'.
@@ -18,7 +22,7 @@ class Warehouse extends Model
      */
     protected $fillable = [
         'name',     // Nome deposito
-        'location', // Indirizzo
+        'type',     // Tipo deposito
     ];
 
     /**

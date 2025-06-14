@@ -3,6 +3,9 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Order;
+use App\Models\Product;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * Modello per la tabella 'order_items'.

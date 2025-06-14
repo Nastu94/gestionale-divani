@@ -4,6 +4,11 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use App\Models\Component;
+use App\Models\Order;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Spatie\Activitylog\Traits\LogsActivity;
 
 /**
  * Modello Eloquent per la tabella 'suppliers'.
@@ -13,6 +18,21 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class Supplier extends Model
 {
     use SoftDeletes;
+    use LogsActivity;
+
+    /**
+     * Attributi che devono essere registrati nel log delle attività.
+     *
+     * @var array<string>
+     */
+    protected static $logAttributes = [
+        'name',       // Ragione sociale
+        'vat_number', // Partita IVA
+        'tax_code',   // Codice fiscale
+        'email',      // Email di contatto
+        'phone',      // Telefono principale
+    ];
+    protected static $logName = 'supplier';
 
     /**
      * Attributi assegnabili in massa.

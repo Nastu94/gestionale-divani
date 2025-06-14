@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\Customer;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * Modello per la tabella 'customer_addresses'.

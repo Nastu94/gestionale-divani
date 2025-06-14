@@ -3,6 +3,10 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Spatie\Activitylog\Traits\LogsActivity;
+use App\Models\StockLevel;
+use App\Models\Order;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * Modello per la tabella 'stock_reservations'.
@@ -11,6 +15,20 @@ use Illuminate\Database\Eloquent\Model;
  */
 class StockReservation extends Model
 {
+    use LogsActivity;
+
+    /**
+     * Attributi che devono essere registrati nel log delle attività.
+     *
+     * @var array<string>
+     */
+    protected static $logAttributes = [
+        'stock_level_id', // ID della giacenza
+        'order_id',       // ID dell'ordine associato
+        'quantity',       // Quantità riservata
+    ];
+    protected static $logName = 'stock_reservation';
+    
     /**
      * Attributi assegnabili in massa.
      *

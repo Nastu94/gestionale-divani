@@ -3,6 +3,10 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Spatie\Activitylog\Traits\LogsActivity;
+use App\Models\CustomerAddress;
+use App\Models\Order;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * Modello per la tabella 'customers'.
@@ -11,14 +15,28 @@ use Illuminate\Database\Eloquent\Model;
  */
 class Customer extends Model
 {
+    use LogsActivity;
+
+    /**
+     * Attributi che devono essere registrati nel log delle attività.
+     *
+     * @var array<string>
+     */
+    protected static $logAttributes = [
+        'company',
+        'email',
+        'phone',
+        'is_active',
+    ];
+
+    protected static $logName = 'customer';
+
     /**
      * Attributi assegnabili in massa.
      *
      * @var array<string>
      */
     protected $fillable = [
-        'first_name',
-        'last_name',
         'company',
         'email',
         'phone',

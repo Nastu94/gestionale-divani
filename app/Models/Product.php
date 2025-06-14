@@ -4,6 +4,11 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Spatie\Activitylog\Traits\LogsActivity;
+use App\Models\Component;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * Modello per la tabella 'products'.
@@ -13,6 +18,21 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class Product extends Model
 {
     use SoftDeletes;
+    use LogsActivity;
+
+    /**
+     * Attributi che devono essere registrati nel log delle attività.
+     *
+     * @var array<string>
+     */
+    protected static $logAttributes = [
+        'sku',        // Codice prodotto
+        'name',       // Nome prodotto
+        'description',// Descrizione dettagliata
+        'price',      // Prezzo unitario
+        'is_active',  // Disponibilità
+    ];
+    protected static $logName = 'product';
 
     /**
      * Attributi assegnabili in massa.

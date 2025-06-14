@@ -12,8 +12,6 @@ return new class extends Migration {
     {
         Schema::create('customers', function (Blueprint $table) {
             $table->id();
-            $table->string('first_name')->comment('Nome cliente');
-            $table->string('last_name')->comment('Cognome cliente');
             $table->string('company')->nullable()->comment('Società');
             $table->string('email')->nullable()->comment('Email contatto');
             $table->string('phone')->nullable()->comment('Telefono');
