@@ -7,11 +7,19 @@
     "license": "MIT",
     "require": {
         "php": "^8.2",
+        "barryvdh/laravel-dompdf": "^3.1",
+        "kalnoy/nestedset": "^6.0",
         "laravel/framework": "^12.0",
         "laravel/jetstream": "^5.3",
         "laravel/sanctum": "^4.0",
+        "laravel/scout": "^10.15",
         "laravel/tinker": "^2.10.1",
-        "livewire/livewire": "^3.0"
+        "livewire/livewire": "^3.6",
+        "power-components/livewire-powergrid": "^6.4",
+        "spatie/laravel-activitylog": "^4.10",
+        "spatie/laravel-permission": "^6.20",
+        "spatie/laravel-webhook-server": "^3.8",
+        "teamtnt/laravel-scout-tntsearch-driver": "^15.0"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",
