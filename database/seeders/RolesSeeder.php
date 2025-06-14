@@ -1,0 +1,77 @@
+<?php
+
+namespace Database\Seeders;
+
+use Illuminate\Database\Seeder;
+use Spatie\Permission\Models\Role;
+use Spatie\Permission\Models\Permission;
+
+/**
+ * Seeder per la tabella 'roles'.
+ * Crea i ruoli e assegna i permessi definiti.
+ */
+class RolesSeeder extends Seeder
+{
+    /**
+     * Popola la tabella 'roles' e assegna ai ruoli i permessi definiti.
+     */
+    public function run()
+    {
+        // Definizione ruoli e relativi permessi
+        $roles = [
+            'Admin' => [
+                // Admin ottiene tutti i permessi
+                '*'
+            ],
+            'Commerciale' => [
+                'orders.supplier.*', 'price_lists.*',
+                'customers.*', 'suppliers.*',
+                'reports.orders.supplier'
+            ],
+            'Supervisor' => [
+                'users.create', 'users.update',
+                'orders.customer.*', 'orders.supplier.view', 'orders.supplier.update',
+                'products.*', 'price_lists.view',
+                'customers.view', 'suppliers.view',
+                'stock.*', 'alerts.*',
+                'reports.orders.*', 'reports.stock_levels', 'reports.stock_movements'
+            ],
+            'Impiegato' => [
+                'orders.customer.*', 'orders.supplier.update',
+                'products.view', 'price_lists.view',
+                'customers.view', 'suppliers.view',
+                'stock.*', 'reports.orders.customer', 'reports.stock_levels'
+            ],
+            'Magazziniere' => [
+                'orders.customer.view', 'orders.customer.update',
+                'products.view', 'customers.view', 'suppliers.view',
+                'stock.entry', 'stock.exit'
+            ],
+        ];
+
+        foreach ($roles as $roleName => $perms) {
+            // Crea il ruolo se non esiste
+            $role = Role::firstOrCreate(['name' => $roleName]);
+
+            // Se '*' assegna tutti i permessi
+            if (in_array('*', $perms)) {
+                $role->givePermissionTo(Permission::all());
+            } else {
+                // Espande i wildcard (es. 'orders.customer.*') e assegna
+                $expanded = [];
+                foreach ($perms as $p) {
+                    if (str_ends_with($p, '.*')) {
+                        $module = rtrim($p, '.*');
+                        $expanded = array_merge($expanded, Permission::where('name', 'LIKE', "$module.%")->pluck('name')->toArray());
+                    } else {
+                        $expanded[] = $p;
+                    }
+                }
+                $role->syncPermissions(array_unique($expanded));
+            }
+
+            // Pulisci cache dopo l’assegnazione
+            app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
+        }
+    }
+}
