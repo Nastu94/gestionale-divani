@@ -15,11 +15,13 @@ class StockLevel extends Model
      * Attributi assegnabili in massa.
      *
      * @var array<string>
-     */
+     */    
     protected $fillable = [
         'component_id',
         'warehouse_id',
-        'quantity', // Quantità disponibile
+        'internal_lot_code',   // Codice lotto interno
+        'supplier_lot_code',   // Codice lotto fornitore
+        'quantity',            // Quantità disponibile
     ];
 
     /**
