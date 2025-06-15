@@ -13,9 +13,9 @@
     <!-- Main Content: Grid Menu Component -->
     <div class="py-12">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
-            <div class="bg-white dark:bg-gray-800 overflow-hidden shadow-xl sm:rounded-lg">
+            <div class="bg-white dark:bg-gray-800 overflow-visible shadow-xl sm:rounded-lg py-6">
                 <!-- Sostituiamo x-welcome con menu a griglia -->
-                <x-grid-menu />
+                <x-radial-grid-menu />
             </div>
         </div>
     </div>
