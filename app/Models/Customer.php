@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Spatie\Activitylog\Traits\LogsActivity;
+use Spatie\Activitylog\LogOptions;
 use App\Models\CustomerAddress;
 use App\Models\Order;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -31,6 +32,20 @@ class Customer extends Model
 
     protected static $logName = 'customer';
 
+    /**
+     * Configura le opzioni di logging per questo modello.
+     *
+     * @return \Spatie\Activitylog\LogOptions
+     */
+    public function getActivitylogOptions(): LogOptions
+    {
+        // Logga tutti gli attributi 'fillable', registra solo i cambiamenti
+        return LogOptions::defaults()
+            ->logFillable()
+            ->logOnlyDirty()
+            ->useLogName('customer'); // nome del log per distinguere
+    }
+    
     /**
      * Attributi assegnabili in massa.
      *

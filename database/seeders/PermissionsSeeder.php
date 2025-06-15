@@ -46,10 +46,15 @@ class PermissionsSeeder extends Seeder
             ['name' => 'suppliers.update',            'display_name' => 'Modifica fornitori',               'description' => 'Modifica anagrafica fornitori.'],
             ['name' => 'suppliers.delete',            'display_name' => 'Elimina fornitori',                'description' => 'Elimina anagrafica fornitori.'],
 
-            ['name' => 'products.view',               'display_name' => 'Visualizza prodotti',              'description' => 'Visualizza anagrafica componenti/prodotti.'],
-            ['name' => 'products.create',             'display_name' => 'Crea prodotti',                    'description' => 'Crea nuovi componenti o prodotti.'],
-            ['name' => 'products.update',             'display_name' => 'Modifica prodotti',                'description' => 'Modifica componenti o prodotti esistenti.'],
-            ['name' => 'products.delete',             'display_name' => 'Elimina prodotti',                 'description' => 'Elimina componenti o prodotti.'],
+            ['name' => 'components.view',             'display_name' => 'Visualizza componenti',            'description' => 'Visualizza anagrafica componenti.'],
+            ['name' => 'components.create',           'display_name' => 'Crea componenti',                  'description' => 'Crea nuovi componenti.'],
+            ['name' => 'components.update',           'display_name' => 'Modifica componenti',              'description' => 'Modifica componenti esistenti.'],
+            ['name' => 'components.delete',           'display_name' => 'Elimina componenti',               'description' => 'Elimina componenti.'],
+
+            ['name' => 'products.view',               'display_name' => 'Visualizza prodotti',              'description' => 'Visualizza anagrafica prodotti.'],
+            ['name' => 'products.create',             'display_name' => 'Crea prodotti',                    'description' => 'Crea nuovi prodotti.'],
+            ['name' => 'products.update',             'display_name' => 'Modifica prodotti',                'description' => 'Modifica prodotti esistenti.'],
+            ['name' => 'products.delete',             'display_name' => 'Elimina prodotti',                 'description' => 'Elimina prodotti.'],
 
             ['name' => 'stock.view',                  'display_name' => 'Visualizza giacenze',              'description' => 'Visualizza giacenze e storico movimenti di magazzino.'],
             ['name' => 'stock.entry',                 'display_name' => 'Registra entrate',                 'description' => 'Registra movimenti di entrata in magazzino.'],

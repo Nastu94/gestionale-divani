@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Spatie\Activitylog\Traits\LogsActivity;
+use Spatie\Activitylog\LogOptions;
 use App\Models\StockLevel;
 use App\Models\Order;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -27,7 +28,22 @@ class StockReservation extends Model
         'order_id',       // ID dell'ordine associato
         'quantity',       // Quantità riservata
     ];
+
     protected static $logName = 'stock_reservation';
+
+    /**
+     * Configura le opzioni di logging per questo modello.
+     *
+     * @return \Spatie\Activitylog\LogOptions
+     */
+    public function getActivitylogOptions(): LogOptions
+    {
+        // Logga tutti gli attributi 'fillable', registra solo i cambiamenti
+        return LogOptions::defaults()
+            ->logFillable()
+            ->logOnlyDirty()
+            ->useLogName('stock_reservation'); // nome del log per distinguere
+    }
     
     /**
      * Attributi assegnabili in massa.

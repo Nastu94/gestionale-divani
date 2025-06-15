@@ -9,6 +9,7 @@ use App\Models\Order;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Spatie\Activitylog\Traits\LogsActivity;
+use Spatie\Activitylog\LogOptions;
 
 /**
  * Modello Eloquent per la tabella 'suppliers'.
@@ -32,8 +33,23 @@ class Supplier extends Model
         'email',      // Email di contatto
         'phone',      // Telefono principale
     ];
+
     protected static $logName = 'supplier';
 
+    /**
+     * Configura le opzioni di logging per questo modello.
+     *
+     * @return \Spatie\Activitylog\LogOptions
+     */
+    public function getActivitylogOptions(): LogOptions
+    {
+        // Logga tutti gli attributi 'fillable', registra solo i cambiamenti
+        return LogOptions::defaults()
+            ->logFillable()
+            ->logOnlyDirty()
+            ->useLogName('supplier'); // nome del log per distinguere
+    }
+    
     /**
      * Attributi assegnabili in massa.
      *

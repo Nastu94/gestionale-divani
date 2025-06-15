@@ -31,20 +31,20 @@ class RolesSeeder extends Seeder
             'Supervisor' => [
                 'users.create', 'users.update',
                 'orders.customer.*', 'orders.supplier.view', 'orders.supplier.update',
-                'products.*', 'price_lists.view',
+                'components.*', 'products.*', 'price_lists.view',
                 'customers.view', 'suppliers.view',
                 'stock.*', 'alerts.*',
                 'reports.orders.*', 'reports.stock_levels', 'reports.stock_movements'
             ],
             'Impiegato' => [
                 'orders.customer.*', 'orders.supplier.update',
-                'products.view', 'price_lists.view',
+                'components.view', 'products.view', 'price_lists.view',
                 'customers.view', 'suppliers.view',
                 'stock.*', 'reports.orders.customer', 'reports.stock_levels'
             ],
             'Magazziniere' => [
                 'orders.customer.view', 'orders.customer.update',
-                'products.view', 'customers.view', 'suppliers.view',
+                'components.view', 'products.view', 'customers.view', 'suppliers.view',
                 'stock.entry', 'stock.exit'
             ],
         ];

@@ -10,6 +10,7 @@ use App\Models\StockReservation;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Spatie\Activitylog\Traits\LogsActivity;
+use Spatie\Activitylog\LogOptions;
 
 /**
  * Modello per la tabella 'stock_levels'.
@@ -32,8 +33,23 @@ class StockLevel extends Model
         'supplier_lot_code',  // Codice lotto fornitore
         'quantity',           // Quantità disponibile
     ];
+    
     protected static $logName = 'stock_level';  
     
+    /**
+     * Configura le opzioni di logging per questo modello.
+     *
+     * @return \Spatie\Activitylog\LogOptions
+     */
+    public function getActivitylogOptions(): LogOptions
+    {
+        // Logga tutti gli attributi 'fillable', registra solo i cambiamenti
+        return LogOptions::defaults()
+            ->logFillable()
+            ->logOnlyDirty()
+            ->useLogName('stock_level'); // nome del log per distinguere
+    }
+
     /**
      * Attributi assegnabili in massa.
      *

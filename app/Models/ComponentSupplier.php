@@ -22,7 +22,9 @@ class ComponentSupplier extends Pivot
      * @var array<string>
      */
     protected $fillable = [
-        'component_id',
-        'supplier_id',
+        'component_id',      // FK → components
+        'supplier_id',       // FK → suppliers
+        'lead_time_days',    // Giorni di consegna
+        'last_cost',         // Costo unitario ultimo acquisto
     ];
 }

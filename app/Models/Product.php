@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Spatie\Activitylog\Traits\LogsActivity;
+use Spatie\Activitylog\LogOptions;
 use App\Models\Component;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -32,8 +33,23 @@ class Product extends Model
         'price',      // Prezzo unitario
         'is_active',  // Disponibilità
     ];
+
     protected static $logName = 'product';
 
+    /**
+     * Configura le opzioni di logging per questo modello.
+     *
+     * @return \Spatie\Activitylog\LogOptions
+     */
+    public function getActivitylogOptions(): LogOptions
+    {
+        // Logga tutti gli attributi 'fillable', registra solo i cambiamenti
+        return LogOptions::defaults()
+            ->logFillable()
+            ->logOnlyDirty()
+            ->useLogName('product'); // nome del log per distinguere
+    }
+    
     /**
      * Attributi assegnabili in massa.
      *

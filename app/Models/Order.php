@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Spatie\Activitylog\Traits\LogsActivity;
+use Spatie\Activitylog\LogOptions;
 use App\Models\Supplier;
 use App\Models\Customer;
 use App\Models\OrderItem;
@@ -32,6 +33,20 @@ class Order extends Model
     ];
 
     protected static $logName = 'order';
+    
+    /**
+     * Configura le opzioni di logging per questo modello.
+     *
+     * @return \Spatie\Activitylog\LogOptions
+     */
+    public function getActivitylogOptions(): LogOptions
+    {
+        // Logga tutti gli attributi 'fillable', registra solo i cambiamenti
+        return LogOptions::defaults()
+            ->logFillable()
+            ->logOnlyDirty()
+            ->useLogName('order'); // nome del log per distinguere
+    }
     
     /**
      * Attributi assegnabili in massa.

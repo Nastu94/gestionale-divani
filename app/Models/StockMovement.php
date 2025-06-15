@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Spatie\Activitylog\Traits\LogsActivity;
+use Spatie\Activitylog\LogOptions;
 use App\Models\StockLevel;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -30,7 +31,22 @@ class StockMovement extends Model
         'note',           // Note aggiuntive
         'moved_at',       // Data del movimento
     ];
+
     protected static $logName = 'stock_movement';
+
+    /**
+     * Configura le opzioni di logging per questo modello.
+     *
+     * @return \Spatie\Activitylog\LogOptions
+     */
+    public function getActivitylogOptions(): LogOptions
+    {
+        // Logga tutti gli attributi 'fillable', registra solo i cambiamenti
+        return LogOptions::defaults()
+            ->logFillable()
+            ->logOnlyDirty()
+            ->useLogName('stock_movement'); // nome del log per distinguere
+    }
     
     /**
      * Attributi assegnabili in massa.
