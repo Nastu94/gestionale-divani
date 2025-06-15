@@ -41,7 +41,7 @@
                 /* 1° tick: Alpine applica padding / gap  */
                 this.$nextTick(() => {
                     /* 2° tick: attendiamo repaint + transizione (50-60 ms) */
-                    setTimeout(() => smoothScrollToBottom(), 120);
+                    setTimeout(() => smoothScrollToBottom(), 200);
                 });
             }
         },
