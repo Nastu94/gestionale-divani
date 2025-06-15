@@ -18,6 +18,7 @@ use App\Http\Controllers\ReportStockMovementsController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\PermissionController;
+use App\Http\Controllers\SearchController;
 
 /*
 |--------------------------------------------------------------------------
@@ -43,6 +44,10 @@ Route::middleware([
     Route::get('/dashboard', function () {
         return view('dashboard');
     })->name('dashboard');
+
+    // Global Search
+    Route::get('/search', [SearchController::class, '__invoke'])
+        ->name('search');
 
     /*
 |--------------------------------------------------------------------------
