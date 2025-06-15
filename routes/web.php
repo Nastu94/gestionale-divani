@@ -25,7 +25,7 @@ use App\Http\Controllers\PermissionController;
 |--------------------------------------------------------------------------
 */
 Route::get('/', function () {
-    return view('welcome');
+    return view('auth.login');
 });
 
 /*
