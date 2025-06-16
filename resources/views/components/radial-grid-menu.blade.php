@@ -1,4 +1,4 @@
-{{-- resources/views/components/radial-grid-menu-debug.blade.php --}}
+{{-- resources/views/components/radial-grid-menu.blade.php --}}
 @php
     $sections = config('menu.grid_menu');
     $offsets  = [
@@ -15,16 +15,24 @@
 
 @once
     @push('scripts')
-        <script>
-            /**
-            * Scrolla la pagina finché il centro di `el` non è circa al centro viewport.
-            * extraY ti permette di spostarlo un po' più su o più giù.
-            */
-            function smoothScrollToBottom(extra = 0) {
-                const target = document.body.scrollHeight + extra;
-                window.scrollTo({ top: target, behavior: 'smooth' });
+    <script>
+        /**
+        * Scrolla il container #main-content in fondo (piuttosto che window).
+        * extra: offset in px per spostarsi un po' più in su o in giù.
+        */
+        function smoothScrollToBottom(extra = 0) {
+            const container = document.getElementById('main-content');
+            if (container) {
+                container.scrollTo({
+                    top: container.scrollHeight + extra,
+                    behavior: 'smooth'
+                });
+            } else {
+                // fallback, se non trova il container
+                window.scrollTo({ top: document.body.scrollHeight + extra, behavior: 'smooth' });
             }
-        </script>
+        }
+    </script>
     @endpush
 @endonce
 
@@ -95,7 +103,6 @@
                     @endforeach
                 </div>
             </template>
-
         </div>
         @endcanany
     @endforeach

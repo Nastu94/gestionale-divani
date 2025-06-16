@@ -18,13 +18,35 @@
         <!-- Styles -->
         @livewireStyles
     </head>
-    <body class="font-sans antialiased">
-        <x-banner />
+    <body
+        x-data="{ isOpen: false, openSection: null }"
+        class="font-sans antialiased flex h-screen overflow-hidden"
+    >
 
-        <div class="min-h-screen bg-gray-100 dark:bg-gray-900">
+        {{-- WRAPPER relativo per sidebar + toggle --}}
+        <div class="relative flex-shrink-0 flex flex-col">
+            {{-- Sidebar component --}}
+            <x-sidebar />
+
+            {{-- Toggle button “agganciato” alla sidebar --}}
+            <button
+                x-cloak
+                @click="isOpen = !isOpen"
+                :style="{ left: isOpen ? '16rem' : '0' }"
+                class="absolute top-1/2 transform -translate-y-1/2
+                    p-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700
+                    rounded-full shadow focus:outline-none z-20"
+                :aria-label="isOpen ? 'Chiudi sidebar' : 'Apri sidebar'"
+            >
+                <i :class="isOpen ? 'fas fa-angle-left' : 'fas fa-angle-right'"></i>
+            </button>
+        </div>
+
+        {{-- Contenuto principale --}}
+        <div id="main-content" class="flex-1 flex flex-col bg-gray-100 dark:bg-gray-900 overflow-auto">
+            <x-banner />
             @livewire('navigation-menu')
 
-            <!-- Page Heading -->
             @if (isset($header))
                 <header class="bg-white dark:bg-gray-800 shadow">
                     <div class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
@@ -33,8 +55,7 @@
                 </header>
             @endif
 
-            <!-- Page Content -->
-            <main>
+            <main class="flex-1 p-6">
                 {{ $slot }}
             </main>
         </div>
