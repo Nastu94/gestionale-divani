@@ -32,14 +32,17 @@
             <button
                 x-cloak
                 @click="isOpen = !isOpen"
-                :style="{ left: isOpen ? '16rem' : '0' }"
-                class="absolute top-1/2 transform -translate-y-1/2
-                    p-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700
-                    rounded-full shadow focus:outline-none z-20"
+                :class="[
+                'absolute top-1/2 transform -translate-y-1/2 p-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-full shadow focus:outline-none z-20 transition-all duration-200',
+                isOpen
+                    ? 'left-48 sm:left-56 md:left-64'
+                    : 'left-0'
+                ]"
                 :aria-label="isOpen ? 'Chiudi sidebar' : 'Apri sidebar'"
             >
                 <i :class="isOpen ? 'fas fa-angle-left' : 'fas fa-angle-right'"></i>
             </button>
+
         </div>
 
         {{-- Contenuto principale --}}
