@@ -51,7 +51,6 @@ return [
             'items'   => [
                 ['label'=>'Utenti',   'route'=>'users.index',        'permission'=>'users.view'],
                 ['label'=>'Ruoli',    'route'=>'roles.index',        'permission'=>'roles.manage'],
-                ['label'=>'Permessi', 'route'=>'permissions.index',  'permission'=>'roles.manage'],
             ],
         ],
     ],
@@ -112,7 +111,6 @@ return [
             'items'   => [
                 ['label'=>'Utenti',   'route'=>'users.index',        'icon'=>'fa-users-cog',           'permission'=>'users.view'],
                 ['label'=>'Ruoli',    'route'=>'roles.index',        'icon'=>'fa-user-tag',            'permission'=>'roles.manage'],
-                ['label'=>'Permessi', 'route'=>'permissions.index',  'icon'=>'fa-key',                 'permission'=>'roles.manage'],
             ],
         ],
     ],

@@ -29,7 +29,7 @@ class RolesSeeder extends Seeder
                 'reports.orders.supplier'
             ],
             'Supervisor' => [
-                'users.create', 'users.update',
+                'users.view', 'users.create', 'users.update',
                 'orders.customer.*', 'orders.supplier.view', 'orders.supplier.update',
                 'components.*', 'products.*', 'price_lists.view',
                 'customers.view', 'suppliers.view',
