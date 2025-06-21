@@ -23,11 +23,6 @@ class RolesSeeder extends Seeder
                 // Admin ottiene tutti i permessi
                 '*'
             ],
-            'Commerciale' => [
-                'orders.supplier.*', 'price_lists.*',
-                'customers.*', 'suppliers.*',
-                'reports.orders.supplier'
-            ],
             'Supervisor' => [
                 'users.view', 'users.create', 'users.update',
                 'orders.customer.*', 'orders.supplier.view', 'orders.supplier.update',
@@ -36,8 +31,14 @@ class RolesSeeder extends Seeder
                 'stock.*', 'alerts.*',
                 'reports.orders.*', 'reports.stock_levels', 'reports.stock_movements'
             ],
+            'Commerciale' => [
+                'orders.supplier.*', 'price_lists.*',
+                'components.view', 'products.view',
+                'customers.*', 'suppliers.*',
+                'reports.orders.supplier'
+            ],
             'Impiegato' => [
-                'orders.customer.*', 'orders.supplier.update',
+                'orders.customer.*', 'orders.supplier.view', 'orders.supplier.update',
                 'components.view', 'products.view', 'price_lists.view',
                 'customers.view', 'suppliers.view',
                 'stock.*', 'reports.orders.customer', 'reports.stock_levels'
@@ -45,7 +46,7 @@ class RolesSeeder extends Seeder
             'Magazziniere' => [
                 'orders.customer.view', 'orders.customer.update',
                 'components.view', 'products.view', 'customers.view', 'suppliers.view',
-                'stock.entry', 'stock.exit'
+                'stock.*'
             ],
         ];
 

@@ -22,6 +22,22 @@
         
     </div>
 
+    {{-- Link rapido alla Dashboard --}}
+    <div class="border-b border-gray-200 dark:border-gray-700">
+        @php $dashboardActive = request()->routeIs('dashboard'); @endphp
+        <a
+            href="{{ route('dashboard') }}"
+            class="block px-8 py-2 text-sm transition-colors font-semibold
+                   {{ $dashboardActive
+                        ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100'
+                        : 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700' }}"
+        >
+            <div class="flex items-center">
+                <span class="font-semibold">{{ __('Dashboard') }}</span>
+            </div>
+        </a>
+    </div>
+
     {{-- Menu a fisarmonica --}}
     @foreach(config('menu.sidebar') as $i => $section)
         <div class="border-b border-gray-200 dark:border-gray-700">

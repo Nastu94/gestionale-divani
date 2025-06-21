@@ -6,6 +6,7 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Spatie\Permission\Models\Role;
+use Illuminate\Validation\Rule;
 
 class UserController extends Controller
 {
@@ -44,10 +45,8 @@ class UserController extends Controller
      */
     public function store(Request $request)
     {
-        // 1. Log iniziale input
-        Log::debug('UserController@store - input ricevuto', $request->all());
 
-        // 2. Validazione con try-catch per intercettare errori
+        //Validazione con try-catch per intercettare errori
         try {
             $data = $request->validate([
                 'name'     => 'required|string|max:255',
@@ -55,7 +54,6 @@ class UserController extends Controller
                 'password' => 'required|string|min:8|confirmed',
                 'role'     => 'required|string|exists:roles,name',
             ]);
-            Log::debug('UserController@store - dati validati', $data);
         } catch (\Illuminate\Validation\ValidationException $e) {
             // Log errori di validazione
             Log::error('UserController@store - validazione fallita', $e->validator->errors()->toArray());
@@ -65,17 +63,15 @@ class UserController extends Controller
         }
 
         try {
-            // 3. Creazione utente
+            // Creazione utente
             $user = User::create([
                 'name'     => $data['name'],
                 'email'    => $data['email'],
                 'password' => bcrypt($data['password']),
             ]);
-            Log::debug('UserController@store - utente creato', ['user_id' => $user->id]);
 
-            // 4. Assegna ruolo usando Spatie Permission
+            // Assegna ruolo usando Spatie Permission
             $user->assignRole($data['role']);
-            Log::debug('UserController@store - ruolo assegnato', ['role' => $data['role']]);
 
         } catch (\Exception $e) {
             // Log completo dell'eccezione
@@ -85,13 +81,13 @@ class UserController extends Controller
             ]);
 
             return redirect()
-                ->route('pages.users.index')
+                ->route('users.index')
                 ->withErrors('Errore durante creazione utente.');
         }
 
-        // 5. Redirect con successo
+        // Redirect con successo
         return redirect()
-            ->route('pages.users.index')
+            ->route('users.index')
             ->with('success', 'Utente creato con ruolo.');
     }
 
@@ -118,7 +114,7 @@ class UserController extends Controller
     }
 
     /**
-     * Aggiorna i dati di un utente.
+     * Aggiorna i dati di un utente esistente e sincronizza il ruolo.
      *
      * @param  \Illuminate\Http\Request  $request
      * @param  \App\Models\User  $user
@@ -126,15 +122,30 @@ class UserController extends Controller
      */
     public function update(Request $request, User $user)
     {
+        // Validazione
         $data = $request->validate([
-            'name'  => 'required|string|max:255',
-            'email' => 'required|email|unique:users,email,' . $user->id,
+            'name'     => 'required|string|max:255',
+            'email'    => ['required','email', Rule::unique('users','email')->ignore($user->id)],
+            'password' => 'nullable|string|min:8|confirmed',
+            'role'     => 'required|string|exists:roles,name',
         ]);
 
-        $user->update($data);
+        // Aggiorno i campi base
+        $user->name = $data['name'];
+        $user->email = $data['email'];
+
+        // Se la password è stata fornita, la criptiamo
+        if (!empty($data['password'])) {
+            $user->password = bcrypt($data['password']);
+        }
+
+        $user->save();
+
+        // Sincronizzo il ruolo selezionato
+        $user->syncRoles([$data['role']]);
 
         return redirect()
-            ->route('pages.users.index')
+            ->route('users.index')
             ->with('success', 'Utente aggiornato correttamente');
     }
 
@@ -149,7 +160,7 @@ class UserController extends Controller
         $user->delete();
 
         return redirect()
-            ->route('pages.users.index')
+            ->route('users.index')
             ->with('success', 'Utente eliminato');
     }
 }
