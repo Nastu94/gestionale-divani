@@ -2,6 +2,18 @@
 
 @props(['roles'])
 
+@php
+    // Calcolo i nomi dei ruoli che posso assegnare
+    $allowedRoleNames = auth()->user()
+        ->roles()                    // relazione Role utente loggato
+        ->with('assignableRoles')    // eager‐load
+        ->get()
+        ->flatMap(fn($r) => $r->assignableRoles)
+        ->pluck('name')
+        ->unique()
+        ->toArray();
+@endphp
+
 <!-- Modale Create/Edit Utente -->
 <div @click.away="showModal = false" class="relative bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden w-full max-w-xl p-6 z-10">
     <div class="flex justify-between items-center mb-4">
@@ -46,12 +58,24 @@
                 <p x-text="errors.password_confirmation" class="text-red-600 text-xs mt-1"></p>
             </div>
             <div>
-                <label for="role" class="block text-xs font-medium text-gray-700 dark:text-gray-300">Ruolo</label>
-                <select id="role" name="role" x-model="form.role" required
-                        class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100">
+                <label for="role"
+                    class="block text-xs font-medium text-gray-700 dark:text-gray-300">
+                    Ruolo
+                </label>
+                <select id="role"
+                        name="role"
+                        x-model="form.role"
+                        required
+                        class="mt-1 block w-full px-3 py-2 border rounded-md
+                            bg-gray-50 dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100">
                     <option value="">Seleziona ruolo</option>
+
                     @foreach($roles as $role)
-                        <option value="{{ $role->name }}">{{ $role->name }}</option>
+                        @if(in_array($role->name, $allowedRoleNames))
+                            <option value="{{ $role->name }}">
+                                {{ $role->name }}
+                            </option>
+                        @endif
                     @endforeach
                 </select>
                 <p x-text="errors.role" class="text-red-600 text-xs mt-1"></p>

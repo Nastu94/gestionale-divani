@@ -27,7 +27,8 @@
                     <div class="relative z-10 w-full max-w-3xl">
                         {{-- passa i permessi raggruppati e le label al componente --}}
                         <x-role-create-modal :permissionsByModule="$permissionsByModule"
-                                            :moduleLabels="$moduleLabels" />
+                                            :moduleLabels="$moduleLabels"
+                                            :roles="$roles" />
                     </div>
                 </div>
 
@@ -97,6 +98,7 @@
                                                         'id'          => $role->id,
                                                         'name'        => $role->name,
                                                         'permissions' => $role->permissions->pluck('id'),
+                                                        'assignable_roles' => $role->assignableRoles->pluck('name'),
                                                     ];
                                                 @endphp
 
@@ -139,25 +141,26 @@
         return {
             showModal: false,
             mode: 'create',     // 'create' | 'edit'
-            form:   { id: null, name: '', permissions: [] },
+            form: { id:null, name:'', permissions:[], assignable_roles:[] },
             errors: {},
             /* Apri modale “Nuovo” */
             openCreate () {
                 this.mode  = 'create';
-                this.form  = { id: null, name: '', permissions: [] };
+                this.form = { id:null, name:'', permissions:[], assignable_roles:[] };
                 this.errors = {};
                 this.showModal = true;
             },
             /* Apri modale “Modifica” (chiamata dalla riga CRUD) */
-            openEdit (role) {
-                this.mode  = 'edit';
-                this.form  = {
-                    id:   role.id,
-                    name: role.name,
-                    permissions: [...role.permissions] // Array di ID permesso
-                };
-                this.errors = {};
-                this.showModal = true;
+            openEdit(role) {
+            this.mode = 'edit';
+            this.form = {
+                id: role.id,
+                name: role.name,
+                permissions: role.permissions.map(String),
+                assignable_roles: (role.assignable_roles || []).map(String)
+            };
+            this.errors = {};
+            this.showModal = true;
             },
             /* Validazione minimale lato client  */
             validate () {

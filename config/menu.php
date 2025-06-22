@@ -121,9 +121,9 @@ return [
     | Widget aggiuntivi separati dal grid_menu.
     */
     'dashboard_tiles' => [
-        ['label'=>'Clienti',           'route'=>'customers.index',       'icon'=>'fa-users',                 'permission'=>'customers.view',            'badge_count'=> function(){ return \App\Models\Customer::count(); }],
-        ['label'=>'Ordini Cliente',    'route'=>'orders.customer.index', 'icon'=>'fa-shopping-bag',          'permission'=>'orders.customer.view',      'badge_count'=> function(){ return \App\Models\Order::where('cause','!=','purchase')->count(); }],
-        ['label'=>'Alert Critici',     'route'=>'alerts.index',          'icon'=>'fa-exclamation-triangle',  'permission'=>'alerts.view',               'badge_count'=> function(){ return \App\Models\Alert::where('triggered_at','<=',now())->count(); }],
-        ['label'=>'Sotto Soglia',      'route'=>'alerts.index',          'icon'=>'fa-exclamation-circle',    'permission'=>'alerts.view',               'badge_count'=> function(){ return \App\Models\Alert::where('type','low_stock')->count(); }],
+        ['label'=>'Clienti',           'route'=>'customers.index',       'icon'=>'fa-users',                 'permission'=>'customers.view',            'badge_count'=> "customers"],
+        ['label'=>'Ordini Cliente',    'route'=>'orders.customer.index', 'icon'=>'fa-shopping-bag',          'permission'=>'orders.customer.view',      'badge_count'=> "orders_customer"],
+        ['label'=>'Alert Critici',     'route'=>'alerts.index',          'icon'=>'fa-exclamation-triangle',  'permission'=>'alerts.view',               'badge_count'=> "alerts_critical"],
+        ['label'=>'Sotto Soglia',      'route'=>'alerts.index',          'icon'=>'fa-exclamation-circle',    'permission'=>'alerts.view',               'badge_count'=> "alerts_low"],
     ],
 ];
