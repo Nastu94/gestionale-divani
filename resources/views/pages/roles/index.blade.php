@@ -37,8 +37,8 @@
                     {{-- === TABELLA === --}}
                     <table x-data="{ openId: null }"
                         class="min-w-full divide-y divide-gray-200 text-sm">
-                        <thead class="bg-gray-50 dark:bg-gray-900">
-                            <tr>
+                        <thead class="bg-gray-300 dark:bg-gray-900">
+                            <tr class="uppercase tracking-wider">
                                 <th class="px-4 py-2 text-left">Ruolo</th>
                                 @foreach($permissionsByModule as $moduleKey => $perms)
                                     <th class="px-4 py-2 text-center whitespace-nowrap">
@@ -52,8 +52,8 @@
                             @foreach($roles as $role)
                                 {{-- ---------- RIGA PRINCIPALE ------------ --}}
                                 <tr @click="openId = openId === {{ $role->id }} ? null : {{ $role->id }}"
-                                    :class="openId === {{ $role->id }} ? 'bg-gray-100 dark:bg-gray-700' : ''"
-                                    class="cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700">
+                                    :class="openId === {{ $role->id }} ? 'bg-gray-200 dark:bg-gray-700' : ''"
+                                    class="cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700">
 
                                     <td class="px-4 py-2 font-medium">
                                         {{ $role->name }}
@@ -89,7 +89,7 @@
                                     <tr x-show="openId === {{ $role->id }}" x-cloak>
                                         {{-- 1 (colonna Ruolo) + N moduli  --}}
                                         <td colspan="{{ 1 + $permissionsByModule->count() }}"
-                                            class="px-4 py-2 bg-gray-100 dark:bg-gray-700">
+                                            class="px-4 py-2 bg-gray-200 dark:bg-gray-700">
                                             <div class="flex space-x-4 text-xs">
                                                 {{-- Modifica --}}
                                                 @php

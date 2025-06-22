@@ -25,6 +25,8 @@ class Customer extends Model
      */
     protected static $logAttributes = [
         'company',
+        'vat_number',
+        'tax_code',
         'email',
         'phone',
         'is_active',
@@ -53,6 +55,8 @@ class Customer extends Model
      */
     protected $fillable = [
         'company',
+        'vat_number',
+        'tax_code',
         'email',
         'phone',
         'is_active',

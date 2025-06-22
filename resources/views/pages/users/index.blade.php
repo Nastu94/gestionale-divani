@@ -62,7 +62,7 @@
             <div class="overflow-x-auto p-4">
                 <table class="min-w-full text-sm divide-y divide-gray-200 dark:divide-gray-700">
                     <thead class="bg-gray-300 dark:bg-gray-700">
-                        <tr class="text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                        <tr class="uppercase tracking-wider">
                             <th class="px-6 py-2 text-left">#</th>
                             <th class="px-6 py-2 text-left">Nome</th>
                             <th class="px-6 py-2 text-left">Email</th>

@@ -25,13 +25,23 @@ class AppServiceProvider extends ServiceProvider
 
             $tiles = collect($rawTiles)->map(function($tile) {
                 // Calcola badge_count in base alla chiave
-                $tile['badge_count'] = match ($tile['badge_key'] ?? null) {
-                    'customers'       => \App\Models\Customer::count(),
-                    'orders_customer' => \App\Models\Order::where('cause','!=','purchase')->count(),
-                    'alerts_critical' => \App\Models\Alert::where('triggered_at','<=', now())->count(),
-                    'alerts_low'      => \App\Models\Alert::where('type','low_stock')->count(),
-                    default           => 0,
-                };
+                switch ($tile['badge_key'] ?? null) {
+                    case 'customers':
+                        $tile['badge_count'] = \App\Models\Customer::count();
+                        break;
+                    case 'orders_customer':
+                        $tile['badge_count'] = \App\Models\Order::where('cause','!=','purchase')->count();
+                        break;
+                    case 'alerts_critical':
+                        $tile['badge_count'] = \App\Models\Alert::where('triggered_at','<=', now())->count();
+                        break;
+                    case 'alerts_low':
+                        $tile['badge_count'] = \App\Models\Alert::where('type','low_stock')->count();
+                        break;
+                    default:
+                        $tile['badge_count'] = 0;
+                        break;
+                }
                 return $tile;
             })->toArray();
 
