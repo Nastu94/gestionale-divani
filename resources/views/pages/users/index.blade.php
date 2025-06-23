@@ -60,7 +60,7 @@
 
             <!-- Tabella utenti -->
             <div class="overflow-x-auto p-4">
-                <table class="min-w-full text-sm divide-y divide-gray-200 dark:divide-gray-700">
+                <table class="table-auto min-w-full text-sm divide-y divide-gray-200 dark:divide-gray-700">
                     <thead class="bg-gray-300 dark:bg-gray-700">
                         <tr class="uppercase tracking-wider">
                             <th class="px-6 py-2 text-left">#</th>
@@ -87,10 +87,10 @@
                                 @endif
                                 :class="openId === {{ $user->id }} && {{ $canCrud ? 'true' : 'false' }} ? 'bg-gray-200 dark:bg-gray-700' : ''"
                             >
-                                <td class="px-6 py-2">{{ $loop->iteration + ($users->currentPage()-1)*$users->perPage() }}</td>
-                                <td class="px-6 py-2">{{ $user->name }}</td>
-                                <td class="px-6 py-2">{{ $user->email }}</td>
-                                <td class="px-6 py-2">{{ $user->roles->pluck('name')->join(', ') }}</td>
+                                <td class="px-6 py-2 whitespace-nowrap">{{ $loop->iteration + ($users->currentPage()-1)*$users->perPage() }}</td>
+                                <td class="px-6 py-2 whitespace-nowrap">{{ $user->name }}</td>
+                                <td class="px-6 py-2 whitespace-nowrap">{{ $user->email }}</td>
+                                <td class="px-6 py-2 whitespace-nowrap">{{ $user->roles->pluck('name')->join(', ') }}</td>
                             </tr>
 
                             {{-- riga “CRUD” --}}

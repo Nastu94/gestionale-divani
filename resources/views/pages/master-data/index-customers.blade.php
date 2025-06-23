@@ -44,7 +44,7 @@
 
                 {{-- Tabella espandibile --}}
                 <div class="overflow-x-auto p-4">
-                    <table class="min-w-full text-sm divide-y divide-gray-200 dark:divide-gray-700">
+                    <table class="table-auto min-w-full text-sm divide-y divide-gray-200 dark:divide-gray-700">
                         <thead class="bg-gray-300 dark:bg-gray-700">
                             <tr class="uppercase tracking-wider">
                                 <th class="px-6 py-2 text-left">#</th>
@@ -56,9 +56,9 @@
                                 <th class="px-6 py-2 text-center">Attivo</th>
 
                                 {{-- Colonne indirizzi, visibili solo se extended --}}
-                                <th x-show="extended" x-cloak class="px-6 py-2 text-left">Indirizzo Fatturazione</th>
-                                <th x-show="extended" x-cloak class="px-6 py-2 text-left">Indirizzo Spedizione</th>
-                                <th x-show="extended" x-cloak class="px-6 py-2 text-left">Altro Indirizzo</th>
+                                <th x-show="extended" x-cloak class="px-6 py-2 text-left whitespace-nowrap">Indirizzo Fatturazione</th>
+                                <th x-show="extended" x-cloak class="px-6 py-2 text-left whitespace-nowrap">Indirizzo Spedizione</th>
+                                <th x-show="extended" x-cloak class="px-6 py-2 text-left whitespace-nowrap">Altro Indirizzo</th>
                             </tr>
                         </thead>
 
@@ -82,13 +82,13 @@
                                         :class="openId === {{ $customer->id }} ? 'bg-gray-200 dark:bg-gray-700' : ''"
                                     @endif
                                 >
-                                    <td class="px-6 py-2">{{ $loop->iteration + ($customers->currentPage()-1)*$customers->perPage() }}</td>
-                                    <td class="px-6 py-2">{{ $customer->company }}</td>
-                                    <td class="px-6 py-2">{{ $customer->vat_number ?? '—' }}</td>
-                                    <td class="px-6 py-2">{{ $customer->tax_code ?? '—' }}</td>
-                                    <td class="px-6 py-2">{{ $customer->email ?? '—' }}</td>
-                                    <td class="px-6 py-2">{{ $customer->phone ?? '—' }}</td>
-                                    <td class="px-6 py-2 text-center">
+                                    <td class="px-6 py-2 whitespace-nowrap">{{ $loop->iteration + ($customers->currentPage()-1)*$customers->perPage() }}</td>
+                                    <td class="px-6 py-2 whitespace-nowrap">{{ $customer->company }}</td>
+                                    <td class="px-6 py-2 whitespace-nowrap">{{ $customer->vat_number ?? '—' }}</td>
+                                    <td class="px-6 py-2 whitespace-nowrap">{{ $customer->tax_code ?? '—' }}</td>
+                                    <td class="px-6 py-2 whitespace-nowrap">{{ $customer->email ?? '—' }}</td>
+                                    <td class="px-6 py-2 whitespace-nowrap">{{ $customer->phone ?? '—' }}</td>
+                                    <td class="px-6 py-2 text-center whitespace-nowrap">
                                         <span
                                             class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"
                                             :class="{
@@ -101,21 +101,21 @@
                                     </td>
 
                                     {{-- Colonne indirizzi, visibili solo se extended --}}
-                                    <td x-show="extended" x-cloak class="px-6 py-2">
+                                    <td x-show="extended" x-cloak class="px-6 py-2 whitespace-nowrap">
                                         @if($b)
                                             {{ $b->address }}, {{ $b->city }}, {{ $b->country }}
                                         @else
                                             —
                                         @endif
                                     </td>
-                                    <td x-show="extended" x-cloak class="px-6 py-2">
+                                    <td x-show="extended" x-cloak class="px-6 py-2 whitespace-nowrap">
                                         @if($s)
                                             {{ $s->address }}, {{ $s->city }}, {{ $s->country }}
                                         @else
                                             —
                                         @endif
                                     </td>
-                                    <td x-show="extended" x-cloak class="px-6 py-2">
+                                    <td x-show="extended" x-cloak class="px-6 py-2 whitespace-nowrap">
                                         @if($o)
                                             {{ $o->address }}, {{ $o->city }}, {{ $o->country }}
                                         @else

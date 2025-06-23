@@ -28,7 +28,7 @@ class RolesSeeder extends Seeder
                 'orders.customer.*', 'orders.supplier.view', 'orders.supplier.update',
                 'components.*', 'products.*', 'price_lists.view',
                 'customers.view', 'suppliers.view',
-                'stock.*', 'alerts.*',
+                'stock.*', 'alerts.*', 'warehouses.*',
                 'reports.orders.*', 'reports.stock_levels', 'reports.stock_movements'
             ],
             'Commerciale' => [
@@ -40,13 +40,13 @@ class RolesSeeder extends Seeder
             'Impiegato' => [
                 'orders.customer.*', 'orders.supplier.view', 'orders.supplier.update',
                 'components.view', 'products.view', 'price_lists.view',
-                'customers.view', 'suppliers.view',
+                'customers.view', 'suppliers.view', 'warehouses.view',
                 'stock.*', 'reports.orders.customer', 'reports.stock_levels'
             ],
             'Magazziniere' => [
                 'orders.customer.view', 'orders.customer.update',
                 'components.view', 'products.view', 'customers.view', 'suppliers.view',
-                'stock.*'
+                'stock.*', 'warehouses.view',
             ],
         ];
 

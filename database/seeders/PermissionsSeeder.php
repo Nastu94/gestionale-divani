@@ -60,6 +60,11 @@ class PermissionsSeeder extends Seeder
             ['name' => 'stock.entry',                 'display_name' => 'Registra entrate',                 'description' => 'Registra movimenti di entrata in magazzino.'],
             ['name' => 'stock.exit',                  'display_name' => 'Registra uscite',                  'description' => 'Registra movimenti di uscita in magazzino.'],
 
+            ['name' => 'warehouses.view',            'display_name' => 'Visualizza magazzini',             'description' => 'Visualizza lista magazzini.'],
+            ['name' => 'warehouses.create',          'display_name' => 'Crea magazzini',                   'description' => 'Crea nuovi magazzini.'],
+            ['name' => 'warehouses.update',          'display_name' => 'Modifica magazzini',               'description' => 'Modifica magazzini esistenti.'],
+            ['name' => 'warehouses.delete',          'display_name' => 'Elimina magazzini',                'description' => 'Elimina magazzini dal sistema.'],
+
             ['name' => 'alerts.view',                 'display_name' => 'Visualizza avvisi',               'description' => 'Visualizza lista avvisi di magazzino.'],
             ['name' => 'alerts.create',               'display_name' => 'Crea avvisi',                     'description' => 'Crea nuovi avvisi per soglie di giacenza.'],
             ['name' => 'alerts.update',               'display_name' => 'Modifica avvisi',                 'description' => 'Modifica avvisi esistenti (soglie, messaggio).'],

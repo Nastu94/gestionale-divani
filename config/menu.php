@@ -26,6 +26,7 @@ return [
         [
             'section' => 'Magazzino',
             'items'   => [
+                ['label'=>'Gestione',      'route'=>'warehouses.index',        'permission'=>'warehouses.view'],
                 ['label'=>'Giacenze',      'route'=>'stock-levels.index',      'permission'=>'stock.view'],
                 ['label'=>'Movimenti',     'route'=>'stock-movements.index',   'permission'=>'stock.view'],
                 ['label'=>'Alert',         'route'=>'alerts.index',            'permission'=>'alerts.view'],
@@ -83,6 +84,7 @@ return [
             'section' => 'Magazzino',
             'icon'    => 'fa-warehouse',
             'items'   => [
+                ['label'=>'Gestione',      'route'=>'warehouses.index',        'icon'=>'fa-boxes-stacked',       'permission'=>'warehouses.view'],
                 ['label'=>'Giacenze',      'route'=>'stock-levels.index',      'icon'=>'fa-layer-group',         'permission'=>'stock.view'],
                 ['label'=>'Movimenti',     'route'=>'stock-movements.index',   'icon'=>'fa-exchange-alt',        'permission'=>'stock.view'],
                 ['label'=>'Alert',         'route'=>'alerts.index',            'icon'=>'fa-bell',                'permission'=>'alerts.view'],

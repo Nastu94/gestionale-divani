@@ -44,6 +44,7 @@ function centerTile(el){
     class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3
            gap-x-10 overflow-visible transition-all duration-100"
     :style="gridStyle()"
+    x-cloak
 >
 @foreach($visibleSections as $i=>$section)
     <div x-ref="tile{{ $i }}" class="relative flex justify-center">

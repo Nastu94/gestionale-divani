@@ -32,6 +32,10 @@ class Supplier extends Model
         'tax_code',   // Codice fiscale
         'email',      // Email di contatto
         'phone',      // Telefono principale
+        'website',    // Sito web
+        'payment_terms', // Condizioni di pagamento
+        'address',    // Indirizzo
+        'is_active',  // Stato attivo/inattivo
     ];
 
     protected static $logName = 'supplier';
@@ -61,6 +65,10 @@ class Supplier extends Model
         'tax_code',   // Codice fiscale
         'email',      // Email di contatto
         'phone',      // Telefono principale
+        'website',    // Sito web
+        'payment_terms', // Condizioni di pagamento
+        'address',    // Indirizzo
+        'is_active',  // Stato attivo/inattivo
     ];
 
     /**
@@ -83,4 +91,15 @@ class Supplier extends Model
     {
         return $this->hasMany(Order::class);
     }
+
+    
+    /**
+     * Attributi da convertire automaticamente.
+     * 
+     * @var array<string,string> 
+     */
+    protected $casts = [
+        'address'   => 'array',  // lo trasforma da JSON a array in PHP
+        'is_active' => 'boolean',
+    ];
 }

@@ -19,6 +19,7 @@ use App\Http\Controllers\UserController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\PermissionController;
 use App\Http\Controllers\SearchController;
+use App\Http\Controllers\WarehouseController;
 
 /*
 |--------------------------------------------------------------------------
@@ -503,7 +504,7 @@ Route::middleware([
     | Gestione Magazzino – solo index, show e store (movimenti di magazzino)
     |--------------------------------------------------------------------------
     |
-    | Permeette di visualizzare i movimenti di magazzino,
+    | Permette di visualizzare i movimenti di magazzino,
     | registrare nuove entrate e visualizzare i dettagli di un movimento.
     | Protette dal permesso stock.view e stock.entry.
     |
@@ -519,7 +520,70 @@ Route::middleware([
             'index' => 'permission:stock.view',
             'store' => 'permission:stock.entry',
         ]);
-
+    
+    /*
+    |--------------------------------------------------------------------------
+    | Gestione Magazzino – solo index, show (lista di magazzini)
+    |--------------------------------------------------------------------------
+    |
+    | Permette di visualizzare i magazzini.
+    | Protette dal permesso warehouse.view.
+    |
+    */
+    Route::resource('warehouses', WarehouseController::class)
+        ->only(['index', 'show'])
+        ->names([
+            'index' => 'warehouses.index',
+            'show'  => 'warehouses.show',
+        ])
+        ->middleware('permission:warehouses.view');
+    /*
+    |--------------------------------------------------------------------------
+    | Gestione Magazzino – solo craete e store (lista di magazzini)
+    |--------------------------------------------------------------------------
+    |
+    | Visualizza il form per creare un nuovo magazzino e gestisce il salvataggio.
+    | Protetta dal permesso warehouse.create.
+    |
+    */
+    Route::resource('warehouses', WarehouseController::class)
+        ->only(['create', 'store'])
+        ->names([
+            'create' => 'warehouses.create',
+            'store'  => 'warehouses.store',
+        ])
+        ->middleware('permission:warehouses.create');
+    /*
+    |--------------------------------------------------------------------------
+    | Gestione Magazzino – solo edite e update (lista di magazzini)
+    |--------------------------------------------------------------------------
+    |
+    | Visualizza il form per modificare un magazzino esistente e gestisce l'aggiornamento.
+    | Protetta dal permesso warehouse.update.
+    |
+    */
+    Route::resource('warehouses', WarehouseController::class)
+        ->only(['edit', 'update'])
+        ->names([
+            'edit'   => 'warehouses.edit',
+            'update' => 'warehouses.update',
+        ])
+        ->middleware('permission:warehouses.update');
+    /*
+    |--------------------------------------------------------------------------
+    | Gestione Magazzino – solo delete (movimenti di magazzino)
+    |--------------------------------------------------------------------------
+    |
+    | Gestisce la cancellazione di un magazzino dal sistema.
+    | Protetta dal permesso warehouse.delete.
+    |
+    */
+    Route::resource('warehouses', WarehouseController::class)
+        ->only(['destroy'])
+        ->names([
+            'destroy' => 'warehouses.destroy',
+        ])
+        ->middleware('permission:warehouses.delete');
     /*
 |--------------------------------------------------------------------------
     | Alert
@@ -718,8 +782,6 @@ Route::middleware([
 |--------------------------------------------------------------------------
     | ACL: Utenti, Ruoli e Permessi
 |--------------------------------------------------------------------------
-    */
-/*
     |--------------------------------------------------------------------------
     | Gestione Utenti – solo index & show (visualizzazione)
     |--------------------------------------------------------------------------
