@@ -19,7 +19,8 @@ class OrderItem extends Model
      */
     protected $fillable = [
         'order_id',
-        'product_id',
+        'product_id',   // ID del prodotto associato, se presente ordine cliente
+        'component_id', // ID del componente associato, se presente ordine fornitore
         'quantity',   // Quantità ordinata
         'unit_price', // Prezzo unitario
     ];

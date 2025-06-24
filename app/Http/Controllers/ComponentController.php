@@ -12,7 +12,11 @@ class ComponentController extends Controller
      */
     public function index()
     {
-        //
+        // Recupera tutti i componenti
+        $components = Component::withTrashed()->paginate(20);
+
+        // Restituisce la vista con i componenti
+        return view('pages.master-data.index-components', compact('components'));
     }
 
     /**

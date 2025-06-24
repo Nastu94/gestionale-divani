@@ -25,8 +25,8 @@ class Order extends Model
      * Attributi che devono essere registrati nel log delle attività.
      */
     protected static $logAttributes = [
-        'supplier_id',
-        'customer_id',
+        'supplier_id',  // ID del fornitore associato, se ordine fornitore
+        'customer_id',  // ID del cliente associato, se ordine cliente
         'cause',      // purchase/production/return/scrap
         'total',      // Valore totale
         'ordered_at', // Data ordine
