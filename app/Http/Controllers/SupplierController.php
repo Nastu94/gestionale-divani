@@ -17,7 +17,7 @@ class SupplierController extends Controller
     public function index()
     {
         // Recupera tutti i fornitori dal database
-        $suppliers = Supplier::paginate(15);
+        $suppliers = Supplier::withTrashed()->paginate(15);
 
         // Restituisce la vista 'suppliers.index' con i fornitori recuperati
         return view('pages.master-data.index-suppliers', compact('suppliers'));
@@ -39,8 +39,6 @@ class SupplierController extends Controller
      */
     public function store(Request $request)
     {
-        // Log iniziale: confermo l’ingresso nel metodo store
-        Log::info('SupplierController@store called', $request->all());
 
         // Array di messaggi custom: chiave = campo.regola
         $messages = [
@@ -83,18 +81,6 @@ class SupplierController extends Controller
         $data = $validator->validated();
         $data['is_active'] = $request->has('is_active');
 
-        // Log dei dati che andranno salvati
-        Log::info('Supplier data validated', $data);
-
-        // Ascolto delle query SQL per debug
-        DB::listen(function ($query) {
-            Log::info('SQL Executed', [
-                'sql'      => $query->sql,
-                'bindings' => $query->bindings,
-                'time'     => $query->time,
-            ]);
-        });
-
         try {
             // Inizio transazione
             DB::beginTransaction();
@@ -116,7 +102,6 @@ class SupplierController extends Controller
             if (! $supplier->wasRecentlyCreated) {
                 throw new \Exception('Supplier was not created.');
             }
-            Log::info('Supplier created', ['id' => $supplier->id]);
 
             // Commit della transazione
             DB::commit();
@@ -167,8 +152,6 @@ class SupplierController extends Controller
      */
     public function update(Request $request, Supplier $supplier)
     {
-        // Log iniziale
-        Log::info('SupplierController@update called', array_merge(['id' => $supplier->id], $request->all()));
 
         // Array di messaggi custom: chiave = campo.regola
         $messages = [
@@ -214,18 +197,6 @@ class SupplierController extends Controller
         $data = $validator->validated();
         $data['is_active'] = $request->has('is_active');
 
-        // Log dei dati prima dell’update
-        Log::info('Supplier data validated for update', $data);
-
-        // Debug SQL
-        DB::listen(function ($query) {
-            Log::info('SQL Executed', [
-                'sql'      => $query->sql,
-                'bindings' => $query->bindings,
-                'time'     => $query->time,
-            ]);
-        });
-
         try {
             // Transazione
             DB::beginTransaction();
@@ -242,7 +213,6 @@ class SupplierController extends Controller
                 'address'       => $data['address'],
                 'is_active'     => $data['is_active'],
             ]);
-            Log::info('Supplier updated', ['id' => $supplier->id]);
 
             // Commit
             DB::commit();
@@ -268,39 +238,102 @@ class SupplierController extends Controller
     }
 
     /**
-     * Elimina un fornitore dal database.
+     * Restore a soft-deleted Supplier and mark it active.
+     *
+     * @param  int  $id
+     * @return \Illuminate\Http\RedirectResponse
+     */
+    public function restore($id)
+    {
+        // Log iniziale
+        Log::info('SupplierController@restore called', ['id' => $id]);
+
+        try {
+            DB::beginTransaction();
+
+            // 1) Trova anche i soft-deleted
+            $supplier = Supplier::withTrashed()->findOrFail($id);
+
+            // 2) Ripristina
+            $supplier->restore();
+            Log::info('Supplier restored (soft-deleted removed)', ['id' => $supplier->id]);
+
+            // 3) Riattiva il fornitore
+            $supplier->update(['is_active' => true]);
+            Log::info('Supplier marked active after restore', [
+                'id'        => $supplier->id,
+                'is_active' => $supplier->is_active,
+            ]);
+
+            DB::commit();
+
+            return redirect()
+                ->route('suppliers.index')
+                ->with('success', 'Fornitore ripristinato con successo.');
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            Log::error('Error in SupplierController@restore', [
+                'exception' => $e->getMessage(),
+                'trace'     => $e->getTraceAsString(),
+            ]);
+
+            return redirect()
+                ->back()
+                ->with('error', 'Errore durante il ripristino del fornitore. Controlla i log.');
+        }
+    }
+
+    /**
+     * Elimina un fornitore dal database con soft delete.
      *
      * @param  \App\Models\Supplier  $supplier
      * @return \Illuminate\Http\RedirectResponse
      */
     public function destroy(Supplier $supplier)
     {
-        // Log iniziale
+        // 1) Log iniziale
         Log::info('SupplierController@destroy called', ['id' => $supplier->id]);
 
         try {
-            // Transazione
+            // 2) Inizio transazione
             DB::beginTransaction();
 
-            // Cancellazione del fornitore
-            $deleted = $supplier->delete();
-            Log::info('Supplier delete() return value', ['id' => $supplier->id, 'deleted' => $deleted]);
+            // 3) Aggiorna is_active = false
+            $supplier->update([
+                'is_active' => false,
+            ]);
+            Log::info('Supplier marked inactive', [
+                'id'        => $supplier->id,
+                'is_active' => $supplier->is_active,
+            ]);
 
-            // Commit
+            // 4) Esegui il soft–delete
+            $deleted = $supplier->delete();
+            Log::info('Supplier softDeleted', [
+                'id'      => $supplier->id,
+                'deleted' => $deleted, // ritorna true se il deleted_at è stato impostato
+            ]);
+
+            // 5) Commit
             DB::commit();
 
+            // 6) Redirect con messaggio di successo
             return redirect()
                 ->route('suppliers.index')
-                ->with('success', 'Fornitore eliminato con successo.');
+                ->with('success', 'Fornitore eliminato e marcato come non attivo.');
 
         } catch (\Throwable $e) {
-            // Rollback e log dell’errore
+            // 7) Rollback in caso di errore
             DB::rollBack();
+
             Log::error('Error in SupplierController@destroy', [
                 'exception' => $e->getMessage(),
                 'trace'     => $e->getTraceAsString(),
             ]);
 
+            // 8) Redirect indietro con messaggio di errore
             return redirect()
                 ->back()
                 ->with('error', 'Errore durante l’eliminazione del fornitore. Controlla i log.');

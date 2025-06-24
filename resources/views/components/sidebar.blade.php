@@ -13,7 +13,7 @@
     x-cloak
     x-show="isOpen"
     x-transition:enter="transition-all duration-200"
-    x-transition:leave="transition-all duration-150"
+    x-transition:leave="transition-all duration-200"
     :class="isOpen ? 'w-48 sm:w-56 md:w-64' : 'w-0'"
     class="overflow-hidden bg-white dark:bg-gray-800 border-r dark:border-gray-700 flex flex-col"
 >

@@ -62,4 +62,28 @@ class StockMovementController extends Controller
     {
         //
     }
+    
+    // Elenco Entrate
+    public function indexEntry()
+    {
+        // Carichi e passi le entrate…
+    }
+
+    // Store Entrata
+    public function storeEntry(Request $request)
+    {
+        // Logica di validazione e creazione…
+    }
+
+    // Elenco Uscite
+    public function indexExit()
+    {
+        // Carichi e passi le uscite…
+    }
+
+    // Update Uscita
+    public function updateExit(Request $request, StockMovement $stock_movement)
+    {
+        // Logica di validazione e update…
+    }
 }

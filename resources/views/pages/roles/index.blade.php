@@ -48,7 +48,7 @@
                             </tr>
                         </thead>
 
-                        <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+                        <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
                             @foreach($roles as $role)
                                 {{-- ---------- RIGA PRINCIPALE ------------ --}}
                                 <tr @click="openId = openId === {{ $role->id }} ? null : {{ $role->id }}"
@@ -89,7 +89,7 @@
                                     <tr x-show="openId === {{ $role->id }}" x-cloak>
                                         {{-- 1 (colonna Ruolo) + N moduli  --}}
                                         <td colspan="{{ 1 + $permissionsByModule->count() }}"
-                                            class="px-4 py-2 bg-gray-200 dark:bg-gray-700">
+                                            class="px-6 py-2 bg-gray-200 dark:bg-gray-700">
                                             <div class="flex space-x-4 text-xs">
                                                 {{-- Modifica --}}
                                                 @php

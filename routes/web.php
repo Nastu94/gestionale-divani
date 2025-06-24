@@ -192,6 +192,19 @@ Route::middleware([
             'destroy' => 'suppliers.destroy',
         ])
         ->middleware('permission:suppliers.delete');
+    
+    /*
+    |--------------------------------------------------------------------------
+    | Gestione Fornitori – solo restore (ripristino)
+    |--------------------------------------------------------------------------
+    |
+    | Questa rotta permette di ripristinare un fornitore precedentemente cancellato.
+    | Protetta dal permesso suppliers.update.
+    |
+    */
+    Route::post('suppliers/{supplier}/restore', [SupplierController::class, 'restore'])
+     ->name('suppliers.restore')
+     ->middleware('permission:suppliers.update');
 
     /*
 |--------------------------------------------------------------------------
@@ -499,28 +512,74 @@ Route::middleware([
     Route::get('stock-levels', [StockLevelController::class, 'index'])
         ->name('stock-levels.index')
         ->middleware('permission:stock.view');
+
     /*
     |--------------------------------------------------------------------------
-    | Gestione Magazzino – solo index, show e store (movimenti di magazzino)
+    | Magazzino – Entrate (indice)
     |--------------------------------------------------------------------------
     |
-    | Permette di visualizzare i movimenti di magazzino,
-    | registrare nuove entrate e visualizzare i dettagli di un movimento.
-    | Protette dal permesso stock.view e stock.entry.
+    | Mostra la lista degli ordini FORNITORI per cui è necessario ricevere
+    | ancora merce in magazzino (acquisti in arrivo).
+    | Accessibile con permesso stock.entry.
     |
     */
-    Route::resource('stock-movements', StockMovementController::class)
-        ->only(['index','store','show'])
-        ->names([
-            'index' => 'stock-movements.index',
-            'store' => 'stock-movements.store',
-            'show'  => 'stock-movements.show',
-        ])
-        ->middleware([
-            'index' => 'permission:stock.view',
-            'store' => 'permission:stock.entry',
-        ]);
-    
+    Route::get(
+        'stock-movements-entry',
+        [StockMovementController::class, 'indexEntry']
+    )
+    ->name('stock-movements-entry.index')
+    ->middleware('permission:stock.entry');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Magazzino – Entrate (store)
+    |--------------------------------------------------------------------------
+    |
+    | Registra il ricevimento merce per un ordine fornitore.
+    | Protetta dal permesso stock.entry.
+    |
+    */
+    Route::post(
+        'stock-movements-entry',
+        [StockMovementController::class, 'storeEntry']
+    )
+    ->name('stock-movements-entry.store')
+    ->middleware('permission:stock.entry');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Magazzino – Uscite (indice)
+    |--------------------------------------------------------------------------
+    |
+    | Mostra la lista degli ordini CLIENTI per cui è necessario ancora
+    | evadere la merce in uscita (vendite da evadere).
+    | Accessibile con permesso stock.exit.
+    |
+    */
+    Route::get(
+        'stock-movements-exit',
+        [StockMovementController::class, 'indexExit']
+    )
+    ->name('stock-movements-exit.index')
+    ->middleware('permission:stock.exit');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Magazzino – Uscite (update)
+    |--------------------------------------------------------------------------
+    |
+    | Registra l’uscita merce per un ordine cliente, aggiornando
+    | le giacenze di magazzino (evasione dell’ordine).
+    | Protetta dal permesso stock.exit.
+    |
+    */
+    Route::put(
+        'stock-movements-exit/{stock_movement}',
+        [StockMovementController::class, 'updateExit']
+    )
+    ->name('stock-movements-exit.update')
+    ->middleware('permission:stock.exit'); 
+
     /*
     |--------------------------------------------------------------------------
     | Gestione Magazzino – solo index, show (lista di magazzini)
@@ -537,6 +596,7 @@ Route::middleware([
             'show'  => 'warehouses.show',
         ])
         ->middleware('permission:warehouses.view');
+
     /*
     |--------------------------------------------------------------------------
     | Gestione Magazzino – solo craete e store (lista di magazzini)
@@ -553,6 +613,7 @@ Route::middleware([
             'store'  => 'warehouses.store',
         ])
         ->middleware('permission:warehouses.create');
+
     /*
     |--------------------------------------------------------------------------
     | Gestione Magazzino – solo edite e update (lista di magazzini)
@@ -569,6 +630,7 @@ Route::middleware([
             'update' => 'warehouses.update',
         ])
         ->middleware('permission:warehouses.update');
+
     /*
     |--------------------------------------------------------------------------
     | Gestione Magazzino – solo delete (movimenti di magazzino)
@@ -584,6 +646,7 @@ Route::middleware([
             'destroy' => 'warehouses.destroy',
         ])
         ->middleware('permission:warehouses.delete');
+
     /*
 |--------------------------------------------------------------------------
     | Alert
@@ -981,5 +1044,4 @@ Route::middleware([
             'destroy' => 'permissions.destroy',
         ])
         ->middleware('permission:roles.manage');
-
 });

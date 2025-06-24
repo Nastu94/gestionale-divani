@@ -120,7 +120,7 @@
                                     </td>
                                 </tr>
 
-                                {{-- Riga espansa con Modifica / Elimina / Estendi --}}
+                                {{-- Riga espansa con Modifica / Elimina --}}
                                 @if($canCrud)
                                 <tr x-show="openId === {{ $supplier->id }}" x-cloak>
                                     <td
@@ -148,6 +148,20 @@
                                                     @method('DELETE')
                                                     <button type="submit" class="inline-flex items-center hover:text-red-600">
                                                         <i class="fas fa-trash-alt mr-1"></i> Elimina
+                                                    </button>
+                                                </form>
+                                            @endif
+                                        
+                                            {{-- Ripristina (solo se soft-deleted) --}}
+                                            @if($supplier->trashed() && auth()->user()->can('suppliers.update'))
+                                                <form
+                                                    action="{{ route('suppliers.restore', $supplier->id) }}"
+                                                    method="POST"
+                                                    onsubmit="return confirm('Ripristinare questo fornitore?');"
+                                                >
+                                                    @csrf
+                                                    <button type="submit" class="inline-flex items-center hover:text-green-600">
+                                                        <i class="fas fa-undo mr-1"></i> Ripristina
                                                     </button>
                                                 </form>
                                             @endif
