@@ -48,17 +48,26 @@
                         <thead class="bg-gray-300 dark:bg-gray-700">
                             <tr class="uppercase tracking-wider">
                                 <th class="px-6 py-2 text-left">#</th>
-                                <th class="px-6 py-2 text-left">Società</th>
+                                <x-th-menu
+                                    field="name"
+                                    label="Società"
+                                    :sort="$sort"
+                                    :dir="$dir"
+                                    :filters="$filters"
+                                    :filterable="true"
+                                    reset-route="suppliers.index"
+                                />
                                 <th class="px-6 py-2 text-left">P.IVA</th>
                                 <th class="px-6 py-2 text-left">CF</th>
                                 <th class="px-6 py-2 text-left">Email</th>
                                 <th class="px-6 py-2 text-left">Telefono</th>
-                                <th class="px-6 py-2 text-center">Attivo</th>
 
                                 {{-- Colonne indirizzi, visibili solo se extended --}}
                                 <th x-show="extended" x-cloak class="px-6 py-2 text-left whitespace-nowrap">Sito Web</th>
                                 <th x-show="extended" x-cloak class="px-6 py-2 text-left whitespace-nowrap">Termini di Pagamento</th>
                                 <th x-show="extended" x-cloak class="px-6 py-2 text-left whitespace-nowrap">Indirizzo Fornitore</th>
+
+                                <th class="px-6 py-2 text-center">Attivo</th>
                             </tr>
                         </thead>
 
@@ -92,17 +101,6 @@
                                     <td class="px-6 py-2 whitespace-nowrap">{{ $supplier->tax_code ?? '—' }}</td>
                                     <td class="px-6 py-2 whitespace-nowrap">{{ $supplier->email ?? '—' }}</td>
                                     <td class="px-6 py-2 whitespace-nowrap">{{ $supplier->phone ?? '—' }}</td>
-                                    <td class="px-6 py-2 text-center whitespace-nowrap">
-                                        <span
-                                            class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"
-                                            :class="{
-                                                'bg-green-100 text-green-800': {{ $supplier->is_active ? 'true' : 'false' }},
-                                                'bg-red-100 text-red-800': {{ $supplier->is_active ? 'false' : 'true' }}
-                                            }"
-                                        >
-                                            {{ $supplier->is_active ? 'Sì' : 'No' }}
-                                        </span>
-                                    </td>
 
                                     {{-- Colonne indirizzi, visibili solo se extended --}}
                                     <td x-show="extended" x-cloak class="px-6 py-2 whitespace-nowrap">{{ $website ?: '—' }}</td>
@@ -117,6 +115,18 @@
                                         @else
                                             —  
                                         @endif
+                                    </td>
+
+                                    <td class="px-6 py-2 text-center whitespace-nowrap">
+                                        <span
+                                            class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"
+                                            :class="{
+                                                'bg-green-100 text-green-800': {{ $supplier->is_active ? 'true' : 'false' }},
+                                                'bg-red-100 text-red-800': {{ $supplier->is_active ? 'false' : 'true' }}
+                                            }"
+                                        >
+                                            {{ $supplier->is_active ? 'Sì' : 'No' }}
+                                        </span>
                                     </td>
                                 </tr>
 

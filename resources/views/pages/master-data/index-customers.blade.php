@@ -48,7 +48,16 @@
                         <thead class="bg-gray-300 dark:bg-gray-700">
                             <tr class="uppercase tracking-wider">
                                 <th class="px-6 py-2 text-left">#</th>
-                                <th class="px-6 py-2 text-left">Società</th>
+                                <x-th-menu
+                                    field="company"
+                                    label="Cliente"
+                                    :sort="$sort"
+                                    :dir="$dir"
+                                    :filters="$filters"
+                                    :filterable="true"
+                                    reset-route="customers.index"
+                                    align="left"
+                                />
                                 <th class="px-6 py-2 text-left">P.IVA</th>
                                 <th class="px-6 py-2 text-left">CF</th>
                                 <th class="px-6 py-2 text-left">Email</th>
@@ -180,7 +189,16 @@
             // Modal
             showModal: false,
             mode: 'create',
-            form: { id: null, company: '', vat_number: '', tax_code: '', email: '', phone: '', is_active: true, addresses: [] },
+            form: { 
+                id: null, 
+                company: '', 
+                vat_number: '', 
+                tax_code: '', 
+                email: '', 
+                phone: '', 
+                is_active: true, 
+                addresses: [] 
+            },
             errors: {},
 
             // Per riga espansa e colonne aggiuntive
@@ -214,7 +232,16 @@
             },
 
             resetForm() {
-                this.form = { id: null, company: '', vat_number: '', tax_code: '', email: '', phone: '', is_active: true, addresses: [] };
+                this.form = { 
+                    id: null, 
+                    company: '', 
+                    vat_number: '', 
+                    tax_code: '', 
+                    email: '', 
+                    phone: '', 
+                    is_active: true, 
+                    addresses: [] 
+                };
                 this.errors = {};
             },
 

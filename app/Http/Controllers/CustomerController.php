@@ -15,14 +15,29 @@ class CustomerController extends Controller
     /**
      * Display a listing of the resource.
      */
-    public function index()
+    public function index(Request $request)
     {
-        // Prelevo tutti i clienti con gli indirizzi associati, paginati
-        // Utilizzo il metodo 'with' per eager loading degli indirizzi
-        $customers = Customer::with('addresses')->paginate(15);
+        /* Leggi parametri query ------------------------------------- */
+        $sort    = $request->input('sort', 'company');      // default: company
+        $dir     = $request->input('dir', 'asc') === 'desc' ? 'desc' : 'asc';
+        $filter  = $request->input('filter.company');       // stringa o null
 
-        // Ritorno la view in resources/views/pages/customers/index.blade.php
-        return view('pages.master-data.index-customers', compact('customers'));
+        /* Costruisci query ----------------------------------------- */
+        $customers = Customer::query()
+            ->with('addresses')                             // eager load
+            ->when($filter, fn ($q,$v) =>
+                $q->where('company','like',"%$v%"))         // filtro LIKE
+            ->orderBy('company', $dir)                      // sempre company
+            ->paginate(15)
+            ->appends($request->query());                   // preserva query
+
+        /* Passa variabili alla view ------------------------------- */
+        return view('pages.master-data.index-customers', [
+            'customers' => $customers,
+            'sort'      => $sort,       // per <x-th-menu>
+            'dir'       => $dir,
+            'filters'   => ['company' => $filter],
+        ]);
     }
 
     /**

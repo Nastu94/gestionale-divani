@@ -21,17 +21,49 @@ class ComponentController extends Controller
     /**
      * Lista paginata di componenti (attivi + cestinati).
      *
+     * @param  Request  $request
      * @return \Illuminate\Contracts\View\View
      */
-    public function index()
+    public function index(Request $request)
     {
-        // Recupera anche quelli soft-deleted per mostrare eventuali “Ripristina”.
-        $components = Component::withTrashed()->with('category')->paginate(15);
+        /* Parametri query ------------------------------------------------ */
+        $sort      = $request->input('sort', 'code');                 // campo sort
+        $dir       = $request->input('dir', 'asc') === 'desc' ? 'desc' : 'asc';
+        $filters   = $request->input('filter', []);                   // array filtri
 
-        // Recupero tutte le categorie per il filtro
+        /* Whitelist dei campi ordinabili */
+        $allowedSorts = ['code','description','material','unit_of_measure','is_active','category'];
+        if (! in_array($sort, $allowedSorts, true)) {
+            $sort = 'code';
+        }
+
+        /* Query base ---------------------------------------------------- */
+        $components = Component::query()
+            ->with('category')                                         // eager-load
+            /* ---- filtri colonna -------------------------------------- */
+            ->when($filters['category']   ?? null,
+                fn ($q,$v) => $q->whereHas('category',
+                               fn ($q) => $q->where('name','like',"%$v%")))
+            ->when($filters['code']       ?? null,
+                fn ($q,$v) => $q->where('code','like',"%$v%"))
+            ->when($filters['description']?? null,
+                fn ($q,$v) => $q->where('description','like',"%$v%"))
+            /* ---- ordinamento ----------------------------------------- */
+            ->when($sort === 'category', function ($q) use ($dir) {
+                $q->leftJoin('component_categories as cc',
+                             'components.category_id','=','cc.id')
+                  ->orderBy('cc.name', $dir)
+                  ->select('components.*');
+            }, function ($q) use ($sort,$dir) {
+                $q->orderBy($sort,$dir);
+            })
+            ->paginate(15)
+            ->appends($request->query()); // preserva sort+filtri
+
         $categories = ComponentCategory::orderBy('name')->get();
 
-        return view('pages.master-data.index-components', compact('components', 'categories'));
+        return view('pages.master-data.index-components',
+                    compact('components','categories','sort','dir','filters'));
     }
 
     /**

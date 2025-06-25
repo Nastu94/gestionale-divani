@@ -14,13 +14,30 @@ class SupplierController extends Controller
     /**
      * Mostra una lista di fornitori.
      */
-    public function index()
+    public function index(Request $request)
     {
-        // Recupera tutti i fornitori dal database
-        $suppliers = Supplier::withTrashed()->paginate(15);
+        // 1) Leggi parametri query
+        $sort   = $request->input('sort', 'name');
+        $dir    = $request->input('dir', 'asc') === 'desc' ? 'desc' : 'asc';
+        $filter = $request->input('filter.name');  // solo name
 
-        // Restituisce la vista 'suppliers.index' con i fornitori recuperati
-        return view('pages.master-data.index-suppliers', compact('suppliers'));
+        // 2) Costruisci la query
+        $suppliers = Supplier::query()
+            ->when($filter, fn($q, $v) => 
+                $q->where('name', 'like', "%{$v}%")
+            )
+            ->orderBy('name', $dir)
+            ->withTrashed()
+            ->paginate(15)
+            ->appends($request->query());
+
+        // 3) Ritorna la view con le variabili per il <x-th-menu>
+        return view('pages.master-data.index-suppliers', [
+            'suppliers' => $suppliers,
+            'sort'      => $sort,
+            'dir'       => $dir,
+            'filters'   => ['name' => $filter],
+        ]);
     }
 
     /**

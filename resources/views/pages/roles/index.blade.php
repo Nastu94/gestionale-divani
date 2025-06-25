@@ -55,7 +55,7 @@
                                     :class="openId === {{ $role->id }} ? 'bg-gray-200 dark:bg-gray-700' : ''"
                                     class="cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700">
 
-                                    <td class="px-4 py-2 font-medium">
+                                    <td class="px-4 py-2 font-medium whitespace-nowrap">
                                         {{ $role->name }}
                                     </td>
 

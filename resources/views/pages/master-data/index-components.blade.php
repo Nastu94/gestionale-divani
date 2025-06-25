@@ -50,9 +50,22 @@
                     <table class="table-auto min-w-full text-sm divide-y divide-gray-200 dark:divide-gray-700">
                         <thead class="bg-gray-300 dark:bg-gray-700">
                             <tr class="uppercase tracking-wider">
-                                <th class="px-6 py-2 text-left">Codice</th>
-                                <th class="px-6 py-2 text-left">Descrizione</th>
-
+                                <x-th-menu
+                                    field="code"
+                                    label="Codice"
+                                    :sort="$sort"
+                                    :dir="$dir"
+                                    :filters="$filters"
+                                    reset-route="components.index"
+                                />
+                                <x-th-menu
+                                    field="description"
+                                    label="Descrizione"
+                                    :sort="$sort"       {{-- variabili passate dal controller --}}
+                                    :dir="$dir"
+                                    :filters="$filters"
+                                    reset-route="components.index"
+                                />
                                 
                                 {{-- Colonne indirizzi, visibili solo se extended --}}
                                 <th x-show="extended" x-cloak class="px-6 py-2 text-left whitespace-nowrap">Materiale</th>
@@ -62,8 +75,24 @@
                                 <th x-show="extended" x-cloak class="px-6 py-2 text-left whitespace-nowrap">Peso</th>
 
                                 <th class="px-6 py-2 text-left whitespace-nowrap">Unità di misura</th>
-                                <th class="px-6 py-2 text-left">Categoria</th>
-                                <th class="px-6 py-2 text-center">Attivo</th>
+                                <x-th-menu
+                                    field="category"
+                                    label="Categoria"
+                                    :sort="$sort"       {{-- variabili passate dal controller --}}
+                                    :dir="$dir"
+                                    :filters="$filters"
+                                    reset-route="components.index"
+                                />
+                                <x-th-menu
+                                    field="is_active"
+                                    label="Attivo"
+                                    :sort="$sort"       {{-- variabili passate dal controller --}}
+                                    :dir="$dir"
+                                    :filters="$filters"
+                                    align="right"
+                                    :filterable="false"
+                                    reset-route="components.index"
+                                />
 
                             </tr>
                         </thead>
