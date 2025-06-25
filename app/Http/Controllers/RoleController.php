@@ -41,6 +41,7 @@ class RoleController extends Controller
             'price_lists'        => 'Listini',
             'reports.orders'     => 'Report Ordini',
             'reports'            => 'Report',
+            'warehouses'         => 'Magazzini',
         ];
 
         // Mappa azione → [lettera, descrizione ITA]

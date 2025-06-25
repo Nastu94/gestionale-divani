@@ -120,7 +120,7 @@
                                     </td>
                                 </tr>
 
-                                {{-- Riga espansa con Modifica / Elimina --}}
+                                {{-- Riga espansa con Modifica / Elimina / Ripristina --}}
                                 @if($canCrud)
                                 <tr x-show="openId === {{ $supplier->id }}" x-cloak>
                                     <td
@@ -176,8 +176,8 @@
                 </div>
 
                 {{-- Paginazione --}}
-                <div class="mt-4 px-6">
-                    {{ $suppliers->links() }}
+                <div class="mt-4 px-6 py-2">
+                    {{ $suppliers->links('vendor.pagination.tailwind-compact') }}
                 </div>
             </div>
         </div>

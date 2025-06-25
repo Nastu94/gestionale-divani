@@ -15,7 +15,10 @@
 @endphp
 
 <!-- Modale Create/Edit Utente -->
-<div @click.away="showModal = false" class="relative bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden w-full max-w-xl p-6 z-10">
+<div 
+    @click.away="showModal = false" 
+    class="relative bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden w-full max-w-xl p-6 z-10"
+>
     <div class="flex justify-between items-center mb-4">
         <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100">
             <span x-text="mode === 'create' ? 'Nuovo Utente' : 'Modifica Utente'"></span>

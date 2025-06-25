@@ -38,7 +38,10 @@
                 <div x-show="showModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center">
                     <div class="absolute inset-0 bg-black opacity-75" @click="showModal = false"></div>
                     <div class="relative z-10 w-full max-w-3xl">
-                        <x-component-create-modal :components="$components" />
+                        <x-component-create-modal 
+                            :components="$components"
+                            :categories='$categories' 
+                        />
                     </div>
                 </div>             
 
@@ -59,6 +62,7 @@
                                 <th x-show="extended" x-cloak class="px-6 py-2 text-left whitespace-nowrap">Peso</th>
 
                                 <th class="px-6 py-2 text-left whitespace-nowrap">Unità di misura</th>
+                                <th class="px-6 py-2 text-left">Categoria</th>
                                 <th class="px-6 py-2 text-center">Attivo</th>
 
                             </tr>
@@ -80,16 +84,17 @@
                                         :class="openId === {{ $component->id }} ? 'bg-gray-200 dark:bg-gray-700' : ''"
                                     @endif
                                 >
-                                    <td class="px-6 py-2 whitespace-nowrap">{{ $customer->code }}</td>
+                                    <td class="px-6 py-2 whitespace-nowrap">{{ $component->code }}</td>
                                     <td class="px-6 py-2 whitespace-nowrap">{{ $component->description }}</td>
 
                                     {{-- Colonne indirizzi, visibili solo se extended --}}
                                     <td x-show="extended" x-cloak class="px-6 py-2 whitespace-nowrap">{{ $component->material ?? '—' }}</td>
-                                    <td x-show="extended" x-cloak class="px-6 py-2 whitespace-nowrap">{{ $component->height ?? '—' }}</td>
-                                    <td x-show="extended" x-cloak class="px-6 py-2 whitespace-nowrap">{{ $component->width ?? '—' }}</td>
-                                    <td x-show="extended" x-cloak class="px-6 py-2 whitespace-nowrap">{{ $component->length ?? '—' }}</td>
-                                    <td x-show="extended" x-cloak class="px-6 py-2 whitespace-nowrap">{{ $component->weight ?? '—' }}</td>
+                                    <td x-show="extended" x-cloak class="px-6 py-2 whitespace-nowrap">{{ $component->height ?? '—' }} @if($component->height)cm @endif</td>
+                                    <td x-show="extended" x-cloak class="px-6 py-2 whitespace-nowrap">{{ $component->width ?? '—' }} @if($component->width)cm @endif</td>
+                                    <td x-show="extended" x-cloak class="px-6 py-2 whitespace-nowrap">{{ $component->length ?? '—' }} @if($component->length)cm @endif</td>
+                                    <td x-show="extended" x-cloak class="px-6 py-2 whitespace-nowrap">{{ $component->weight ?? '—' }} @if($component->weight)kg @endif</td>
                                     <td class="px-6 py-2 whitespace-nowrap">{{ $component->unit_of_measure}}</td>
+                                    <td class="px-6 py-2 whitespace-nowrap">{{ $component->category->name}}</td>
                                     <td class="px-6 py-2 text-center whitespace-nowrap">
                                         <span
                                             class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"
@@ -103,7 +108,7 @@
                                     </td>
                                 </tr>
 
-                                {{-- Riga espansa con Modifica / Elimina / Estendi --}}
+                                {{-- Riga espansa con Modifica / Elimina / Ripristina --}}
                                 @if($canCrud)
                                 <tr x-show="openId === {{ $component->id }}" x-cloak>
                                     <td
@@ -134,6 +139,20 @@
                                                     </button>
                                                 </form>
                                             @endif
+                                        
+                                            {{-- Ripristina (solo se soft-deleted) --}}
+                                            @if($component->trashed() && auth()->user()->can('components.update'))
+                                                <form
+                                                    action="{{ route('components.restore', $component->id) }}"
+                                                    method="POST"
+                                                    onsubmit="return confirm('Ripristinare questo componente?');"
+                                                >
+                                                    @csrf
+                                                    <button type="submit" class="inline-flex items-center hover:text-green-600">
+                                                        <i class="fas fa-undo mr-1"></i> Ripristina
+                                                    </button>
+                                                </form>
+                                            @endif
 
                                         </div>
                                     </td>
@@ -145,8 +164,8 @@
                 </div>
 
                 {{-- Paginazione --}}
-                <div class="mt-4 px-6">
-                    {{ $components->links() }}
+                <div class="mt-4 px-6 py-2">
+                    {{ $components->links('vendor.pagination.tailwind-compact') }}
                 </div>
             </div>
         </div>
@@ -160,7 +179,8 @@
                     showModal: false,
                     mode: 'create',
                     form: { 
-                        id: null, 
+                        id: null,
+                        category_id: null,
                         code: '',
                         description: '',
                         material: '',
@@ -186,6 +206,7 @@
                     openEdit(component) {
                         this.mode = 'edit';
                         this.form.id               = component.id;
+                        this.form.category_id      = component.category_id;
                         this.form.code             = component.code;
                         this.form.description      = component.description;
                         this.form.material         = component.material   ?? '';
@@ -202,6 +223,7 @@
                     resetForm() {
                         this.form = { 
                             id: null, 
+                            category_id: null,
                             code: '',
                             description: '',
                             material: null,
@@ -215,7 +237,7 @@
                         this.errors = {};
                     },
 
-                    validatecomponent() {
+                    validateComponent() {
                         this.errors = {};
                         let valid = true;
                         if (! this.form.code.trim()) {
@@ -231,6 +253,15 @@
                             valid = false;
                         }
                         return valid;
+                    },
+
+                    generateCode() {
+                        if (! this.form.category_id) return;
+
+                        fetch(`/components/generate-code?category_id=${this.form.category_id}`)
+                            .then(r => r.json())
+                            .then(data => this.form.code = data.code)
+                            .catch(() => alert('Impossibile generare il codice, riprova.'));
                     },
                 }));
             });

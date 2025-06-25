@@ -134,7 +134,9 @@
                 </table>
             </div>
 
-            <div class="mt-4">{{ $users->links() }}</div>
+            <div class="mt-4 px-6 py-2">
+                {{ $users->links('vendor.pagination.tailwind-compact') }}
+            </div>
         </div>
     </div>
 </x-app-layout>

@@ -1,12 +1,14 @@
 {{-- resources/views/components/supplier-create-modal.blade.php --}}
 
 
-@props(['components'])
+@props(['components', 'categories'])
+
 
 {{-- 
     Componente Create/Edit Fornitore 
     Props:
       - components: collection di Component (usata in modalità 'edit' per popolare il form)
+        - categories: collection di Category (usata per il selettore di categoria)
 --}}
 
 <div 
@@ -42,20 +44,53 @@
         </template>
 
         <div class="space-y-4">
-            {{-- Campo: Codice --}}
-            {{-- Codice Prodotto --}}
+            {{-- Selettore categoria --}}
             <div>
-                <label for="code" class="block text-xs font-medium text-gray-700 dark:text-gray-300">
-                    Codice Prodotto
+                <label for="category_id" class="block text-xs font-medium text-gray-700 dark:text-gray-300">
+                    Categoria
                 </label>
-                <input
-                    id="code"
-                    name="code"
-                    x-model="form.code"
-                    type="text" required
+                <select
+                    id="category_id"
+                    name="category_id"
+                    x-model="form.category_id"
                     class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100"
-                />
-                <p x-text="errors.code?.[0]" class="text-red-600 text-xs mt-1"></p>
+                    x-bind:readonly="mode === 'edit'"
+                >
+                    <option value="">— seleziona —</option>
+                    @foreach($categories as $cat)
+                        <option value="{{ $cat->id }}">{{ $cat->name }} - {{ $cat->description }}</option>
+                    @endforeach
+                </select>
+                <p x-text="errors.category_id?.[0]" class="text-red-600 text-xs mt-1"></p>
+            </div>
+
+            {{-- Codice + Genera --}}
+            <div class="flex items-end space-x-2">
+                <div class="flex-1">
+                    <label for="code" class="block text-xs font-medium text-gray-700 dark:text-gray-300">
+                        Codice Prodotto
+                    </label>
+                    <input
+                        id="code"
+                        name="code"
+                        x-model="form.code"
+                        type="text"
+                        class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100"
+                        readonly
+                    />
+                    <p x-text="errors.code?.[0]" class="text-red-600 text-xs mt-1"></p>
+                </div>
+
+                {{-- Pulsante genera --}}
+                <button
+                    type="button"
+                    @click="generateCode"
+                    class="px-2 py-3 mb-0.5 bg-indigo-600 rounded-md text-xs font-semibold text-white hover:bg-indigo-500"
+                    :disabled="!form.category_id"
+                    title="Genera codice basato sulla categoria selezionata"
+                >
+                    <i class="fas fa-magic mr-1"></i> Genera
+                </button>
             </div>
 
             {{-- Descrizione --}}

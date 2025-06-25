@@ -4,66 +4,290 @@ namespace App\Http\Controllers;
 
 use App\Models\Component;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
+use App\Models\ComponentCategory;
 
+/**
+ * Controller CRUD per la gestione dell’anagrafica Componenti.
+ *
+ * Ogni metodo è transazionale, logga le eccezioni e usa soft-delete
+ * per garantire audit completo e possibilità di ripristino.
+ */
 class ComponentController extends Controller
 {
     /**
-     * Display a listing of the resource.
+     * Lista paginata di componenti (attivi + cestinati).
+     *
+     * @return \Illuminate\Contracts\View\View
      */
     public function index()
     {
-        // Recupera tutti i componenti
-        $components = Component::withTrashed()->paginate(20);
+        // Recupera anche quelli soft-deleted per mostrare eventuali “Ripristina”.
+        $components = Component::withTrashed()->with('category')->paginate(15);
 
-        // Restituisce la vista con i componenti
-        return view('pages.master-data.index-components', compact('components'));
+        // Recupero tutte le categorie per il filtro
+        $categories = ComponentCategory::orderBy('name')->get();
+
+        return view('pages.master-data.index-components', compact('components', 'categories'));
     }
 
     /**
-     * Show the form for creating a new resource.
-     */
-    public function create()
-    {
-        //
-    }
-
-    /**
-     * Store a newly created resource in storage.
+     * Salva un nuovo componente.
+     *
+     * @param  Request  $request
+     * @return \Illuminate\Http\RedirectResponse
      */
     public function store(Request $request)
     {
-        //
+        /* ▲ VALIDAZIONE --------------------------------------------------- */
+        $messages = [
+            'category_id.required'   => 'La categoria è obbligatoria.',
+            'category_id.exists'     => 'La categoria selezionata non esiste.',
+            'code.required'          => 'Il codice è obbligatorio.',
+            'code.unique'            => 'Questo codice esiste già.',
+            'description.required'   => 'La descrizione è obbligatoria.',
+            'unit_of_measure.required' => 'L’unità di misura è obbligatoria.',
+            'length.numeric'         => 'La lunghezza deve essere numerica.',
+            'width.numeric'          => 'La larghezza deve essere numerica.',
+            'height.numeric'         => 'L’altezza deve essere numerica.',
+            'weight.numeric'         => 'Il peso deve essere numerico.',
+        ];
+
+        $validator = Validator::make(
+            $request->all(),
+            [
+                'category_id'     => ['required', 'exists:component_categories,id'],
+                'code'            => ['required', 'string', 'max:50', 'unique:components,code'],
+                'description'     => ['required', 'string', 'max:255'],
+                'material'        => ['nullable', 'string', 'max:100'],
+                'length'          => ['nullable', 'numeric', 'min:0'],
+                'width'           => ['nullable', 'numeric', 'min:0'],
+                'height'          => ['nullable', 'numeric', 'min:0'],
+                'weight'          => ['nullable', 'numeric', 'min:0'],
+                'unit_of_measure' => ['required', 'string', 'max:10'],
+                'is_active'       => ['nullable', 'in:on,0,1'],
+            ],
+            $messages
+        );
+
+        if ($validator->fails()) {
+            Log::warning('Validation errors in ComponentController@store', $validator->errors()->toArray());
+
+            return back()
+                ->withErrors($validator)
+                ->withInput();
+        }
+
+        /* ▲ PERSISTENZA --------------------------------------------------- */
+        $data              = $validator->validated();
+        $data['is_active'] = $request->has('is_active');
+
+        try {
+            DB::beginTransaction();
+
+            $component = Component::create($data);
+
+            if (! $component->wasRecentlyCreated) {
+                throw new \RuntimeException('Component was not created.');
+            }
+
+            DB::commit();
+
+            return redirect()
+                ->route('components.index')
+                ->with('success', 'Componente creato con successo.');
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            Log::error('Error in ComponentController@store', [
+                'exception' => $e->getMessage(),
+                'trace'     => $e->getTraceAsString(),
+            ]);
+
+            return back()
+                ->withInput()
+                ->with('error', 'Errore durante la creazione del componente. Controlla i log.');
+        }
     }
 
     /**
-     * Display the specified resource.
+     * Genera un nuovo codice per un componente basato sulla categoria.
+     *
+     * @param  Request  $request
+     * @return \Illuminate\Http\JsonResponse
      */
-    public function show(Component $component)
+    public function generateCode(Request $request)
     {
-        //
+        $request->validate(['category_id' => 'required|exists:component_categories,id']);
+
+        $cat = ComponentCategory::find($request->category_id);
+
+        // trova ultimo codice esistente
+        $last = Component::withTrashed()
+                ->where('category_id', $cat->id)
+                ->where('code', 'like', "{$cat->code}-%")
+                ->latest('code')
+                ->value('code');
+
+        $next = $last
+            ? intval(substr($last, strlen($cat->code) + 1)) + 1
+            : 1;
+
+        return response()->json([
+            'code' => $cat->code . '-' . str_pad($next, 5, '0', STR_PAD_LEFT),
+        ]);
     }
 
     /**
-     * Show the form for editing the specified resource.
-     */
-    public function edit(Component $component)
-    {
-        //
-    }
-
-    /**
-     * Update the specified resource in storage.
+     * Aggiorna un componente esistente.
+     *
+     * @param  Request    $request
+     * @param  Component  $component (route–model binding)
+     * @return \Illuminate\Http\RedirectResponse
      */
     public function update(Request $request, Component $component)
     {
-        //
+        $messages = [
+            'category_id.required'   => 'La categoria è obbligatoria.',
+            'category_id.exists'     => 'La categoria selezionata non esiste.',
+            'code.required'          => 'Il codice è obbligatorio.',
+            'code.unique'            => 'Questo codice esiste già per un altro componente.',
+            'description.required'   => 'La descrizione è obbligatoria.',
+            'unit_of_measure.required' => 'L’unità di misura è obbligatoria.',
+            'length.numeric'         => 'La lunghezza deve essere numerica.',
+            'width.numeric'          => 'La larghezza deve essere numerica.',
+            'height.numeric'         => 'L’altezza deve essere numerica.',
+            'weight.numeric'         => 'Il peso deve essere numerico.',
+        ];
+
+        $validator = Validator::make(
+            $request->all(),
+            [
+                'category_id' => ['required', 'exists:component_categories,id'],
+                'code'        => [
+                    'required', 'string', 'max:50',
+                    Rule::unique('components', 'code')->ignore($component->id),
+                ],
+                'description'     => ['required', 'string', 'max:255'],
+                'material'        => ['nullable', 'string', 'max:100'],
+                'length'          => ['nullable', 'numeric', 'min:0'],
+                'width'           => ['nullable', 'numeric', 'min:0'],
+                'height'          => ['nullable', 'numeric', 'min:0'],
+                'weight'          => ['nullable', 'numeric', 'min:0'],
+                'unit_of_measure' => ['required', 'string', 'max:10'],
+                'is_active'       => ['nullable', 'in:on,0,1'],
+            ],
+            $messages
+        );
+
+        if ($validator->fails()) {
+            Log::warning('Validation errors in ComponentController@update', $validator->errors()->toArray());
+
+            return back()
+                ->withErrors($validator)
+                ->withInput();
+        }
+
+        $data              = $validator->validated();
+        $data['is_active'] = $request->has('is_active');
+
+        try {
+            DB::beginTransaction();
+
+            $component->update($data);
+
+            DB::commit();
+
+            return redirect()
+                ->route('components.index')
+                ->with('success', 'Componente aggiornato con successo.');
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            Log::error('Error in ComponentController@update', [
+                'exception' => $e->getMessage(),
+                'trace'     => $e->getTraceAsString(),
+            ]);
+
+            return back()
+                ->withInput()
+                ->with('error', 'Errore durante l’aggiornamento del componente. Controlla i log.');
+        }
     }
 
     /**
-     * Remove the specified resource from storage.
+     * Ripristina un componente soft-deleted e lo imposta attivo.
+     *
+     * @param  int  $id
+     * @return \Illuminate\Http\RedirectResponse
+     */
+    public function restore($id)
+    {
+        Log::info('ComponentController@restore called', ['id' => $id]);
+
+        try {
+            DB::beginTransaction();
+
+            $component = Component::withTrashed()->findOrFail($id);
+
+            $component->restore();            // rimuove deleted_at
+            $component->update(['is_active' => true]); // riattiva
+
+            DB::commit();
+
+            return redirect()
+                ->route('components.index')
+                ->with('success', 'Componente ripristinato con successo.');
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            Log::error('Error in ComponentController@restore', [
+                'exception' => $e->getMessage(),
+                'trace'     => $e->getTraceAsString(),
+            ]);
+
+            return back()
+                ->with('error', 'Errore durante il ripristino del componente. Controlla i log.');
+        }
+    }
+
+    /**
+     * Soft-delete: marca non attivo e imposta deleted_at.
+     *
+     * @param  Component  $component
+     * @return \Illuminate\Http\RedirectResponse
      */
     public function destroy(Component $component)
     {
-        //
+        Log::info('ComponentController@destroy called', ['id' => $component->id]);
+
+        try {
+            DB::beginTransaction();
+
+            // Disattiva
+            $component->update(['is_active' => false]);
+
+            // Soft-delete
+            $component->delete();
+
+            DB::commit();
+
+            return redirect()
+                ->route('components.index')
+                ->with('success', 'Componente eliminato (soft-delete) con successo.');
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            Log::error('Error in ComponentController@destroy', [
+                'exception' => $e->getMessage(),
+                'trace'     => $e->getTraceAsString(),
+            ]);
+
+            return back()
+                ->with('error', 'Errore durante l’eliminazione del componente. Controlla i log.');
+        }
     }
 }

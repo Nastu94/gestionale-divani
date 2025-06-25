@@ -20,6 +20,8 @@ class DatabaseSeeder extends Seeder
             PermissionsSeeder::class,
             RolesSeeder::class,
             AdminUserSeeder::class,
+            ComponentCategorySeeder::class,
+            ComponentSeeder::class,
         ]);
     }
 }

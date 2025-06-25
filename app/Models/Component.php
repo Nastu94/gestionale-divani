@@ -11,6 +11,8 @@ use App\Models\StockLevel;
 use App\Models\StockMovement;
 use App\Models\Product;
 use App\Models\Alert;
+use App\Models\ComponentCategory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\belongsToMany;
 
@@ -30,6 +32,7 @@ class Component extends Model
      * @var array<string>
      */
     protected static $logAttributes = [
+        'category_id',
         'code',
         'description',
         'material',
@@ -61,6 +64,7 @@ class Component extends Model
      * @var array<string>
      */
     protected $fillable = [
+        'category_id', // ID della categoria (FK)
         'code',        // SKU interno
         'description', // Descrizione breve
         'material',    // Materiale principale
@@ -123,5 +127,15 @@ class Component extends Model
     public function alerts()
     {
         return $this->hasMany(Alert::class);
+    }
+
+    /**
+     * Relazione uno a molti con ComponentCategory.
+     *
+     * @return \Illuminate\Database\Eloquent\Relations\BelongsTo
+     */
+    public function category()
+    {
+        return $this->belongsTo(ComponentCategory::class, 'category_id');
     }
 }

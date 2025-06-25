@@ -210,6 +210,19 @@ Route::middleware([
 |--------------------------------------------------------------------------
     | Componenti (Articoli)
 |--------------------------------------------------------------------------
+|--------------------------------------------------------------------------
+    | Gestione Componenti – Generazione Codice
+    |--------------------------------------------------------------------------
+    | | Questa rotta permette di generare un codice per un componente
+    | basato su una categoria specifica.
+    | Protetta dal permesso components.create.
+    |
+    */    
+    Route::get('components/generate-code', [ComponentController::class, 'generateCode'])
+     ->name('components.generate-code')
+     ->middleware('permission:components.create');
+    
+    /*
     |--------------------------------------------------------------------------
     | Gestione Componenti – solo index & show (visualizzazione)
     |--------------------------------------------------------------------------
@@ -220,10 +233,9 @@ Route::middleware([
     |
     */
     Route::resource('components', ComponentController::class)
-        ->only(['index', 'show'])
+        ->only(['index'])
         ->names([
             'index' => 'components.index',
-            'show'  => 'components.show',
         ])
         ->middleware('permission:components.view');
 
@@ -240,11 +252,10 @@ Route::middleware([
     Route::resource('components', ComponentController::class)
         ->only(['create', 'store'])
         ->names([
-            'create' => 'components.create',
             'store'  => 'components.store',
         ])
         ->middleware('permission:components.create');
-
+    
     /*
     |--------------------------------------------------------------------------
     | Gestione Componenti – solo edit & update (modifica)
@@ -258,7 +269,6 @@ Route::middleware([
     Route::resource('components', ComponentController::class)
         ->only(['edit', 'update'])
         ->names([
-            'edit'   => 'components.edit',
             'update' => 'components.update',
         ])
         ->middleware('permission:components.update');
@@ -278,6 +288,19 @@ Route::middleware([
             'destroy' => 'components.destroy',
         ])
         ->middleware('permission:components.delete');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Gestione Fornitori – solo restore (ripristino)
+    |--------------------------------------------------------------------------
+    |
+    | Questa rotta permette di ripristinare un fornitore precedentemente cancellato.
+    | Protetta dal permesso suppliers.update.
+    |
+    */
+    Route::post('components/{component}/restore', [ComponentController::class, 'restore'])
+     ->name('components.restore')
+     ->middleware('permission:components.update');
 
     /*
 |--------------------------------------------------------------------------

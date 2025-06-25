@@ -166,8 +166,8 @@
                 </div>
 
                 {{-- Paginazione --}}
-                <div class="mt-4 px-6">
-                    {{ $customers->links() }}
+                <div class="mt-4 px-6 py-2">
+                    {{ $customers->links('vendor.pagination.tailwind-compact') }}
                 </div>
             </div>
         </div>
