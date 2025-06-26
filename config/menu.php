@@ -10,9 +10,10 @@ return [
         [
             'section' => 'Anagrafiche',
             'items'   => [
+                ['label'=>'Categorie',  'route'=>'categories.index',       'permission'=>'categories.view'],
+                ['label'=>'Componenti', 'route'=>'components.index',       'permission'=>'components.view'],
                 ['label'=>'Clienti',    'route'=>'customers.index',        'permission'=>'customers.view'],
                 ['label'=>'Fornitori',  'route'=>'suppliers.index',        'permission'=>'suppliers.view'],
-                ['label'=>'Componenti', 'route'=>'components.index',       'permission'=>'components.view'],
                 ['label'=>'Prodotti',   'route'=>'products.index',         'permission'=>'products.view'],
             ],
         ],
@@ -67,10 +68,11 @@ return [
             'section' => 'Anagrafiche',
             'icon'    => 'fa-address-book',
             'items'   => [
+                ['label'=>'Componenti', 'route'=>'components.index',       'icon'=>'fa-cogs',                 'permission'=>'components.view'],
                 ['label'=>'Clienti',    'route'=>'customers.index',        'icon'=>'fa-user',                 'permission'=>'customers.view'],
                 ['label'=>'Fornitori',  'route'=>'suppliers.index',        'icon'=>'fa-truck',                'permission'=>'suppliers.view'],
-                ['label'=>'Componenti', 'route'=>'components.index',       'icon'=>'fa-cogs',                 'permission'=>'components.view'],
                 ['label'=>'Prodotti',   'route'=>'products.index',         'icon'=>'fa-box-open',             'permission'=>'products.view'],
+                ['label'=>'Categorie',  'route'=>'categories.index',       'icon'=>'fa-sitemap',                 'permission'=>'categories.view'],
             ],
         ],
         [

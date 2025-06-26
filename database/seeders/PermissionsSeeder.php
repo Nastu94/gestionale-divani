@@ -46,6 +46,11 @@ class PermissionsSeeder extends Seeder
             ['name' => 'suppliers.update',            'display_name' => 'Modifica fornitori',               'description' => 'Modifica anagrafica fornitori.'],
             ['name' => 'suppliers.delete',            'display_name' => 'Elimina fornitori',                'description' => 'Elimina anagrafica fornitori.'],
 
+            ['name' => 'categories.view',             'display_name' => 'Visualizza categorie',             'description' => 'Visualizza lista categorie di componenti.'],
+            ['name' => 'categories.create',           'display_name' => 'Crea categorie',                   'description' => 'Crea nuove categorie di componenti.'],
+            ['name' => 'categories.update',           'display_name' => 'Modifica categorie',               'description' => 'Modifica categorie di componenti esistenti.'],
+            ['name' => 'categories.delete',           'display_name' => 'Elimina categorie',                'description' => 'Elimina categorie di componenti.'],
+
             ['name' => 'components.view',             'display_name' => 'Visualizza componenti',            'description' => 'Visualizza anagrafica componenti.'],
             ['name' => 'components.create',           'display_name' => 'Crea componenti',                  'description' => 'Crea nuovi componenti.'],
             ['name' => 'components.update',           'display_name' => 'Modifica componenti',              'description' => 'Modifica componenti esistenti.'],

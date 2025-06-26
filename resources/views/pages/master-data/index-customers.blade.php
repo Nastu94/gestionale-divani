@@ -254,6 +254,25 @@
                 }
                 return valid;
             },
+
+            init() {
+                @if($errors->any())
+                    this.showModal = true;
+                    this.mode = '{{ old('_method','create') === 'PUT' ? 'edit' : 'create' }}';
+                    this.errors = @json($errors->toArray());
+                    this.form = {
+                        id:         {{ old('id', 'null') }},
+                        company:    '{{ old('company', '') }}',
+                        vat_number: '{{ old('vat_number', '') }}',
+                        tax_code:   '{{ old('tax_code', '') }}',
+                        email:      '{{ old('email', '') }}',
+                        phone:      '{{ old('phone', '') }}',
+                        is_active:  {{ old('is_active', true) ? 'true' : 'false' }},
+                        addresses:  @json(old('addresses', [])),
+                    };
+                @endif
+            },
+
         }));
     });
     </script>

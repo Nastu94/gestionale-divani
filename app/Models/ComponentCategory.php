@@ -31,4 +31,15 @@ class ComponentCategory extends Model
     {
         return $this->hasMany(Component::class, 'category_id');
     }
+
+    
+    /**
+     * Forzare il maiuscolo sul codice.
+     *
+     * @param string $value
+     */
+    public function setCodeAttribute(string $value): void
+    {
+        $this->attributes['code'] = strtoupper($value);
+    }
 }

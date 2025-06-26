@@ -26,7 +26,7 @@ class RolesSeeder extends Seeder
             'Supervisor' => [
                 'users.view', 'users.create', 'users.update',
                 'orders.customer.*', 'orders.supplier.view', 'orders.supplier.update',
-                'components.*', 'products.*', 'price_lists.view',
+                'categories.*', 'components.*', 'products.*', 'price_lists.view',
                 'customers.view', 'suppliers.view',
                 'stock.*', 'alerts.*', 'warehouses.*',
                 'reports.orders.*', 'reports.stock_levels', 'reports.stock_movements'
@@ -39,7 +39,7 @@ class RolesSeeder extends Seeder
             ],
             'Impiegato' => [
                 'orders.customer.*', 'orders.supplier.view', 'orders.supplier.update',
-                'components.view', 'products.view', 'price_lists.view',
+                'categories.view', 'components.view', 'products.view', 'price_lists.view',
                 'customers.view', 'suppliers.view', 'warehouses.view',
                 'stock.*', 'reports.orders.customer', 'reports.stock_levels'
             ],

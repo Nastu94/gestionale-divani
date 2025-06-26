@@ -292,6 +292,28 @@
                             .then(data => this.form.code = data.code)
                             .catch(() => alert('Impossibile generare il codice, riprova.'));
                     },
+
+                    init() {
+                        @if($errors->any())
+                            this.showModal = true;
+                            this.mode = '{{ old('_method','create') === 'PUT' ? 'edit' : 'create' }}';
+                            this.errors = @json($errors->toArray());
+                            this.form = {
+                                id:         {{ old('id', 'null') }},
+                                category_id: {{ old('category_id', 'null') }},
+                                code:       '{{ old('code', '') }}',
+                                description: '{{ old('description', '') }}',
+                                material:   '{{ old('material', '') }}',
+                                height:     {{ old('height', 'null') }},
+                                width:      {{ old('width', 'null') }},
+                                length:     {{ old('length', 'null') }},
+                                weight:     {{ old('weight', 'null') }},
+                                unit_of_measure: '{{ old('unit_of_measure', '') }}',
+                                is_active:  {{ old('is_active', 'true') ? 'true' : 'false' }},
+                            };
+                        @endif
+                    },
+
                 }));
             });
         </script>

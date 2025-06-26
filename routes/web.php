@@ -20,6 +20,7 @@ use App\Http\Controllers\RoleController;
 use App\Http\Controllers\PermissionController;
 use App\Http\Controllers\SearchController;
 use App\Http\Controllers\WarehouseController;
+use App\Http\Controllers\ComponentCategoryController;
 
 /*
 |--------------------------------------------------------------------------
@@ -221,7 +222,23 @@ Route::middleware([
     Route::get('components/generate-code', [ComponentController::class, 'generateCode'])
      ->name('components.generate-code')
      ->middleware('permission:components.create');
-    
+
+    /*
+    | Gestione Categorie Componenti – solo index  (visualizzazione)
+    |--------------------------------------------------------------------------
+    |
+    | Qui definiamo le rotte per mostrare la lista delle categorie.
+    | Protette dal permesso categories.view.
+    |
+    */
+    Route::resource('categories', ComponentCategoryController::class)
+        ->only(['index', 'show'])
+        ->names([
+            'index' => 'categories.index',
+            'show'  => 'categories.show',
+        ])
+        ->middleware('permission:categories.view');
+
     /*
     |--------------------------------------------------------------------------
     | Gestione Componenti – solo index & show (visualizzazione)
@@ -240,6 +257,21 @@ Route::middleware([
         ->middleware('permission:components.view');
 
     /*
+    | Gestione Categorie Componenti – solo store  (creazione)
+    |--------------------------------------------------------------------------
+    |
+    | Questa rotta permette di creare una nuova categoria di componenti.
+    | Protetta dal permesso categories.create.
+    |
+    */
+    Route::resource('categories', ComponentCategoryController::class)
+        ->only(['store'])
+        ->names([
+            'store' => 'categories.store',
+        ])
+        ->middleware('permission:categories.create');
+    
+    /*
     |--------------------------------------------------------------------------
     | Gestione Componenti – solo create & store (creazione)
     |--------------------------------------------------------------------------
@@ -257,6 +289,21 @@ Route::middleware([
         ->middleware('permission:components.create');
     
     /*
+    | Gestione Categorie Componenti – solo update  (modifica)
+    |--------------------------------------------------------------------------
+    |
+    | Questa rotta permette di modificare una categoria di componenti.
+    | Protetta dal permesso categories.update.
+    |
+    */
+    Route::resource('categories', ComponentCategoryController::class)
+        ->only(['update'])
+        ->names([
+            'update' => 'categories.update',
+        ])
+        ->middleware('permission:categories.update');
+
+    /*
     |--------------------------------------------------------------------------
     | Gestione Componenti – solo edit & update (modifica)
     |--------------------------------------------------------------------------
@@ -272,6 +319,21 @@ Route::middleware([
             'update' => 'components.update',
         ])
         ->middleware('permission:components.update');
+
+    /*
+    | Gestione Categorie Componenti – solo delete  (cancellazione)
+    |--------------------------------------------------------------------------
+    |
+    | Questa rotta permette di cancellare una categoria di componenti.
+    | Protetta dal permesso categories.delete.
+    |
+    */
+    Route::resource('categories', ComponentCategoryController::class)
+        ->only(['destroy'])
+        ->names([
+            'destroy' => 'categories.destroy',
+        ])
+        ->middleware('permission:categories.delete');
 
     /*
     |--------------------------------------------------------------------------
