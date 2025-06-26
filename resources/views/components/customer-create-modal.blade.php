@@ -39,7 +39,7 @@
             {{-- Campo: Nome --}}
             {{-- Nome o ragione sociale --}}
             <div>
-                <label for="company" class="block text-xs font-medium text-gray-700 dark:text-gray-300"">Nome / Ragione Sociale</label>
+                <label for="company" class="block text-xs font-medium text-gray-700 dark:text-gray-300">Nome / Ragione Sociale</label>
                 <input
                     id="company"
                     name="company"

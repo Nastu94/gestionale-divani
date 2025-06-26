@@ -369,6 +369,21 @@ Route::middleware([
     | Prodotti (Modelli)
 |--------------------------------------------------------------------------
     |--------------------------------------------------------------------------
+    | Gestione Prodotti – Generazione Codice
+    |--------------------------------------------------------------------------
+    |
+    | Questa rotta permette di generare un codice per un prodotto
+    | basato su un prefisso fisso e una parte casuale.
+    | Protetta dal permesso products.create.
+    |
+    */
+    Route::get('products/generate-code', [ProductController::class, 'generateCode'])
+     ->name('products.generate-code')
+     ->middleware('permission:products.create');
+
+    
+    /*
+    |--------------------------------------------------------------------------
     | Gestione Prodotti – solo index & show (visualizzazione)
     |--------------------------------------------------------------------------
     |
@@ -383,7 +398,7 @@ Route::middleware([
             'show'  => 'products.show',
         ])
         ->middleware('permission:products.view');
-
+        
     /*
     |--------------------------------------------------------------------------
     | Gestione Prodotti – solo create & store (creazione)

@@ -3,16 +3,46 @@
 namespace App\Http\Controllers;
 
 use App\Models\Product;
+use App\Models\Component;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 class ProductController extends Controller
 {
     /**
-     * Display a listing of the resource.
+     * Mostra una lista di prodotti
      */
     public function index()
     {
-        //
+        $products = Product::with('components')->withTrashed()->paginate(15);
+
+        $components = Component::orderBy('code')->get();
+
+        return view('pages.master-data.index-products', compact('products', 'components'));
+    }
+
+    /**
+     * Genera un nuovo SKU per il prodotto: prefisso + 8 caratteri casuali
+     *
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function generateCode(): \Illuminate\Http\JsonResponse
+    {
+        $prefix = 'P-';
+
+        do {
+            // Genera 8 caratteri alfanumerici casuali in maiuscolo
+            $randomPart = Str::upper(Str::random(8));
+
+            // Concatena prefisso + random
+            $sku = $prefix . $randomPart;
+
+            // Controlla se esiste già in DB
+            $exists = Product::where('sku', $sku)->exists();
+        } while ($exists);
+
+        // A questo punto $sku è sicuro di non esistere
+        return response()->json(['code' => $sku]);
     }
 
     /**

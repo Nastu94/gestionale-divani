@@ -141,7 +141,7 @@
                                 @if($canCrud)
                                 <tr x-show="openId === {{ $component->id }}" x-cloak>
                                     <td
-                                        :colspan="extended ? 11 : 8"
+                                        :colspan="extended ? 10 : 5"
                                         class="px-6 py-3 bg-gray-200 dark:bg-gray-700"
                                     >
                                         <div class="flex items-center space-x-4 text-xs">
