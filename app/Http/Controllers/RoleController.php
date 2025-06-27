@@ -36,7 +36,7 @@ class RoleController extends Controller
             'suppliers'          => 'Fornitori',
             'components'         => 'Componenti',
             'products'           => 'Prodotti',
-            'stock'              => 'Magazzino',
+            'stock'              => 'Movimentazioni',
             'alerts'             => 'Avvisi',
             'price_lists'        => 'Listini',
             'reports.orders'     => 'Report Ordini',

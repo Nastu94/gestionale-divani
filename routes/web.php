@@ -435,6 +435,19 @@ Route::middleware([
 
     /*
     |--------------------------------------------------------------------------
+    | Gestione Prodotti – solo restore (modifica)
+    |--------------------------------------------------------------------------
+    |
+    | Questa rotta permette di ripristinare un prodotto precedentemente cancellato.
+    | Protetta dal permesso products.update.
+    |
+    */
+    Route::post('products/{product}/restore', [ProductController::class, 'restore'])
+        ->name('products.restore')
+        ->middleware('permission:products.update');
+
+    /*
+    |--------------------------------------------------------------------------
     | Gestione Prodotti – solo destroy (cancellazione)
     |--------------------------------------------------------------------------
     |

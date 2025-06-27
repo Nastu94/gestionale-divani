@@ -149,10 +149,12 @@
                                     class="mt-1 block w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-600 text-sm text-gray-900 dark:text-gray-100"
                                     required
                                 >
-                                    <option value="" disabled>-- Seleziona --</option>
-                                    <template x-for="comp in componentsList" :key="comp.id">
-                                        <option :value="comp.id" x-text="comp.code + ' – ' + comp.description"></option>
-                                    </template>
+                                    <option value="" >-- Seleziona --</option>
+                                    @foreach ($components as $c)
+                                        <option value="{{ $c->id }}">
+                                            {{ $c->code }} – {{ $c->description }}
+                                        </option>
+                                    @endforeach
                                 </select>
                                 <p x-text="errors[`components.${idx}.id`] ? errors[`components.${idx}.id`][0] : ''"
                                     class="text-red-600 text-xs mt-1"></p>
@@ -160,7 +162,14 @@
 
                             {{-- Quantità --}}
                             <div>
-                            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">Quantità</label>
+                            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">
+                                Quantità
+                                <span
+                                    x-text="item.id
+                                        ? ' (' + (componentsList.find(c => c.id == item.id)?.unit_of_measure ?? '') + ')'
+                                        : ''">
+                                </span>
+                            </label>
                             <input
                                 type="number"
                                 min="1"
@@ -182,7 +191,7 @@
         <div class="mt-6 flex justify-end space-x-2">
             <button
                 type="button"
-                @click="showModal = false"
+                @click="showModal = false; resetForm()"
                 class="px-4 py-1.5 text-xs font-medium rounded-md bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-500"
             >
                 Annulla

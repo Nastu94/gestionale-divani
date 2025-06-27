@@ -44,11 +44,14 @@
          @keydown.escape.window="showModal=false">
 
         <div class="bg-white dark:bg-gray-800 shadow sm:rounded-lg max-w-7xl mx-auto sm:px-6 lg:px-8">
-            <div class="flex justify-end p-4">
-                <button @click="openCreate()" class="inline-flex items-center px-3 py-1.5 bg-purple-600 rounded-md text-xs font-semibold text-white uppercase hover:bg-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-300 transition">
-                    <i class="fas fa-plus mr-1"></i> Nuovo
-                </button>
-            </div>
+
+            @if(auth()->user()->can('users.create'))
+                <div class="flex justify-end p-4">
+                    <button @click="openCreate()" class="inline-flex items-center px-3 py-1.5 bg-purple-600 rounded-md text-xs font-semibold text-white uppercase hover:bg-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-300 transition">
+                        <i class="fas fa-plus mr-1"></i> Nuovo
+                    </button>
+                </div>
+            @endif
 
             <!-- Modale Create/Edit -->
             <div x-show="showModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center">

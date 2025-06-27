@@ -6,6 +6,11 @@ use App\Models\Product;
 use App\Models\Component;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\Validator;
 
 class ProductController extends Controller
 {
@@ -14,9 +19,14 @@ class ProductController extends Controller
      */
     public function index()
     {
-        $products = Product::with('components')->withTrashed()->paginate(15);
+        /*  Eager-load dei componenti con id, codice, descrizione e unità di misura  */
+        $components = Component::select('id', 'code', 'description', 'unit_of_measure')
+                    ->orderBy('code')
+                    ->get();
 
-        $components = Component::orderBy('code')->get();
+        $products = Product::with([
+            'components:id,code,description,unit_of_measure'   // serve anche nell’edit
+        ])->paginate(20);
 
         return view('pages.master-data.index-products', compact('products', 'components'));
     }
@@ -26,22 +36,28 @@ class ProductController extends Controller
      *
      * @return \Illuminate\Http\JsonResponse
      */
-    public function generateCode(): \Illuminate\Http\JsonResponse
+    public function generateCode(): JsonResponse
     {
-        $prefix = 'P-';
+        $prefix = 'PRD-';
 
         do {
-            // Genera 8 caratteri alfanumerici casuali in maiuscolo
-            $randomPart = Str::upper(Str::random(8));
+            // Genera 4 lettere casuali A–Z
+            $letters = '';
+            for ($i = 0; $i < 4; $i++) {
+                // chr(rand(65,90)) restituisce una lettera maiuscola casuale
+                $letters .= chr(random_int(65, 90));
+            }
 
-            // Concatena prefisso + random
-            $sku = $prefix . $randomPart;
+            // Genera 4 cifre, tra 0000 e 9999 (sempre 4 caratteri)
+            $digits = str_pad((string) random_int(0, 9999), 4, '0', STR_PAD_LEFT);
 
-            // Controlla se esiste già in DB
+            // Combina prefisso + lettere + cifre
+            $sku = $prefix . $letters . $digits;
+
+            // Verifica unicità nel DB
             $exists = Product::where('sku', $sku)->exists();
         } while ($exists);
 
-        // A questo punto $sku è sicuro di non esistere
         return response()->json(['code' => $sku]);
     }
 
@@ -54,11 +70,91 @@ class ProductController extends Controller
     }
 
     /**
-     * Store a newly created resource in storage.
+     * Salva un nuovo prodotto e associa i componenti con quantità.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\RedirectResponse
      */
     public function store(Request $request)
     {
-        //
+        // Messaggi di errore personalizzati
+        $messages = [
+            'sku.required'        => 'Il codice prodotto è obbligatorio.',
+            'sku.string'          => 'Il codice deve essere una stringa.',
+            'sku.max'             => 'Il codice non può superare i 64 caratteri.',
+            'sku.unique'          => 'Questo codice è già in uso.',
+            'name.required'       => 'Il nome del prodotto è obbligatorio.',
+            'name.string'         => 'Il nome deve essere una stringa.',
+            'name.max'            => 'Il nome non può superare i 255 caratteri.',
+            'price.required'      => 'Il prezzo è obbligatorio.',
+            'price.numeric'       => 'Il prezzo deve essere un numero.',
+            'price.min'           => 'Il prezzo deve essere almeno 0.',
+            'components.array'    => 'I componenti devono essere un array.',
+            'components.*.id.required'       => 'Seleziona un componente.',
+            'components.*.id.exists'         => 'Il componente selezionato non esiste.',
+            'components.*.quantity.required' => 'Inserisci la quantità.',
+            'components.*.quantity.integer'  => 'La quantità deve essere un numero intero.',
+            'components.*.quantity.min'      => 'La quantità deve essere almeno 1.',
+        ];
+
+        // Regole di validazione
+        $validator = Validator::make($request->all(), [
+            'sku'         => ['required','string','max:64','unique:products,sku'],
+            'name'        => ['required','string','max:255'],
+            'description' => ['nullable','string'],
+            'price'       => ['required','numeric','min:0'],
+            'components'              => ['nullable','array'],
+            'components.*.id'         => ['required_with:components','exists:components,id'],
+            'components.*.quantity'   => ['required_with:components','integer','min:1'],
+            'is_active'   => ['nullable','in:on,0,1'],
+        ], $messages);
+
+        if ($validator->fails()) {
+            Log::warning('Validation errors in ProductController@store', $validator->errors()->toArray());
+            return back()->withErrors($validator)->withInput();
+        }
+
+        $data = $validator->validated();
+        $data['is_active'] = $request->has('is_active');
+
+        try {
+            DB::beginTransaction();
+
+            // Creazione del prodotto
+            $product = Product::create([
+                'sku'         => $data['sku'],
+                'name'        => $data['name'],
+                'description' => $data['description'] ?? null,
+                'price'       => $data['price'],
+                'is_active'   => $data['is_active'],
+            ]);
+
+            // Associazione componenti con quantità (pivot table)
+            if (! empty($data['components'])) {
+                $sync = [];
+                foreach ($data['components'] as $item) {
+                    $sync[$item['id']] = ['quantity' => $item['quantity']];
+                }
+                $product->components()->sync($sync);
+            }
+
+            DB::commit();
+
+            return redirect()
+                ->route('products.index')
+                ->with('success', 'Prodotto creato con successo.');
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('Error in ProductController@store', [
+                'exception' => $e->getMessage(),
+                'trace'     => $e->getTraceAsString(),
+            ]);
+
+            return back()
+                ->withInput()
+                ->with('error', 'Errore durante la creazione del prodotto. Controlla i log.');
+        }
     }
 
     /**
@@ -78,18 +174,150 @@ class ProductController extends Controller
     }
 
     /**
-     * Update the specified resource in storage.
+     * Aggiorna un prodotto esistente e riallinea i componenti.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @param  \App\Models\Product       $product
+     * @return \Illuminate\Http\RedirectResponse
      */
     public function update(Request $request, Product $product)
     {
-        //
+        // Messaggi personalizzati (stessi di store)
+        $messages = [ /* … vedi sopra … */ ];
+
+        // Regole di validazione (stessi di store, sku unico escludendo l’attuale)
+        $validator = Validator::make($request->all(), [
+            'sku'         => [
+                'required','string','max:64',
+                Rule::unique('products','sku')->ignore($product->id),
+            ],
+            'name'        => ['required','string','max:255'],
+            'description' => ['nullable','string'],
+            'price'       => ['required','numeric','min:0'],
+            'components'              => ['nullable','array'],
+            'components.*.id'         => ['required_with:components','exists:components,id'],
+            'components.*.quantity'   => ['required_with:components','integer','min:1'],
+            'is_active'   => ['nullable','in:on,0,1'],
+        ], $messages);
+
+        if ($validator->fails()) {
+            Log::warning('Validation errors in ProductController@update', $validator->errors()->toArray());
+            return back()->withErrors($validator)->withInput();
+        }
+
+        $data = $validator->validated();
+        $data['is_active'] = $request->has('is_active');
+
+        try {
+            DB::beginTransaction();
+
+            // Update dei campi del prodotto
+            $product->update([
+                'sku'         => $data['sku'],
+                'name'        => $data['name'],
+                'description' => $data['description'] ?? null,
+                'price'       => $data['price'],
+                'is_active'   => $data['is_active'],
+            ]);
+
+            // Riallaccio i componenti (sincronizzo pivot)
+            $sync = [];
+            if (! empty($data['components'])) {
+                foreach ($data['components'] as $item) {
+                    $sync[$item['id']] = ['quantity' => $item['quantity']];
+                }
+            }
+            $product->components()->sync($sync);
+
+            DB::commit();
+
+            return redirect()
+                ->route('products.index')
+                ->with('success', 'Prodotto aggiornato con successo.');
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('Error in ProductController@update', [
+                'exception' => $e->getMessage(),
+                'trace'     => $e->getTraceAsString(),
+            ]);
+
+            return back()
+                ->withInput()
+                ->with('error', 'Errore durante l\'aggiornamento del prodotto. Controlla i log.');
+        }
     }
 
     /**
-     * Remove the specified resource from storage.
+     * Ripristina un prodotto soft-deleted e lo riattiva.
+     *
+     * @param  int  $id
+     * @return \Illuminate\Http\RedirectResponse
+     */
+    public function restore($id)
+    {
+        try {
+            DB::beginTransaction();
+
+            // Trovo con i soft-deleted
+            $product = Product::withTrashed()->findOrFail($id);
+
+            // Ripristino
+            $product->restore();
+
+            // Riattivo
+            $product->update(['is_active' => true]);
+
+            DB::commit();
+
+            return redirect()
+                ->route('products.index')
+                ->with('success', 'Prodotto ripristinato con successo.');
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('Error in ProductController@restore', [
+                'exception' => $e->getMessage(),
+                'trace'     => $e->getTraceAsString(),
+            ]);
+
+            return back()
+                ->with('error', 'Errore durante il ripristino del prodotto. Controlla i log.');
+        }
+    }
+
+    /**
+     * Soft-delete di un prodotto (lo disattiva e lo marca come cancellato).
+     *
+     * @param  \App\Models\Product  $product
+     * @return \Illuminate\Http\RedirectResponse
      */
     public function destroy(Product $product)
     {
-        //
+        try {
+            DB::beginTransaction();
+
+            // Disattivo
+            $product->update(['is_active' => false]);
+
+            // Soft-delete
+            $product->delete();
+
+            DB::commit();
+
+            return redirect()
+                ->route('products.index')
+                ->with('success', 'Prodotto eliminato con successo.');
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('Error in ProductController@destroy', [
+                'exception' => $e->getMessage(),
+                'trace'     => $e->getTraceAsString(),
+            ]);
+
+            return back()
+                ->with('error', 'Errore durante l\'eliminazione del prodotto. Controlla i log.');
+        }
     }
 }

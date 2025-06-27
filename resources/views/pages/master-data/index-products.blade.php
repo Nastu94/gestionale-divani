@@ -14,13 +14,15 @@
 
                 {{-- Pulsante “Nuovo” --}}
                 <div class="flex justify-end m-2 p-2">
-                    <button 
-                        @click="openCreate"
-                        class="inline-flex items-center m-2 px-3 py-1.5 bg-purple-600 rounded-md text-xs font-semibold text-white uppercase
-                            hover:bg-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-300 transition"
-                    >
-                        <i class="fas fa-plus mr-1"></i> Nuovo
-                    </button>
+                    @if(auth()->user()->can('products.create'))
+                        <button 
+                            @click="openCreate"
+                            class="inline-flex items-center m-2 px-3 py-1.5 bg-purple-600 rounded-md text-xs font-semibold text-white uppercase
+                                hover:bg-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-300 transition"
+                        >
+                            <i class="fas fa-plus mr-1"></i> Nuovo
+                        </button>
+                    @endif
 
                     {{-- Pulsante Estendi/Comprimi su tutta la tabella --}}
                     <button
@@ -52,7 +54,7 @@
                             <tr class="uppercase tracking-wider">
                                 <th class="px-6 py-2 text-left">Codice Prodotto</th>
                                 <th class="px-6 py-2 text-left">Nome</th>
-                                <th x-show="extended" x-cloak class="px-6 py-2 text-left whitespace-nowrap">Descrizione</th>
+                                <th x-show="extended" x-cloak class="px-6 py-2 text-left">Descrizione</th>
                                 <th x-show="extended" x-cloak class="px-6 py-2 text-left whitespace-nowrap">Prezzo</th>
                                 <th class="px-6 py-2 text-center">Attivo</th>
                             </tr>
@@ -76,8 +78,8 @@
                                 >
                                     <td class="px-6 py-2 whitespace-nowrap">{{ $product->sku }}</td>
                                     <td class="px-6 py-2 whitespace-nowrap">{{ $product->name }}</td>
-                                    <td class="px-6 py-2 whitespace-nowrap">{{ $product->description ?? '—' }}</td>
-                                    <td class="px-6 py-2 whitespace-nowrap">{{ $product->price ?? '—' }}</td>
+                                    <td x-show="extended" x-cloak class="px-6 py-2 text-left">{{ $product->description ?? '—' }}</td>
+                                    <td x-show="extended" x-cloak class="px-6 py-2 text-left whitespace-nowrap">{{ $product->price ?? '—' }}€</td>
                                     <td class="px-6 py-2 text-center whitespace-nowrap">
                                         <span
                                             class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium"
@@ -110,19 +112,21 @@
                                             @endif
 
                                             @if($canDelete)
-                                                <form
-                                                    action="{{ route('products.destroy', $product) }}"
-                                                    method="POST"
-                                                    onsubmit="return confirm('Sei sicuro di voler eliminare questo prodotto?');"
-                                                >
-                                                    @csrf
-                                                    @method('DELETE')
-                                                    <button type="submit" class="inline-flex items-center hover:text-red-600">
-                                                        <i class="fas fa-trash-alt mr-1"></i> Elimina
-                                                    </button>
-                                                </form>
+                                                @unless($product->trashed())
+                                                    <form
+                                                        action="{{ route('products.destroy', $product) }}"
+                                                        method="POST"
+                                                        onsubmit="return confirm('Sei sicuro di voler eliminare questo prodotto?');"
+                                                    >
+                                                        @csrf
+                                                        @method('DELETE')
+                                                        <button type="submit" class="inline-flex items-center hover:text-red-600">
+                                                            <i class="fas fa-trash-alt mr-1"></i> Elimina
+                                                        </button>
+                                                    </form>
+                                                @endunless
                                             @endif
-                                        
+
                                             {{-- Ripristina (solo se soft-deleted) --}}
                                             @if($product->trashed() && auth()->user()->can('products.update'))
                                                 <form
@@ -156,108 +160,113 @@
 
     @push('scripts')
     <script>
-    document.addEventListener('alpine:init', () => {
-        Alpine.data('productCrud', () => ({
-            componentsList: @json($components),
-            generateCodeUrl: @json(route('products.generate-code')),
+        document.addEventListener('alpine:init', () => {
+            Alpine.data('productCrud', () => ({
+                componentsList: @json($components),
+                generateCodeUrl: @json(route('products.generate-code')),
 
-            // Modal
-            showModal: false,
-            mode: 'create',
-            form: { 
-                id: null, 
-                sku: '', 
-                name: '', 
-                description: '', 
-                price: '',
-                components: [],
-                is_active: true, 
-            },
-            errors: {},
-
-            // Per riga espansa e colonne aggiuntive
-            openId: null,
-            extended: false,
-
-            openCreate() {
-                this.resetForm();
-                this.mode = 'create';
-                this.showModal = true;
-            },
-
-            openEdit(product) {
-                this.mode = 'edit';
-                this.form.id            = product.id;
-                this.form.sku           = product.sku;
-                this.form.name          = product.name;
-                this.form.description   = product.description   ?? '';
-                this.form.price         = product.price;
-                this.form.components    = product.components   ?? [];
-                this.form.is_active     = product.is_active;
-                this.errors = {};
-                this.showModal = true;
-            },
-
-            resetForm() {
-                this.form = { 
+                // Modal
+                showModal: false,
+                mode: 'create',
+                form: { 
                     id: null, 
                     sku: '', 
                     name: '', 
                     description: '', 
-                    price: '', 
+                    price: '',
                     components: [],
                     is_active: true, 
-                };
-                this.errors = {};
-            },
+                },
+                errors: {},
 
-            validateProduct() {
-                this.errors = {};
-                let valid = true;
-                if (! this.form.sku.trim()) {
-                    this.errors.sku = 'Il codice è obbligatorio.';
-                    valid = false;
-                }
-                if (! this.form.name.trim()) {
-                    this.errors.name = 'Il nome è obbligatorio.';
-                    valid = false;
-                }
-                if (! this.form.price.trim()) {
-                    this.errors.price = 'Il prezzo è obbligatorio.';
-                    valid = false;
-                }
-                return valid;
-            },
+                // Per riga espansa e colonne aggiuntive
+                openId: null,
+                extended: false,
 
-            init() {
-                @if($errors->any())
+                openCreate() {
+                    this.resetForm();
+                    this.mode = 'create';
                     this.showModal = true;
-                    this.mode = '{{ old('_method','create') === 'PUT' ? 'edit' : 'create' }}';
-                    this.errors = @json($errors->toArray());
+                },
+
+                openEdit(product) {
+                    this.mode = 'edit';
                     this.form = {
-                        id:         {{ old('id', 'null') }},
-                        sku:           '{{ old('sku', '') }}',
-                        name:          '{{ old('name', '') }}',
-                        description:   '{{ old('description', '') }}',
-                        price:         '{{ old('price', '') }}',
-                        components:    @json(old('components', [])),
-                        is_active:     {{ old('is_active', true) ? 'true' : 'false' }},
+                        id:          product.id,
+                        sku:         product.sku,
+                        name:        product.name,
+                        description: product.description ?? '',
+                        price:       product.price,
+                        is_active:   product.is_active,
+                        components:  (product.components ?? []).map(c => ({
+                            id:       c.id,
+                            quantity: c.pivot.quantity
+                        }))
                     };
-                @endif
-            },
+                    this.errors = {};
+                    this.$nextTick(() => { this.showModal = true });
+                },
 
-            async generateCode() {
-                try {
-                    const res  = await fetch(this.generateCodeUrl);
-                    const json = await res.json();
-                    this.form.sku = json.code;
-                } catch (e) {
-                    console.error('Errore generazione codice:', e);
-                }
-            },
+                resetForm() {
+                    this.form = { 
+                        id: null, 
+                        sku: '', 
+                        name: '', 
+                        description: '', 
+                        price: '', 
+                        components: [],
+                        is_active: true, 
+                    };
+                    this.errors = {};
+                },
 
-        }));
-    });
+                validateProduct() {
+                    this.errors = {};
+                    let valid = true;
+                    if (! this.form.sku.trim()) {
+                        this.errors.sku = 'Il codice è obbligatorio.';
+                        valid = false;
+                    }
+                    if (! this.form.name.trim()) {
+                        this.errors.name = 'Il nome è obbligatorio.';
+                        valid = false;
+                    }
+                    if (! this.form.price.trim()) {
+                        this.errors.price = 'Il prezzo è obbligatorio.';
+                        valid = false;
+                    }
+                    return valid;
+                },
+
+                init() {
+                    @if($errors->any())
+                        this.showModal = true;
+                        this.mode = '{{ old('_method','create') === 'PUT' ? 'edit' : 'create' }}';
+                        this.errors = @json($errors->toArray());
+                        this.form = {
+                            id:         {{ old('id', 'null') }},
+                            sku:           '{{ old('sku', '') }}',
+                            name:          '{{ old('name', '') }}',
+                            description:   '{{ old('description', '') }}',
+                            price:         '{{ old('price', '') }}',
+                            components:    @json(old('components', [])),
+                            is_active:     {{ old('is_active', true) ? 'true' : 'false' }},
+                        };
+                    @endif
+                },
+
+                async generateCode() {
+                    try {
+                        const res  = await fetch(this.generateCodeUrl);
+                        const json = await res.json();
+                        this.form.sku = json.code;
+                    } catch (e) {
+                        console.error('Errore generazione codice:', e);
+                    }
+                },
+
+            }));
+        });
     </script>
     @endpush
 </x-app-layout>
