@@ -5,6 +5,8 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Spatie\Activitylog\Traits\LogsActivity;
 use Spatie\Activitylog\LogOptions;
+use App\Models\Supplier;
+use App\Models\Component;
 
 /**
  * Modello pivot per la relazione component_supplier.
@@ -64,5 +66,25 @@ class ComponentSupplier extends Model
             ->logFillable()
             ->logOnlyDirty()
             ->useLogName('component_supplier'); 
+    }
+
+    /**
+     * Relazione con il modello Supplier.
+     *
+     * @return \Illuminate\Database\Eloquent\Relations\BelongsTo
+     */
+    public function supplier()
+    {
+        return $this->belongsTo(Supplier::class);
+    }
+
+    /**
+     * Relazione con il modello Component.
+     *
+     * @return \Illuminate\Database\Eloquent\Relations\BelongsTo
+     */
+    public function component()
+    {
+        return $this->belongsTo(Component::class);
     }
 }

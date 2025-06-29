@@ -11,6 +11,7 @@ use Illuminate\Validation\Rule;
 use App\Models\ComponentCategory;
 use App\Models\Supplier;
 use App\Models\Component;
+use App\Models\ComponentSupplier;
 
 /**
  * Controller CRUD per la gestione dell’anagrafica Componenti.
@@ -42,6 +43,7 @@ class ComponentController extends Controller
         /* Query base ---------------------------------------------------- */
         $components = Component::query()
             ->with('category')                                         // eager-load
+            ->with('componentSuppliers')                               // eager-load
             /* ---- filtri colonna -------------------------------------- */
             ->when($filters['category']   ?? null,
                 fn ($q,$v) => $q->whereHas('category',

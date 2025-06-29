@@ -848,71 +848,32 @@ Route::middleware([
 
     /*
     |--------------------------------------------------------------------------
-    | Gestione Liste Prezzi – solo index & show (visualizzazione)
+    | Gestione Liste Prezzi – lista fornitori (visualizzazione)
     |--------------------------------------------------------------------------
     |
-    | Mostra la lista delle liste prezzi e il dettaglio di una specifica lista.
-    | Protette dal permesso price_lists.view.
-    |
+    | Mostra la lista dei fornitori associati a un componente.
+    | Utilizza il controller PriceListController e il metodo list.
+    | Protetta dal permesso price_lists.view.
+    |    
     */
-    Route::resource('price-lists', PriceListController::class)
-        ->only(['index', 'show'])
-        ->names([
-            'index' => 'price_lists.index',
-            'show'  => 'price_lists.show',
-        ])
+    Route::get('components/{component}/price-lists', [PriceListController::class, 'list'])
+        ->name('price_lists.list')
         ->middleware('permission:price_lists.view');
 
     /*
     |--------------------------------------------------------------------------
-    | Gestione Liste Prezzi – solo create & store (creazione)
+    | Gestione Liste Prezzi - eliminazione fornitore
     |--------------------------------------------------------------------------
     |
-    | Visualizza il form per creare una nuova lista prezzi e gestisce il salvataggio.
-    | Protette dal permesso price_lists.create.
-    |
-    */
-    Route::resource('price-lists', PriceListController::class)
-        ->only(['create', 'store'])
-        ->names([
-            'create' => 'price_lists.create',
-            'store'  => 'price_lists.store',
-        ])
-        ->middleware('permission:price_lists.create');
-
-    /*
-    |--------------------------------------------------------------------------
-    | Gestione Liste Prezzi – solo edit & update (modifica)
-    |--------------------------------------------------------------------------
-    |
-    | Visualizza il form per modificare una lista prezzi esistente e gestisce l'aggiornamento.
-    | Protette dal permesso price_lists.update.
-    |
-    */
-    Route::resource('price-lists', PriceListController::class)
-        ->only(['edit', 'update'])
-        ->names([
-            'edit'   => 'price_lists.edit',
-            'update' => 'price_lists.update',
-        ])
-        ->middleware('permission:price_lists.update');
-
-    /*
-    |--------------------------------------------------------------------------
-    | Gestione Liste Prezzi – solo destroy (cancellazione)
-    |--------------------------------------------------------------------------
-    |
-    | Gestisce la cancellazione di una lista prezzi dal sistema.
+    | Questa rotta permette di eliminare un fornitore da una lista prezzi.
+    | Utilizza il controller PriceListController e il metodo destroy.
     | Protetta dal permesso price_lists.delete.
     |
     */
-    Route::resource('price-lists', PriceListController::class)
-        ->only(['destroy'])
-        ->names([
-            'destroy' => 'price_lists.destroy',
-        ])
+    Route::delete('components/{component}/price-lists/{supplier}', [PriceListController::class, 'destroy'])
+        ->name('price_lists.destroy')
         ->middleware('permission:price_lists.delete');
-
+        
     /*
 |--------------------------------------------------------------------------
     | Reportistica

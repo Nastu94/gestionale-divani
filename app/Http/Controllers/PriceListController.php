@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Http\JsonResponse;
 use App\Models\ComponentSupplier;
 use App\Models\Component;
 use App\Models\Supplier;
@@ -104,10 +105,36 @@ class PriceListController extends Controller
                 ->where($data)
                 ->first();
 
+                
         return response()->json([
             'found'      => (bool) $pivot,
             'price'      => $pivot ? $pivot->last_cost : null,
             'lead_time'  => $pivot ? $pivot->lead_time_days : null,
+        ]);
+    }
+
+    /**
+     * Elenco dei fornitori per un componente specifico.
+     * 
+     * @param  \App\Models\Component  $component
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function list(Component $component): JsonResponse
+    {
+
+        /* fornitori con campi pivot ------------------------------------ */
+        $suppliers = $component->suppliers()
+            ->withPivot(['last_cost', 'lead_time_days'])
+            ->get();
+
+        /* risposta finale ---------------------------------------------- */
+        return response()->json([
+            'meta' => [
+                'id'          => $component->id,
+                'code'        => $component->code,
+                'description' => $component->description,
+            ],
+            'data' => $suppliers,
         ]);
     }
 
@@ -136,10 +163,15 @@ class PriceListController extends Controller
     }
 
     /**
-     * Remove the specified resource from storage.
+     * Rimuove una relazione componente↔fornitore.
      */
-    public function destroy(ComponentSupplier $componentSupplier)
+    public function destroy(Component $component, Supplier $supplier)
     {
-        // ...
+        ComponentSupplier::where([
+            'component_id' => $component->id,
+            'supplier_id'  => $supplier->id,
+        ])->delete();
+
+        return response()->noContent();
     }
 }

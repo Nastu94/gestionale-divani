@@ -38,9 +38,20 @@
         </a>
     </div>
 
-    {{-- Menu a fisarmonica --}}
+    {{-- Menu a fisarmonica: itero solo le sezioni con almeno una voce accessibile --}}
     @foreach(config('menu.sidebar') as $i => $section)
+        @php
+            // filtro gli items cui l'utente ha effettivo accesso
+            $accessible = collect($section['items'])
+                ->filter(fn($item) => empty($item['permission']) || auth()->user()->can($item['permission']));
+        @endphp
+
+        @if($accessible->isEmpty())
+            @continue
+        @endif
+
         <div class="border-b border-gray-200 dark:border-gray-700">
+            {{-- Intestazione sezione --}}
             <button
                 @click="openSection = (openSection === {{ $i }} ? null : {{ $i }})"
                 class="w-full flex justify-between items-center px-6 py-3 hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none"
@@ -54,30 +65,27 @@
                 ></i>
             </button>
 
+            {{-- Voci accessibili della sezione --}}
             <ul
                 x-show="openSection === {{ $i }}"
                 x-transition
                 class="space-y-1 bg-gray-50 dark:bg-gray-900"
             >
-                @foreach($section['items'] as $item)
+                @foreach($accessible as $item)
                     @php
-                        $perm     = $item['permission'] ?? null;
                         $isActive = request()->routeIs($item['route']);
                     @endphp
-
-                    @if(!$perm || auth()->user()->can($perm))
-                        <li>
-                            <a
-                                href="{{ route($item['route']) }}"
-                                class="block px-8 py-2 text-sm transition-colors
-                                       {{ $isActive
-                                            ? 'bg-gray-200 dark:bg-gray-700 font-medium'
-                                            : 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700' }}"
-                            >
-                                {{ __($item['label']) }}
-                            </a>
-                        </li>
-                    @endif
+                    <li>
+                        <a
+                            href="{{ route($item['route']) }}"
+                            class="block px-8 py-2 text-sm transition-colors
+                                   {{ $isActive
+                                        ? 'bg-gray-200 dark:bg-gray-700 font-medium text-gray-900 dark:text-gray-100'
+                                        : 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700' }}"
+                        >
+                            {{ __($item['label']) }}
+                        </a>
+                    </li>
                 @endforeach
             </ul>
         </div>

@@ -88,6 +88,17 @@ class Component extends Model
     }
 
     /**
+     * Relazione uno a molti con ComponentSupplier.
+     * 
+     * @return \Illuminate\Database\Eloquent\Relations\HasMany
+     * 
+     */
+    public function componentSuppliers()
+    {
+        return $this->hasMany(ComponentSupplier::class);
+    }
+
+    /**
      * Relazione uno a molti con StockLevel.
      *
      * @return \Illuminate\Database\Eloquent\Relations\HasMany

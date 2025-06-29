@@ -85,6 +85,14 @@
                     </div>
                 </div>
 
+                {{-- Modale Listino Prezzi --}}
+                <div x-show="showPriceListModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center">
+                    <div class="absolute inset-0 bg-black opacity-75" @click="showPriceListModal = false"></div>
+                    <div class="relative z-10 w-full max-w-2xl">
+                        <x-component-price-list-modal/>
+                    </div>
+                </div>
+
                 {{-- Tabella espandibile --}}
                 <div class="overflow-x-auto p-4">
                     <table class="table-auto min-w-full text-sm divide-y divide-gray-200 dark:divide-gray-700">
@@ -147,7 +155,7 @@
 
                                 {{-- Riga principale --}}
                                 <tr
-                                    @if($canCrud)
+                                    @if($canCrud || (auth()->user()->can('price_lists.view') || auth()->user()->can('price_lists.create')))
                                         @click="openId = (openId === {{ $component->id }} ? null : {{ $component->id }})"
                                         class="cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700"
                                         :class="openId === {{ $component->id }} ? 'bg-gray-200 dark:bg-gray-700' : ''"
@@ -205,6 +213,16 @@
                                                 </button>
                                             @endcan
 
+                                            @can('price_lists.view')
+                                                <button
+                                                    type="button"
+                                                    @click="openPriceListModal({{ $component->id }})"
+                                                    class="inline-flex items-center hover:text-purple-600"
+                                                >
+                                                    <i class="fas fa-list mr-1"></i> Listini
+                                                </button>
+                                            @endcan
+
                                             @if($canDelete)
                                                 @unless($component->trashed())
                                                     {{-- Elimina (solo se non soft-deleted) --}}
@@ -253,9 +271,23 @@
         <script>
             document.addEventListener('alpine:init', () => {
                 Alpine.data('componentCrud', () => ({
-                    // Modal
+
+                    /**
+                     * Variabili per la gestione della tabella
+                     */
+                    openId: null,
+                    extended: false,
+
+                    /**
+                     * Modale per la gestione dei componenti
+                     * 
+                     */
                     showModal: false,
                     mode: 'create',
+
+                    /**
+                     * Form per Create/Edit Componenti
+                     */
                     form: { 
                         id: null,
                         category_id: null,
@@ -271,16 +303,20 @@
                     },
                     errors: {},
 
-                    // Per riga espansa e colonne aggiuntive
-                    openId: null,
-                    extended: false,
-
+                    /**
+                     * Apre il modale per la creazione di un nuovo componente
+                     */
                     openCreate() {
                         this.resetForm();
                         this.mode = 'create';
                         this.showModal = true;
                     },
-
+                    
+                    /**
+                     * Apre il modale per la modifica di un componente esistente
+                     * 
+                     * @param {Object} component - Il componente da modificare
+                     */
                     openEdit(component) {
                         this.mode = 'edit';
                         this.form.id               = component.id;
@@ -298,6 +334,9 @@
                         this.showModal = true;
                     },
 
+                    /**
+                     * Reset del form per Create/Edit Componenti
+                     */
                     resetForm() {
                         this.form = { 
                             id: null, 
@@ -315,6 +354,9 @@
                         this.errors = {};
                     },
 
+                    /**
+                     * Validazione del componente (Create o Edit)
+                     */
                     validateComponent() {
                         this.errors = {};
                         let valid = true;
@@ -333,6 +375,9 @@
                         return valid;
                     },
 
+                    /**
+                     * Genera un codice per il componente basato sulla categoria
+                     */
                     generateCode() {
                         if (! this.form.category_id) return;
 
@@ -342,6 +387,9 @@
                             .catch(() => alert('Impossibile generare il codice, riprova.'));
                     },
 
+                    /**
+                     * Inizializza i modali se ci sono errori
+                     */
                     init () {
                         /* (A) errori del form componente */
                         @if ($errors->any() && ! session('supplier_modal'))
@@ -380,8 +428,32 @@
                         @endif
                     },
 
+                    /**
+                     * Mostra il modale per abbinare un componente a un fornitore
+                     */
                     showSupplierModal : false,
 
+                    /**
+                     * Apre il modale per la lista dei fornitori del componente
+                     * 
+                     * @param {Object|number} componentOrId - Il componente o l'ID del componente
+                     */
+                    openPriceListModal(componentOrId) {
+                        // accetta sia l’oggetto che un semplice id
+                        const id = (typeof componentOrId === 'object')
+                            ? componentOrId.id
+                            : componentOrId;
+
+                        this.$dispatch('load-price-list', { component_id: id });
+
+                        this.$nextTick(() => { this.showPriceListModal = true });
+                    },
+
+                    /**
+                     * Apre il modale per aggiungere o modificare un fornitore per il componente
+                     * 
+                     * @param {Object} component - Il componente per cui aggiungere il fornitore
+                     */
                     openSupplierModal(component) {
                         /* invia i dati al modale tramite evento globale */
                         this.$dispatch('prefill-supplier-form', {
@@ -394,7 +466,18 @@
                         /* mostra il modale nel prossimo tick */
                         this.$nextTick(() => { this.showSupplierModal = true })
                     },
-                    
+
+                    /**
+                     * Mostra il modale per gestire i listini prezzi del componente
+                     */
+                    showPriceListModal : false,
+
+                    /**
+                     * Elimina un componente
+                     * 
+                     * @param {number} id - ID del componente da eliminare
+                     * @returns {void}
+                     */
                     deleteComponent(id) {
                         if (! confirm('Eliminare questo componente?')) return;
 
