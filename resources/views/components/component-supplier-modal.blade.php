@@ -4,19 +4,64 @@
 
 <div
     x-data="{
+        /* ------------------------------------------------------------
+         |  stato locale del form (viene popolato dal padre)
+         * -----------------------------------------------------------*/
         localForm: {
             component_id : '{{ old('component_id', 'null') }}',
             supplier_id  : '{{ old('supplier_id', '') }}',
             price        : '{{ old('price', '') }}',
             lead_time    : '{{ old('lead_time', '') }}'
         },
+
+        /* Reset campi prezzo + lead-time */
         reset () {
-            this.localForm = { component_id:null, supplier_id:'', price:'', lead_time:'' };
+            this.localForm.price     = ''
+            this.localForm.lead_time = ''
+        },
+
+        /* ------------------------------------------------------------
+         |  Carica l’associazione dal server
+         * -----------------------------------------------------------*/
+        async loadExisting () {
+            /* Nessun fornitore selezionato → svuota e basta */
+            if (!this.localForm.supplier_id) { this.reset(); return }
+
+            try {
+                const qs = new URLSearchParams({
+                    component_id: this.localForm.component_id,
+                    supplier_id : this.localForm.supplier_id,
+                })
+                const res = await fetch(`{{ route('price_lists.fetch') }}?${qs}`)
+                if (!res.ok) throw new Error('Network')
+
+                const data = await res.json()
+
+                if (data.found) {
+                    /* Pivot esistente → riempi gli input */
+                    this.localForm.price     = data.price      ?? ''
+                    this.localForm.lead_time = data.lead_time ?? ''
+                } else {
+                    /* Nessun pivot → lascia vuoti */
+                    this.reset()
+                }
+            } catch (e) {
+                console.error(e)
+                alert('Impossibile recuperare il listino.')
+                this.reset()
+            }
         }
     }"
     @click.away="showSupplierModal = false"
-    @prefill-supplier-form.window="localForm = $event.detail"    {{-- riceve i dati dal padre quando si clicca “Fornitori” --}}
-    class="relative bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-y-auto max-h-[90vh] w-full max-w-xl p-6 z-10"
+
+    {{--  Prefill dal padre + caricamento eventuale associazione  --}}
+    @prefill-supplier-form.window="
+        localForm = $event.detail;
+        $nextTick(() => loadExisting())
+    "
+
+    class="relative bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-y-auto
+           max-h-[90vh] w-full max-w-xl p-6 z-10"
 >
     {{-- Header --}}
     <div class="flex justify-between items-center mb-4">
@@ -42,6 +87,7 @@
             <label for="supplier_id" class="block text-xs font-medium text-gray-700 dark:text-gray-300">Fornitore</label>
             <select
                 x-model="localForm.supplier_id"
+                @change="loadExisting()"
                 name="supplier_id"
                 id="supplier_id"
                 required

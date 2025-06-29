@@ -8,13 +8,29 @@
         </div>
         
         @if (session('success'))
-            <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative" role="alert">
+            <div
+                x-data="{ show: true }"
+                x-init="setTimeout(() => show = false, 10000)"
+                x-show="show"
+                x-transition.opacity.duration.500ms
+                class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative mt-2"
+                role="alert"
+            >
+                <i class="fas fa-check-circle mr-2"></i>
                 <span class="block sm:inline">{{ session('success') }}</span>
             </div>
         @endif
 
         @if (session('error'))
-            <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+            <div
+                x-data="{ show: true }"
+                x-init="setTimeout(() => show = false, 10000)"
+                x-show="show"
+                x-transition.opacity.duration.500ms
+                class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mt-2"
+                role="alert"
+            >
+                <i class="fas fa-exclamation-triangle mr-2"></i>
                 <span class="block sm:inline">{{ session('error') }}</span>
             </div>
         @endif
@@ -62,7 +78,7 @@
                 {{-- Modale Fornitori --}}
                 <div x-show="showSupplierModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center">
                     <div class="absolute inset-0 bg-black opacity-75" @click="showSupplierModal = false"></div>
-                    <div class="relative z-10 w-full max-w-3xl">
+                    <div class="relative z-10 w-full max-w-xl">
                         <x-component-supplier-modal 
                             :suppliers="$suppliers"
                         />

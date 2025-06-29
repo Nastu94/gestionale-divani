@@ -834,6 +834,20 @@ Route::middleware([
     | Listini Prezzi (Pivot ComponentSupplier)
 |--------------------------------------------------------------------------
     |--------------------------------------------------------------------------
+    | Gestione Liste Prezzi – solo fetch (recupero liste prezzi)
+    |--------------------------------------------------------------------------
+    |
+    | Questa rotta permette di recuperare le liste prezzi associate ai componenti.
+    | Utilizza il controller PriceListController e il metodo fetch.
+    | Protetta dal permesso price_lists.view.
+    |
+    */
+    Route::get('price-lists/fetch', [PriceListController::class, 'fetch'])
+        ->name('price_lists.fetch')
+        ->middleware('permission:price_lists.view');
+
+    /*
+    |--------------------------------------------------------------------------
     | Gestione Liste Prezzi – solo index & show (visualizzazione)
     |--------------------------------------------------------------------------
     |

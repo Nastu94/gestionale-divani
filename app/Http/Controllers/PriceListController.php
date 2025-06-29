@@ -88,6 +88,30 @@ class PriceListController extends Controller
     }
 
     /**
+     * Ritorna prezzo e lead-time per la coppia componente↔fornitore (JSON).
+     * 
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function fetch(Request $request)
+    {
+        $data = $request->validate([
+            'component_id' => ['required', 'exists:components,id'],
+            'supplier_id'  => ['required', 'exists:suppliers,id'],
+        ]);
+
+        $pivot = ComponentSupplier::select('last_cost', 'lead_time_days')
+                ->where($data)
+                ->first();
+
+        return response()->json([
+            'found'      => (bool) $pivot,
+            'price'      => $pivot?->last_cost,
+            'lead_time'  => $pivot?->lead_time_days,
+        ]);
+    }
+
+    /**
      * Display the specified resource.
      */
     public function show(ComponentSupplier $componentSupplier)
