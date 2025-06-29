@@ -106,8 +106,8 @@ class PriceListController extends Controller
 
         return response()->json([
             'found'      => (bool) $pivot,
-            'price'      => $pivot?->last_cost,
-            'lead_time'  => $pivot?->lead_time_days,
+            'price'      => $pivot ? $pivot->last_cost : null,
+            'lead_time'  => $pivot ? $pivot->lead_time_days : null,
         ]);
     }
 
