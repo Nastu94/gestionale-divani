@@ -35,12 +35,6 @@ return [
             ],
         ],
         [
-            'section' => 'Listini',
-            'items'   => [
-                ['label'=>'Listini Fornitori', 'route'=>'price_lists.index', 'permission'=>'price_lists.view'],
-            ],
-        ],
-        [
             'section' => 'Report',
             'items'   => [
                 ['label'=>'Ordini Cliente',    'route'=>'reports.orders.customer',  'permission'=>'reports.orders.customer'],
@@ -92,13 +86,6 @@ return [
                 ['label'=>'Entrate',       'route'=>'stock-movements-entry.index',   'icon'=>'fas fa-download',        'permission'=>'stock.entry'],
                 ['label'=>'Uscite',        'route'=>'stock-movements-exit.index',    'icon'=>'fas fa-upload',          'permission'=>'stock.exit'],
                 ['label'=>'Alert',         'route'=>'alerts.index',                  'icon'=>'fa-bell',                'permission'=>'alerts.view'],
-            ],
-        ],
-        [
-            'section' => 'Listini',
-            'icon'    => 'fa-tags',
-            'items'   => [
-                ['label'=>'Listini Fornitori', 'route'=>'price_lists.index',    'icon'=>'fa-money-check-alt',     'permission'=>'price_lists.view'],
             ],
         ],
         [

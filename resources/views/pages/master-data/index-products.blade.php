@@ -6,6 +6,18 @@
             <h2 class="font-semibold text-lg text-gray-800 dark:text-gray-200 leading-tight">{{ __('Prodotti') }}</h2>
             <x-dashboard-tiles />
         </div>
+        
+        @if (session('success'))
+            <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative" role="alert">
+                <span class="block sm:inline">{{ session('success') }}</span>
+            </div>
+        @endif
+
+        @if (session('error'))
+            <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+                <span class="block sm:inline">{{ session('error') }}</span>
+            </div>
+        @endif
     </x-slot>
     
     <div class="py-6">
@@ -45,18 +57,56 @@
                             :components="$components" 
                         />
                     </div>
-                </div>             
+                </div>
+
+                {{-- Modale Visualizza Distinta Base Prodotto --}}
+                <template x-if="showViewModal">
+                    <x-product-view-modal />
+                </template>
 
                 {{-- Tabella espandibile --}}
                 <div class="overflow-x-auto p-4">
                     <table class="table-auto min-w-full text-sm divide-y divide-gray-200 dark:divide-gray-700">
                         <thead class="bg-gray-300 dark:bg-gray-700">
                             <tr class="uppercase tracking-wider">
-                                <th class="px-6 py-2 text-left">Codice Prodotto</th>
-                                <th class="px-6 py-2 text-left">Nome</th>
+                                <x-th-menu
+                                    field="sku"
+                                    label="Codice Prodotto"
+                                    :sort="$sort"
+                                    :dir="$dir"
+                                    :filters="$filters"
+                                    reset-route="products.index"
+                                />
+                                <x-th-menu
+                                    field="name"
+                                    label="Nome"
+                                    :sort="$sort"
+                                    :dir="$dir"
+                                    :filters="$filters"
+                                    reset-route="products.index"
+                                />
                                 <th x-show="extended" x-cloak class="px-6 py-2 text-left">Descrizione</th>
-                                <th x-show="extended" x-cloak class="px-6 py-2 text-left whitespace-nowrap">Prezzo</th>
-                                <th class="px-6 py-2 text-center">Attivo</th>
+                                <x-th-menu
+                                    x-show="extended"
+                                    x-cloak
+                                    field="price"
+                                    label="Prezzo"
+                                    :sort="$sort"
+                                    :dir="$dir"
+                                    :filters="$filters"
+                                    reset-route="products.index"
+                                    align="right"
+                                />
+                                <x-th-menu
+                                    field="is_active"
+                                    label="Attivo"
+                                    :sort="$sort"
+                                    :dir="$dir"
+                                    :filters="$filters"
+                                    align="right"
+                                    :filterable="false"
+                                    reset-route="products.index"
+                                />
                             </tr>
                         </thead>
 
@@ -94,13 +144,22 @@
                                 </tr>
 
                                 {{-- Riga espansa con Modifica / Elimina / Estendi --}}
-                                @if($canCrud)
+                                @if($canCrud || auth()->user()->can('products.view'))
                                 <tr x-show="openId === {{ $product->id }}" x-cloak>
                                     <td
                                         :colspan="extended ? 5 : 3"
                                         class="px-6 py-3 bg-gray-200 dark:bg-gray-700"
                                     >
                                         <div class="flex items-center space-x-4 text-xs">
+                                            
+                                            <button
+                                                type="button"
+                                                @click='openShow(@json($product))'
+                                                class="inline-flex items-center hover:text-indigo-600"
+                                            >
+                                                <i class="fas fa-eye mr-1"></i> Visualizza
+                                            </button>
+
                                             @if($canEdit)
                                                 <button
                                                     type="button"
@@ -182,6 +241,17 @@
                 // Per riga espansa e colonne aggiuntive
                 openId: null,
                 extended: false,
+
+                showViewModal: false,
+                viewProduct:   null,
+
+                openShow(product) {
+                    /* salvo il prodotto da visualizzare */
+                    this.viewProduct   = product
+
+                    /* apro nel prossimo tick così il DOM vede già i dati */
+                    this.$nextTick(() => { this.showViewModal = true })
+                },
 
                 openCreate() {
                     this.resetForm();

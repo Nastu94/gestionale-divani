@@ -142,8 +142,9 @@
                         <div class="grid grid-cols-4 gap-2 items-end">
                             {{-- Select componente --}}
                             <div class="col-span-3">
-                                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">Componente</label>
+                                <label for="`components[${idx}][id]`" class="block text-xs font-medium text-gray-700 dark:text-gray-300">Componente</label>
                                 <select
+                                    :id="`components[${idx}][id]`"
                                     :name="`components[${idx}][id]`"
                                     x-model="item.id"
                                     class="mt-1 block w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-600 text-sm text-gray-900 dark:text-gray-100"
@@ -162,7 +163,7 @@
 
                             {{-- Quantità --}}
                             <div>
-                            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">
+                            <label for="`components[${idx}][quantity]`" class="block text-xs font-medium text-gray-700 dark:text-gray-300">
                                 Quantità
                                 <span
                                     x-text="item.id
@@ -171,6 +172,7 @@
                                 </span>
                             </label>
                             <input
+                                :id="`components[${idx}][quantity]`"
                                 type="number"
                                 min="1"
                                 :name="`components[${idx}][quantity]`"

@@ -2,13 +2,15 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Component;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response; 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use App\Models\ComponentCategory;
+use App\Models\Supplier;
+use App\Models\Component;
 
 /**
  * Controller CRUD per la gestione dell’anagrafica Componenti.
@@ -57,13 +59,20 @@ class ComponentController extends Controller
             }, function ($q) use ($sort,$dir) {
                 $q->orderBy($sort,$dir);
             })
+            ->withTrashed() // include soft-deleted
             ->paginate(15)
             ->appends($request->query()); // preserva sort+filtri
-
+        
+        /* Eager-load categorie e fornitori per il form */
         $categories = ComponentCategory::orderBy('name')->get();
+        $suppliers = Supplier::select('id', 'name')
+                    ->orderBy('name')
+                    ->get();
 
-        return view('pages.master-data.index-components',
-                    compact('components','categories','sort','dir','filters'));
+        return view(
+            'pages.master-data.index-components',
+            compact('components', 'categories', 'sort', 'dir', 'filters', 'suppliers')
+        );
     }
 
     /**
@@ -74,7 +83,8 @@ class ComponentController extends Controller
      */
     public function store(Request $request)
     {
-        /* ▲ VALIDAZIONE --------------------------------------------------- */
+        // Validazione dei campi
+        // Usa messaggi personalizzati per una migliore UX
         $messages = [
             'category_id.required'   => 'La categoria è obbligatoria.',
             'category_id.exists'     => 'La categoria selezionata non esiste.',
@@ -88,6 +98,7 @@ class ComponentController extends Controller
             'weight.numeric'         => 'Il peso deve essere numerico.',
         ];
 
+        // Validazione con messaggi personalizzati
         $validator = Validator::make(
             $request->all(),
             [
@@ -105,6 +116,7 @@ class ComponentController extends Controller
             $messages
         );
 
+        // Se la validazione fallisce, logga gli errori e torna indietro
         if ($validator->fails()) {
             Log::warning('Validation errors in ComponentController@store', $validator->errors()->toArray());
 
@@ -113,10 +125,11 @@ class ComponentController extends Controller
                 ->withInput();
         }
 
-        /* ▲ PERSISTENZA --------------------------------------------------- */
+        // Se la validazione ha successo, prepara i dati per il salvataggio
         $data              = $validator->validated();
         $data['is_active'] = $request->has('is_active');
 
+        // Inizia la transazione per garantire l'integrità dei dati
         try {
             DB::beginTransaction();
 
@@ -182,6 +195,8 @@ class ComponentController extends Controller
      */
     public function update(Request $request, Component $component)
     {
+        // Validazione dei campi
+        // Usa messaggi personalizzati per una migliore UX
         $messages = [
             'category_id.required'   => 'La categoria è obbligatoria.',
             'category_id.exists'     => 'La categoria selezionata non esiste.',
@@ -195,6 +210,8 @@ class ComponentController extends Controller
             'weight.numeric'         => 'Il peso deve essere numerico.',
         ];
 
+        // Validazione con messaggi personalizzati
+        // Usa Rule::unique per ignorare il componente corrente
         $validator = Validator::make(
             $request->all(),
             [
@@ -215,6 +232,7 @@ class ComponentController extends Controller
             $messages
         );
 
+        // Se la validazione fallisce, logga gli errori e torna indietro
         if ($validator->fails()) {
             Log::warning('Validation errors in ComponentController@update', $validator->errors()->toArray());
 
@@ -223,9 +241,11 @@ class ComponentController extends Controller
                 ->withInput();
         }
 
+        // Se la validazione ha successo, prepara i dati per l'aggiornamento
         $data              = $validator->validated();
         $data['is_active'] = $request->has('is_active');
 
+        // Inizia la transazione per garantire l'integrità dei dati
         try {
             DB::beginTransaction();
 
@@ -258,8 +278,8 @@ class ComponentController extends Controller
      */
     public function restore($id)
     {
-        Log::info('ComponentController@restore called', ['id' => $id]);
-
+        // Trova il componente soft-deleted
+        // e lo ripristina impostando is_active a true.
         try {
             DB::beginTransaction();
 
@@ -292,34 +312,37 @@ class ComponentController extends Controller
      * @param  Component  $component
      * @return \Illuminate\Http\RedirectResponse
      */
-    public function destroy(Component $component)
+    public function destroy(Request $request, Component $component)
     {
-        Log::info('ComponentController@destroy called', ['id' => $component->id]);
+        /* ─────────────────────────────────────  BLOCCO 409  */
+        if ($component->products()->exists()) {
+            $msg = 'Impossibile eliminare il componente perché è associato a uno o più prodotti.';
 
+            // AJAX? → JSON 409 --  altrimenti redirect con errore flash
+            return $request->expectsJson()
+                ? response()->json(['message' => $msg], Response::HTTP_CONFLICT)      // 409
+                : back()->with('error', $msg);
+        }
+
+        /* ─────────────────────────────────────  SOFT-DELETE  */
         try {
-            DB::beginTransaction();
+            DB::transaction(fn () => tap($component)
+                ->update(['is_active' => false])
+                ->delete());
 
-            // Disattiva
-            $component->update(['is_active' => false]);
-
-            // Soft-delete
-            $component->delete();
-
-            DB::commit();
-
-            return redirect()
-                ->route('components.index')
-                ->with('success', 'Componente eliminato (soft-delete) con successo.');
+            // AJAX => 200 OK, altrimenti redirect “classico”
+            return $request->expectsJson()
+                ? response()->json(['message' => 'ok'])
+                : redirect()->route('components.index')
+                            ->with('success', 'Componente eliminato con successo.');
         } catch (\Throwable $e) {
-            DB::rollBack();
+            Log::error('Eliminazione componente fallita', ['ex' => $e->getMessage()]);
 
-            Log::error('Error in ComponentController@destroy', [
-                'exception' => $e->getMessage(),
-                'trace'     => $e->getTraceAsString(),
-            ]);
+            $fallback = 'Errore imprevisto durante l’eliminazione. Riprova o contatta l’admin.';
 
-            return back()
-                ->with('error', 'Errore durante l’eliminazione del componente. Controlla i log.');
+            return $request->expectsJson()
+                ? response()->json(['message' => $fallback], 500)
+                : back()->with('error', $fallback);
         }
     }
 }

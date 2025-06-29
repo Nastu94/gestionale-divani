@@ -6,6 +6,18 @@
             <h2 class="font-semibold text-lg text-gray-800 dark:text-gray-200 leading-tight">{{ __('Componenti') }}</h2>
             <x-dashboard-tiles />
         </div>
+        
+        @if (session('success'))
+            <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative" role="alert">
+                <span class="block sm:inline">{{ session('success') }}</span>
+            </div>
+        @endif
+
+        @if (session('error'))
+            <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+                <span class="block sm:inline">{{ session('error') }}</span>
+            </div>
+        @endif
     </x-slot>
 
     <div class="py-6">
@@ -45,7 +57,17 @@
                             :categories='$categories' 
                         />
                     </div>
-                </div>             
+                </div>
+                
+                {{-- Modale Fornitori --}}
+                <div x-show="showSupplierModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center">
+                    <div class="absolute inset-0 bg-black opacity-75" @click="showSupplierModal = false"></div>
+                    <div class="relative z-10 w-full max-w-3xl">
+                        <x-component-supplier-modal 
+                            :suppliers="$suppliers"
+                        />
+                    </div>
+                </div>
 
                 {{-- Tabella espandibile --}}
                 <div class="overflow-x-auto p-4">
@@ -63,7 +85,7 @@
                                 <x-th-menu
                                     field="description"
                                     label="Descrizione"
-                                    :sort="$sort"       {{-- variabili passate dal controller --}}
+                                    :sort="$sort"
                                     :dir="$dir"
                                     :filters="$filters"
                                     reset-route="components.index"
@@ -80,7 +102,7 @@
                                 <x-th-menu
                                     field="category"
                                     label="Categoria"
-                                    :sort="$sort"       {{-- variabili passate dal controller --}}
+                                    :sort="$sort"
                                     :dir="$dir"
                                     :filters="$filters"
                                     reset-route="components.index"
@@ -88,7 +110,7 @@
                                 <x-th-menu
                                     field="is_active"
                                     label="Attivo"
-                                    :sort="$sort"       {{-- variabili passate dal controller --}}
+                                    :sort="$sort"
                                     :dir="$dir"
                                     :filters="$filters"
                                     align="right"
@@ -140,7 +162,7 @@
                                 </tr>
 
                                 {{-- Riga espansa con Modifica / Elimina / Ripristina --}}
-                                @if($canCrud)
+                                @if($canCrud || (auth()->user()->can('price_lists.view') || auth()->user()->can('price_lists.create')))
                                 <tr x-show="openId === {{ $component->id }}" x-cloak>
                                     <td
                                         :colspan="extended ? 10 : 5"
@@ -157,20 +179,26 @@
                                                 </button>
                                             @endif
 
+                                            @can('price_lists.create')
+                                                <button
+                                                    type="button"
+                                                    @click='openSupplierModal(@json($component))'
+                                                    class="inline-flex items-center hover:text-blue-600"
+                                                >
+                                                    <i class="fas fa-handshake mr-1"></i> Fornitori
+                                                </button>
+                                            @endcan
+
                                             @if($canDelete)
                                                 @unless($component->trashed())
                                                     {{-- Elimina (solo se non soft-deleted) --}}
-                                                    <form
-                                                        action="{{ route('components.destroy', $component) }}"
-                                                        method="POST"
-                                                        onsubmit="return confirm('Sei sicuro di voler eliminare questo componente?');"
+                                                    <button
+                                                        type="button"
+                                                        @click="deleteComponent({{ $component->id }})"
+                                                        class="inline-flex items-center hover:text-red-600"
                                                     >
-                                                        @csrf
-                                                        @method('DELETE')
-                                                        <button type="submit" class="inline-flex items-center hover:text-red-600">
-                                                            <i class="fas fa-trash-alt mr-1"></i> Elimina
-                                                        </button>
-                                                    </form>
+                                                        <i class="fas fa-trash-alt mr-1"></i> Elimina
+                                                    </button>
                                                 @endunless
                                             @endif
                                         
@@ -298,25 +326,87 @@
                             .catch(() => alert('Impossibile generare il codice, riprova.'));
                     },
 
-                    init() {
-                        @if($errors->any())
-                            this.showModal = true;
-                            this.mode = '{{ old('_method','create') === 'PUT' ? 'edit' : 'create' }}';
-                            this.errors = @json($errors->toArray());
-                            this.form = {
-                                id:         {{ old('id', 'null') }},
-                                category_id: {{ old('category_id', 'null') }},
-                                code:       '{{ old('code', '') }}',
-                                description: '{{ old('description', '') }}',
-                                material:   '{{ old('material', '') }}',
-                                height:     {{ old('height', 'null') }},
-                                width:      {{ old('width', 'null') }},
-                                length:     {{ old('length', 'null') }},
-                                weight:     {{ old('weight', 'null') }},
-                                unit_of_measure: '{{ old('unit_of_measure', '') }}',
-                                is_active:  {{ old('is_active', 'true') ? 'true' : 'false' }},
-                            };
+                    init () {
+                        /* (A) errori del form componente */
+                        @if ($errors->any() && ! session('supplier_modal'))
+                            this.showModal = true
+                            this.mode      = '{{ old('_method', 'create') === 'PUT' ? 'edit' : 'create' }}'
+                            this.errors    = @json($errors->toArray())
+                            this.form      = {
+                                id              : {{ old('id', 'null') }},
+                                category_id     : {{ old('category_id', 'null') }},
+                                code            : '{{ old('code', '') }}',
+                                description     : '{{ old('description', '') }}',
+                                material        : '{{ old('material', '') }}',
+                                height          : {{ old('height', 'null') }},
+                                width           : {{ old('width', 'null') }},
+                                length          : {{ old('length', 'null') }},
+                                weight          : {{ old('weight', 'null') }},
+                                unit_of_measure : '{{ old('unit_of_measure', '') }}',
+                                is_active       : {{ old('is_active', 'true') ? 'true' : 'false' }},
+                            }
                         @endif
+
+                        /* (B) errori modale fornitori */
+                        @if (session('supplier_modal'))
+                            this.showSupplierModal = true
+
+                            this.$nextTick(() => {
+                                Alpine.deferMutations(() => {
+                                    this.$dispatch('prefill-supplier-form', {
+                                        component_id : {{ session('supplier_component') ?? 'null' }},
+                                        supplier_id  : '{{ old('supplier_id') }}',
+                                        price        : '{{ old('price') }}',
+                                        lead_time    : '{{ old('lead_time') }}',
+                                    })
+                                })
+                            })
+                        @endif
+                    },
+
+                    showSupplierModal : false,
+
+                    openSupplierModal(component) {
+                        /* invia i dati al modale tramite evento globale */
+                        this.$dispatch('prefill-supplier-form', {
+                            component_id : component.id,
+                            supplier_id  : '',
+                            price        : '',
+                            lead_time    : ''
+                        })
+
+                        /* mostra il modale nel prossimo tick */
+                        this.$nextTick(() => { this.showSupplierModal = true })
+                    },
+                    
+                    deleteComponent(id) {
+                        if (! confirm('Eliminare questo componente?')) return;
+
+                        fetch(`/components/${id}`, {
+                            method : 'DELETE',
+                            headers: {
+                                'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                                'Accept'      : 'application/json'
+                            }
+                        })
+                        .then(async res => {
+                            if (res.status === 409) {
+                                // blocco protetto dal controller
+                                const data = await res.json();
+                                alert(data.message);          
+                                return;
+                            }
+
+                            if (res.ok) {
+                                // eliminazione riuscita, ricarico la pagina per aggiornare la lista
+                                location.reload();
+                                return;
+                            }
+
+                            // qualunque altro errore
+                            alert('Errore imprevisto, riprovare.');
+                        })
+                        .catch(() => alert('Errore di rete, controlla la connessione.'));
                     },
 
                 }));

@@ -17,7 +17,7 @@
     $urlWith    = fn(array $extra) => url()->current() . '?' . http_build_query(array_replace_recursive($baseQuery, $extra));
 @endphp
 
-<th class="px-6 py-2 text-left relative" x-data="{open:false}" >
+<th {{ $attributes->merge(['class' => 'px-6 py-2 text-left relative']) }} x-data="{open:false}" :class="{'bg-gray-100': open}" >
     {{-- Trigger button --}}
     <button x-ref="btn" @click="open = !open" class="flex items-center gap-1 hover:text-indigo-600 focus:outline-none uppercase tracking-wider">
         {{ $label }}
@@ -26,7 +26,7 @@
         @endif
     </button>
 
-    {{-- Dropdown append to body for Alpine2 compatibility --}}
+    {{-- Dropdown append to body for Alpine positioning --}}
     <div x-show="open" x-ref="dropdown" @click.outside="open=false" wire:ignore
          x-init="
             $watch('open', val => {
@@ -45,11 +45,12 @@
             });
          "
          style="display:none;"
-         x-transition.opacity class="w-48 bg-white rounded shadow text-sm">
+         x-transition.opacity
+         class="w-48 bg-white rounded shadow text-sm">
 
         {{-- Sorting links --}}
-        <a href="{{ $urlWith(['sort'=>$field,'dir'=>'asc']) }}" class="block px-3 py-1 hover:bg-gray-100"><b>Crescente</b></a>
-        <a href="{{ $urlWith(['sort'=>$field,'dir'=>'desc']) }}" class="block px-3 py-1 hover:bg-gray-100"><b>Decrescente</b></a>
+        <a href="{{ $urlWith(['sort'=>$field,'dir'=>'asc']) }}" class="block px-3 py-1 hover:bg-gray-100"><i class="fa-solid fa-arrow-up-short-wide"></i> <b>Crescente</b></a>
+        <a href="{{ $urlWith(['sort'=>$field,'dir'=>'desc']) }}" class="block px-3 py-1 hover:bg-gray-100"><i class="fa-solid fa-arrow-down-wide-short"></i> <b>Decrescente</b></a>
 
         {{-- Filter block --}}
         @if($filterable)
@@ -73,6 +74,6 @@
         @endif
 
         <div class="border-t my-1"></div>
-        <a href="{{ route($resetRoute) }}" class="block px-3 py-1 text-red-600 hover:bg-gray-100"><b>Azzera filtri</b></a>
+        <a href="{{ $resetRoute ? route($resetRoute) : url()->current() }}" class="block px-3 py-1 text-red-600 hover:bg-gray-100"><b>Azzera filtri</b></a>
     </div>
 </th>

@@ -6,6 +6,18 @@
             <h2 class="font-semibold text-lg text-gray-800 dark:text-gray-200 leading-tight">{{ __('Fornitori') }}</h2>
             <x-dashboard-tiles />
         </div>
+        
+        @if (session('success'))
+            <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative" role="alert">
+                <span class="block sm:inline">{{ session('success') }}</span>
+            </div>
+        @endif
+
+        @if (session('error'))
+            <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+                <span class="block sm:inline">{{ session('error') }}</span>
+            </div>
+        @endif
     </x-slot>
 
     <div class="py-6">
@@ -69,7 +81,16 @@
                                 <th x-show="extended" x-cloak class="px-6 py-2 text-left whitespace-nowrap">Termini di Pagamento</th>
                                 <th x-show="extended" x-cloak class="px-6 py-2 text-left whitespace-nowrap">Indirizzo Fornitore</th>
 
-                                <th class="px-6 py-2 text-center">Attivo</th>
+                                <x-th-menu
+                                    field="is_active"
+                                    label="Attivo"
+                                    :sort="$sort"
+                                    :dir="$dir"
+                                    :filters="$filters"
+                                    reset-route="suppliers.index"
+                                    align="right"
+                                    :filterable="false"
+                                />
                             </tr>
                         </thead>
 
@@ -151,7 +172,7 @@
                                             @endif
 
                                             @if($canDelete)
-                                                @unless(!$supplier->trashed())
+                                                @if(!$supplier->trashed())
                                                     {{-- Elimina (solo se non soft-deleted) --}}
                                                 <form
                                                     action="{{ route('suppliers.destroy', $supplier) }}"
@@ -164,7 +185,7 @@
                                                         <i class="fas fa-trash-alt mr-1"></i> Elimina
                                                     </button>
                                                 </form>
-                                                @endunless
+                                                @endif
                                             @endif
                                         
                                             {{-- Ripristina (solo se soft-deleted) --}}

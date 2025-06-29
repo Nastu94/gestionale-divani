@@ -13,7 +13,7 @@ return new class extends Migration {
             $table->foreignId('component_id')->constrained()->cascadeOnDelete();
             $table->foreignId('supplier_id')->constrained()->cascadeOnDelete();
             $table->integer('lead_time_days')->nullable();
-            $table->decimal('last_cost', 10, 2)->nullable();
+            $table->decimal('last_cost', 10, 4)->nullable();
             $table->timestamps();
 
             $table->primary(['component_id', 'supplier_id']);

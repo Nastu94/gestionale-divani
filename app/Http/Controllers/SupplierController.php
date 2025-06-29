@@ -13,30 +13,51 @@ class SupplierController extends Controller
 {
     /**
      * Mostra una lista di fornitori.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\View\View
      */
     public function index(Request $request)
     {
-        // 1) Leggi parametri query
-        $sort   = $request->input('sort', 'name');
-        $dir    = $request->input('dir', 'asc') === 'desc' ? 'desc' : 'asc';
-        $filter = $request->input('filter.name');  // solo name
+        // Definiamo i campi sui quali è permesso ordinare
+        $allowedSorts = ['name', 'is_active'];
 
-        // 2) Costruisci la query
-        $suppliers = Supplier::query()
-            ->when($filter, fn($q, $v) => 
-                $q->where('name', 'like', "%{$v}%")
-            )
-            ->orderBy('name', $dir)
-            ->withTrashed()
+        // Leggiamo il parametro 'sort' e lo validiamo contro la whitelist
+        $sort = $request->input('sort', 'name');
+        if (! in_array($sort, $allowedSorts)) {
+            $sort = 'name';
+        }
+
+        // Leggiamo la direzione, default 'asc', forziamo solo 'asc' o 'desc'
+        $dir = $request->input('dir', 'asc') === 'desc' ? 'desc' : 'asc';
+
+        // Leggiamo il filtro sul nome (il th-menu passa filter[name])
+        $filterName = $request->input('filter.name');
+
+        // Costruiamo la query di base, includendo i soft-deleted
+        $query = Supplier::withTrashed();
+
+        // Applichiamo il filtro sul nome, se fornito
+        if ($filterName) {
+            $query->where('name', 'like', "%{$filterName}%");
+        }
+
+        // Applichiamo l'ordinamento dinamico
+        $query->orderBy($sort, $dir);
+
+        // Eseguiamo la paginazione e manteniamo i parametri in query string
+        $suppliers = $query
             ->paginate(15)
             ->appends($request->query());
 
-        // 3) Ritorna la view con le variabili per il <x-th-menu>
+        // Restituiamo la vista passando anche sort, dir e filters per th-menu
         return view('pages.master-data.index-suppliers', [
             'suppliers' => $suppliers,
             'sort'      => $sort,
             'dir'       => $dir,
-            'filters'   => ['name' => $filter],
+            'filters'   => [
+                'name' => $filterName,
+            ],
         ]);
     }
 
@@ -262,8 +283,6 @@ class SupplierController extends Controller
      */
     public function restore($id)
     {
-        // Log iniziale
-        Log::info('SupplierController@restore called', ['id' => $id]);
 
         try {
             DB::beginTransaction();
@@ -273,14 +292,9 @@ class SupplierController extends Controller
 
             // 2) Ripristina
             $supplier->restore();
-            Log::info('Supplier restored (soft-deleted removed)', ['id' => $supplier->id]);
 
             // 3) Riattiva il fornitore
             $supplier->update(['is_active' => true]);
-            Log::info('Supplier marked active after restore', [
-                'id'        => $supplier->id,
-                'is_active' => $supplier->is_active,
-            ]);
 
             DB::commit();
 
@@ -310,8 +324,6 @@ class SupplierController extends Controller
      */
     public function destroy(Supplier $supplier)
     {
-        // 1) Log iniziale
-        Log::info('SupplierController@destroy called', ['id' => $supplier->id]);
 
         try {
             // 2) Inizio transazione
@@ -321,17 +333,9 @@ class SupplierController extends Controller
             $supplier->update([
                 'is_active' => false,
             ]);
-            Log::info('Supplier marked inactive', [
-                'id'        => $supplier->id,
-                'is_active' => $supplier->is_active,
-            ]);
 
             // 4) Esegui il soft–delete
             $deleted = $supplier->delete();
-            Log::info('Supplier softDeleted', [
-                'id'      => $supplier->id,
-                'deleted' => $deleted, // ritorna true se il deleted_at è stato impostato
-            ]);
 
             // 5) Commit
             DB::commit();

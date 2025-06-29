@@ -17,18 +17,62 @@ class ProductController extends Controller
     /**
      * Mostra una lista di prodotti
      */
-    public function index()
+    public function index(Request $request)
     {
-        /*  Eager-load dei componenti con id, codice, descrizione e unità di misura  */
+        // Parametri ammessi per ordinamento
+        $allowedSorts = ['sku', 'name', 'price', 'is_active'];
+        $allowedDirs  = ['asc', 'desc'];
+
+        // Leggi da querystring (default: id asc)
+        $sort    = $request->query('sort', 'id');
+        $dir     = $request->query('dir', 'asc');
+        $filters = $request->query('filter', []);
+
+        // Sanitizza
+        if (! in_array($sort, $allowedSorts)) {
+            $sort = 'id';
+        }
+        if (! in_array($dir, $allowedDirs)) {
+            $dir = 'asc';
+        }
+
+        // Recupera liste componenti per il modal (sempre ordinate per code)
         $components = Component::select('id', 'code', 'description', 'unit_of_measure')
-                    ->orderBy('code')
-                    ->get();
+                        ->orderBy('code')
+                        ->get();
 
-        $products = Product::with([
-            'components:id,code,description,unit_of_measure'   // serve anche nell’edit
-        ])->paginate(20);
+        // Costruisci la query sui prodotti
+        $query = Product::with([
+            'components:id,code,description,unit_of_measure'
+        ])
+        ->withTrashed(); // Include soft-deleted;
 
-        return view('pages.master-data.index-products', compact('products', 'components'));
+        // 6) Applica filtri
+        if (! empty($filters['sku'])) {
+            $query->where('sku', 'like', '%' . $filters['sku'] . '%');
+        }
+        if (! empty($filters['name'])) {
+            $query->where('name', 'like', '%' . $filters['name'] . '%');
+        }
+        if (! empty($filters['price'])) {
+            $query->where('price', $filters['price']);
+        }
+        if (isset($filters['is_active'])) {
+            $query->where('is_active', $filters['is_active'] === 'on' ? true : false);
+        }
+
+        // 7) Applica ordinamento
+        $query->orderBy($sort, $dir);
+
+        // 8) Pagina e mantieni le querystring
+        $products = $query
+            ->paginate(20)
+            ->appends($request->query());
+
+        // 9) Passa tutto in view
+        return view('pages.master-data.index-products', compact(
+            'products', 'components', 'sort', 'dir', 'filters'
+        ));
     }
 
     /**

@@ -155,8 +155,9 @@
 
                         {{-- Tipo indirizzo --}}
                         <div class="mb-2">
-                            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">Tipo</label>
+                            <label for="addresses[${idx}][type]" class="block text-xs font-medium text-gray-700 dark:text-gray-300">Tipo</label>
                             <select 
+                                :id="`addresses[${idx}][type]`"
                                 :name="`addresses[${idx}][type]`" 
                                 x-model="addr.type" 
                                 class="mt-1 block w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-600 text-sm text-gray-900 dark:text-gray-100"
@@ -169,8 +170,9 @@
 
                         {{-- Via/Indirizzo --}}
                         <div class="mb-2">
-                            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">Indirizzo</label>
+                            <label for="`addresses[${idx}][address]`" class="block text-xs font-medium text-gray-700 dark:text-gray-300">Indirizzo</label>
                             <input 
+                                :id="`addresses[${idx}][address]`"
                                 type="text" 
                                 :name="`addresses[${idx}][address]`" 
                                 x-model="addr.address" 
@@ -181,27 +183,30 @@
                         {{-- Città, CAP, Nazione --}}
                         <div class="grid grid-cols-3 gap-2">
                             <div>
-                                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">Città</label>
+                                <label for="`addresses[${idx}][city]`" class="block text-xs font-medium text-gray-700 dark:text-gray-300">Città</label>
                                 <input 
                                     type="text" 
+                                    :id="`addresses[${idx}][city]`"
                                     :name="`addresses[${idx}][city]`" 
                                     x-model="addr.city" 
                                     class="mt-1 block w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-600 text-sm text-gray-900 dark:text-gray-100"
                                 />
                             </div>
                             <div>
-                                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">CAP</label>
+                                <label for="`addresses[${idx}][postal_code]`" class="block text-xs font-medium text-gray-700 dark:text-gray-300">CAP</label>
                                 <input 
                                     type="text" 
+                                    :id="`addresses[${idx}][postal_code]`"
                                     :name="`addresses[${idx}][postal_code]`" 
                                     x-model="addr.postal_code" 
                                     class="mt-1 block w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-600 text-sm text-gray-900 dark:text-gray-100"
                                 />
                             </div>
                             <div>
-                                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">Nazione</label>
+                                <label for="`addresses[${idx}][country]`" class="block text-xs font-medium text-gray-700 dark:text-gray-300">Nazione</label>
                                 <input 
                                     type="text" 
+                                    :id="`addresses[${idx}][country]`"
                                     :name="`addresses[${idx}][country]`" 
                                     x-model="addr.country" 
                                     class="mt-1 block w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-600 text-sm text-gray-900 dark:text-gray-100"
