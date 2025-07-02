@@ -139,6 +139,30 @@ class PriceListController extends Controller
     }
 
     /**
+     * Elenco dei componenti per un fornitore specifico.
+     * 
+     * @param  \App\Models\Supplier  $supplier
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function components(Supplier $supplier): JsonResponse
+    {
+
+        /* componenti con campi pivot */
+        $components = $supplier->components()
+            ->withPivot(['last_cost', 'lead_time_days'])
+            ->orderBy('code')
+            ->get();
+
+        return response()->json([
+            'meta' => [
+                'id'   => $supplier->id,
+                'name' => $supplier->name,
+            ],
+            'data' => $components,
+        ]);
+    }
+
+    /**
      * Display the specified resource.
      */
     public function show(ComponentSupplier $componentSupplier)

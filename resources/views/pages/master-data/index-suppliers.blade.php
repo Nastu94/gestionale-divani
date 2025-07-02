@@ -72,6 +72,17 @@
                     </div>
                 </div>
 
+                {{-- Modale Listini componenti --}}
+                <div x-show="showComponentPriceListModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center">
+                    {{-- overlay scuro chiusura --}}
+                    <div class="absolute inset-0 bg-black opacity-75"
+                        @click="showComponentPriceListModal = false; rows = []"></div>
+
+                    <div class="relative z-10 w-full max-w-4xl">
+                        <x-supplier-component-price-list-modal />
+                    </div>
+                </div>
+
                 {{-- Tabella espandibile --}}
                 <div class="overflow-x-auto p-4">
                     <table class="table-auto min-w-full text-sm divide-y divide-gray-200 dark:divide-gray-700">
@@ -128,7 +139,7 @@
 
                                 {{-- Riga principale --}}
                                 <tr
-                                    @if($canCrud)
+                                    @if($canCrud || auth()->user()->can('price_lists.view'))
                                         @click="openId = (openId === {{ $supplier->id }} ? null : {{ $supplier->id }})"
                                         class="cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700"
                                         :class="openId === {{ $supplier->id }} ? 'bg-gray-200 dark:bg-gray-700' : ''"
@@ -170,7 +181,7 @@
                                 </tr>
 
                                 {{-- Riga espansa con Modifica / Elimina / Ripristina --}}
-                                @if($canCrud)
+                                @if($canCrud || auth()->user()->can('price_lists.view'))
                                 <tr x-show="openId === {{ $supplier->id }}" x-cloak>
                                     <td
                                         :colspan="extended ? 10 : 7"
@@ -186,6 +197,15 @@
                                                     <i class="fas fa-pencil-alt mr-1"></i> Modifica
                                                 </button>
                                             @endif
+
+                                            @can('price_lists.view')
+                                                <button
+                                                    type="button"
+                                                    @click="openComponentListModal({{ $supplier->id }})"
+                                                    class="inline-flex items-center hover:text-blue-600">
+                                                    <i class="fas fa-list mr-1"></i> Listini
+                                                </button>
+                                            @endcan
 
                                             @if($canDelete)
                                                 @if(!$supplier->trashed())
@@ -356,6 +376,19 @@
                         }
                         return valid;
                     },
+
+                    openComponentListModal (supplierId) {
+                        // accetta sia l’oggetto che un semplice id
+                        const id = (typeof supplierId === 'object')
+                            ? supplierId.id
+                            : supplierId;
+
+                        this.$dispatch('load-component-price-list', { supplierId: id });
+
+                        this.$nextTick(() => { this.showComponentPriceListModal = true });
+                    },
+
+                    showComponentPriceListModal: false,
                 }));
             });
         </script>

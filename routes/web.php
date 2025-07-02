@@ -862,6 +862,37 @@ Route::middleware([
 
     /*
     |--------------------------------------------------------------------------
+    | Gestione Liste Prezzi – lista fornitori (visualizzazione)
+    |--------------------------------------------------------------------------
+    |
+    | Mostra la lista dei fornitori associati a un componente.
+    | Utilizza il controller PriceListController e il metodo list.
+    | Protetta dal permesso price_lists.view.
+    |    
+    */
+    Route::get('/suppliers/{supplier}/price-lists', [PriceListController::class, 'components'])
+        ->name('suppliers.price-lists')
+        ->middleware('permission:price_lists.view');
+        
+    /*
+    |--------------------------------------------------------------------------
+    | Gestione Liste Prezzi – solo create & store (creazione)
+    |--------------------------------------------------------------------------
+    |
+    | Visualizza il form per creare una nuova lista prezzi e gestisce il salvataggio.
+    | Protette dal permesso price_lists.create.
+    |
+    */
+    Route::resource('price-lists', PriceListController::class)
+        ->only(['create', 'store'])
+        ->names([
+            'create' => 'price_lists.create',
+            'store'  => 'price_lists.store',
+        ])
+        ->middleware('permission:price_lists.create');
+
+    /*
+    |--------------------------------------------------------------------------
     | Gestione Liste Prezzi - eliminazione fornitore
     |--------------------------------------------------------------------------
     |

@@ -12,13 +12,25 @@
     class="bg-white rounded-lg shadow-lg p-6 w-full">
 
     <!-- header -->
-    <h2 class="text-xl font-semibold mb-4">
-        Listino fornitori –
-        <span x-text="componentCode"></span>
-        <span class="text-gray-500" x-show="componentDescr">
-            – <span x-text="componentDescr"></span>
-        </span>
-    </h2>
+    <div class="flex justify-between items-center mb-4">
+        <h3 class="text-xl font-semibold mb-4">
+            Listino fornitori –
+            <span x-text="componentCode"></span>
+            <span class="text-gray-500" x-show="componentDescr">
+                – <span x-text="componentDescr"></span>
+            </span>
+        </h3>
+        <button type="button" 
+            @click="showPriceListModal = false
+                rows = [];
+                componentId = null;
+                componentCode = '';
+                componentDescr = '';
+                " 
+            class="text-gray-500 hover:text-gray-700">
+            <i class="fas fa-times"></i>
+        </button>
+    </div>
 
     <!-- tabella -->
     <template x-if="loading">
