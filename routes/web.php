@@ -876,7 +876,7 @@ Route::middleware([
         
     /*
     |--------------------------------------------------------------------------
-    | Gestione Liste Prezzi – solo create & store (creazione)
+    | Gestione Liste Prezzi – solo create & store (creazione lato componente)
     |--------------------------------------------------------------------------
     |
     | Visualizza il form per creare una nuova lista prezzi e gestisce il salvataggio.
@@ -893,10 +893,23 @@ Route::middleware([
 
     /*
     |--------------------------------------------------------------------------
-    | Gestione Liste Prezzi - eliminazione fornitore
+    | Gestione Liste Prezzi – solo create & store (craezione lato fornitore)
     |--------------------------------------------------------------------------
     |
-    | Questa rotta permette di eliminare un fornitore da una lista prezzi.
+    | Visualizza il form per creare una nuova lista prezzi e gestisce il salvataggio.
+    | Protette dal permesso price_lists.create.
+    |
+    */
+    Route::post('/suppliers/{supplier}/price-lists', [PriceListController::class, 'bulkStore'])
+        ->name('suppliers.price-lists.store')
+        ->middleware('permission:price_lists.create');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Gestione Liste Prezzi - eliminazione fornitore o componente
+    |--------------------------------------------------------------------------
+    |
+    | Questa rotta permette di eliminare un fornitore o un componente da una lista prezzi.
     | Utilizza il controller PriceListController e il metodo destroy.
     | Protetta dal permesso price_lists.delete.
     |

@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Validation\Rule;
 use App\Models\ComponentSupplier;
 use App\Models\Component;
 use App\Models\Supplier;
@@ -86,6 +87,35 @@ class PriceListController extends Controller
                 ->withErrors(['unexpected' => 'Errore inatteso, controlla i log.'])
                 ->with('supplier_modal', true);
         }
+    }
+
+    /**
+     * Salva in bulk le relazioni componente-fornitore con prezzo e lead-time.
+     *
+     * @param  \Illuminate\Http\Request  $req
+     * @param  \App\Models\Supplier  $supplier
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function bulkStore(Request $req, Supplier $supplier): JsonResponse
+    {
+        $data = $req->validate([
+            'items'                => ['required','array','min:1'],
+            'items.*.component_id' => ['required','integer', Rule::exists('components','id')],
+            'items.*.price'        => ['required','numeric','min:0'],
+            'items.*.lead_time'    => ['required','integer','min:0'],
+        ]);
+
+        $pivot = collect($data['items'])
+            ->mapWithKeys(fn($r) => [
+                $r['component_id'] => [
+                    'last_cost'      => $r['price'],
+                    'lead_time_days' => $r['lead_time'],
+                ],
+            ])->toArray();
+
+        $supplier->components()->syncWithoutDetaching($pivot);
+
+        return response()->json(['message'=>'Componenti salvati','count'=>count($pivot)]);
     }
 
     /**

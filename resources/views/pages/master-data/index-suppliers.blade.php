@@ -83,6 +83,16 @@
                     </div>
                 </div>
 
+                {{-- Modale Aggiungi Componenti --}}
+                <div x-show="showAddComponentModal" x-cloak
+                    class="fixed inset-0 z-50 flex items-center justify-center">
+                    <div class="absolute inset-0 bg-black opacity-75" @click="showAddComponentModal=false"></div>
+                    <div class="relative z-10">
+                        <x-supplier-add-components-modal :components="$components"/>
+                    </div>
+                </div>
+
+
                 {{-- Tabella espandibile --}}
                 <div class="overflow-x-auto p-4">
                     <table class="table-auto min-w-full text-sm divide-y divide-gray-200 dark:divide-gray-700">
@@ -139,7 +149,7 @@
 
                                 {{-- Riga principale --}}
                                 <tr
-                                    @if($canCrud || auth()->user()->can('price_lists.view'))
+                                    @if($canCrud || (auth()->user()->can('price_lists.view') || auth()->user()->can('price_lists.create')))
                                         @click="openId = (openId === {{ $supplier->id }} ? null : {{ $supplier->id }})"
                                         class="cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700"
                                         :class="openId === {{ $supplier->id }} ? 'bg-gray-200 dark:bg-gray-700' : ''"
@@ -181,7 +191,7 @@
                                 </tr>
 
                                 {{-- Riga espansa con Modifica / Elimina / Ripristina --}}
-                                @if($canCrud || auth()->user()->can('price_lists.view'))
+                                @if($canCrud || (auth()->user()->can('price_lists.view') || auth()->user()->can('price_lists.create')))
                                 <tr x-show="openId === {{ $supplier->id }}" x-cloak>
                                     <td
                                         :colspan="extended ? 10 : 7"
@@ -204,6 +214,17 @@
                                                     @click="openComponentListModal({{ $supplier->id }})"
                                                     class="inline-flex items-center hover:text-blue-600">
                                                     <i class="fas fa-list mr-1"></i> Listini
+                                                </button>
+                                            @endcan
+
+                                            @can('price_lists.create')
+                                                <button
+                                                    type="button"
+                                                    @click.stop="openAddComponentModal({{ $supplier->id }})"
+                                                    class="inline-flex items-center hover:text-emerald-600"
+                                                    title="Aggiungi componenti a listino"
+                                                >
+                                                    <i class="fas fa-plus-square mr-1"></i> Componenti
                                                 </button>
                                             @endcan
 
@@ -389,6 +410,17 @@
                     },
 
                     showComponentPriceListModal: false,
+
+                    showAddComponentModal : false,
+
+                    openAddComponentModal (supplierId) {
+                        /* apriamo subito il modale (spinner) */
+                        this.showAddComponentModal = true
+
+                        /* evento per far conoscere l'id al modale  */
+                        this.$dispatch('load-component-items', { supplier_id: supplierId })
+                    },
+                    
                 }));
             });
         </script>

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Supplier;
+use App\Models\Component;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -50,6 +51,9 @@ class SupplierController extends Controller
             ->paginate(15)
             ->appends($request->query());
 
+        // Recuperiamo tutti i componenti per il menu a tendina
+        $components = Component::orderBy('code')->get();
+
         // Restituiamo la vista passando anche sort, dir e filters per th-menu
         return view('pages.master-data.index-suppliers', [
             'suppliers' => $suppliers,
@@ -58,6 +62,7 @@ class SupplierController extends Controller
             'filters'   => [
                 'name' => $filterName,
             ],
+            'components' => $components,
         ]);
     }
 
