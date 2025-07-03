@@ -44,9 +44,11 @@
             <tr>
                 <th class="px-3 py-1">Codice</th>
                 <th class="px-3 py-1">Descrizione</th>
-                <th class="px-3 py-1 text-right">Lead-time&nbsp;(gg)</th>
+                <th class="px-3 py-1 text-right">Tempi di consegna&nbsp;(gg)</th>
                 <th class="px-3 py-1 text-right">Prezzo&nbsp;€</th>
-                <th class="px-3 py-1 w-12"></th>
+                @can('price_lists.delete')
+                    <th class="px-3 py-1 w-12 text-center"></th>
+                @endcan
             </tr>
         </thead>
         <tbody>
@@ -58,12 +60,14 @@
                         x-text="row.pivot.lead_time_days"></td>
                     <td class="px-3 py-1 text-right"
                         x-text="Number(row.pivot.last_cost).toFixed(2)"></td>
-                    <td class="px-3 py-1 text-center">
-                        <button @click="remove(row.id)"
-                                class="text-red-600 hover:text-red-800">
-                            <i class="fas fa-trash-alt"></i>
-                        </button>
-                    </td>
+                    @can('price_lists.delete')
+                        <td class="px-3 py-1 text-center">
+                            <button @click="remove(row.id)"
+                                    class="text-red-600 hover:text-red-800">
+                                <i class="fas fa-trash-alt"></i>
+                            </button>
+                        </td>
+                    @endcan
                 </tr>
             </template>
         </tbody>

@@ -136,7 +136,7 @@
 
                                 {{-- Riga principale --}}
                                 <tr
-                                    @if($canCrud)
+                                    @if($canCrud || auth()->user()->can('products.view'))
                                         @click="openId = (openId === {{ $product->id }} ? null : {{ $product->id }})"
                                         class="cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700"
                                         :class="openId === {{ $product->id }} ? 'bg-gray-200 dark:bg-gray-700' : ''"
@@ -167,14 +167,15 @@
                                         class="px-6 py-3 bg-gray-200 dark:bg-gray-700"
                                     >
                                         <div class="flex items-center space-x-4 text-xs">
-                                            
-                                            <button
-                                                type="button"
-                                                @click='openShow(@json($product))'
-                                                class="inline-flex items-center hover:text-indigo-600"
-                                            >
-                                                <i class="fas fa-eye mr-1"></i> Visualizza
-                                            </button>
+                                            @can('products.view')
+                                                <button
+                                                    type="button"
+                                                    @click='openShow(@json($product))'
+                                                    class="inline-flex items-center hover:text-indigo-600"
+                                                >
+                                                    <i class="fas fa-eye mr-1"></i> Visualizza
+                                                </button>
+                                            @endcan
 
                                             @if($canEdit)
                                                 <button
