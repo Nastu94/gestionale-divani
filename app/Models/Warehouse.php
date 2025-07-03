@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use App\Models\StockLevel;
 use App\Models\StockMovement;
 use App\Models\StockReservation;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
@@ -15,14 +16,27 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 class Warehouse extends Model
 {
+    use SoftDeletes;
+
     /**
      * Attributi assegnabili in massa.
      *
      * @var array<string>
      */
     protected $fillable = [
+        'code',     // Codice deposito
         'name',     // Nome deposito
         'type',     // Tipo deposito
+        'is_active', // Stato attivo/inattivo
+    ];
+
+    /**
+     * Casting automatico degli attributi.
+     *
+     * @var array<string,string>
+     */
+    protected $casts = [
+        'is_active' => 'boolean',
     ];
 
     /**

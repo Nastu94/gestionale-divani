@@ -636,12 +636,9 @@ Route::middleware([
     | Accessibile con permesso stock.entry.
     |
     */
-    Route::get(
-        'stock-movements-entry',
-        [StockMovementController::class, 'indexEntry']
-    )
-    ->name('stock-movements-entry.index')
-    ->middleware('permission:stock.entry');
+    Route::get('stock-movements-entry', [StockMovementController::class, 'indexEntry'])
+        ->name('stock-movements-entry.index')
+        ->middleware('permission:stock.entry');
 
     /*
     |--------------------------------------------------------------------------
@@ -652,12 +649,9 @@ Route::middleware([
     | Protetta dal permesso stock.entry.
     |
     */
-    Route::post(
-        'stock-movements-entry',
-        [StockMovementController::class, 'storeEntry']
-    )
-    ->name('stock-movements-entry.store')
-    ->middleware('permission:stock.entry');
+    Route::post('stock-movements-entry', [StockMovementController::class, 'storeEntry'])
+        ->name('stock-movements-entry.store')
+        ->middleware('permission:stock.entry');
 
     /*
     |--------------------------------------------------------------------------
@@ -669,12 +663,9 @@ Route::middleware([
     | Accessibile con permesso stock.exit.
     |
     */
-    Route::get(
-        'stock-movements-exit',
-        [StockMovementController::class, 'indexExit']
-    )
-    ->name('stock-movements-exit.index')
-    ->middleware('permission:stock.exit');
+    Route::get('stock-movements-exit', [StockMovementController::class, 'indexExit'])
+        ->name('stock-movements-exit.index')
+        ->middleware('permission:stock.exit');
 
     /*
     |--------------------------------------------------------------------------
@@ -686,12 +677,9 @@ Route::middleware([
     | Protetta dal permesso stock.exit.
     |
     */
-    Route::put(
-        'stock-movements-exit/{stock_movement}',
-        [StockMovementController::class, 'updateExit']
-    )
-    ->name('stock-movements-exit.update')
-    ->middleware('permission:stock.exit'); 
+    Route::put('stock-movements-exit/{stock_movement}', [StockMovementController::class, 'updateExit'])
+        ->name('stock-movements-exit.update')
+        ->middleware('permission:stock.exit');
 
     /*
     |--------------------------------------------------------------------------
