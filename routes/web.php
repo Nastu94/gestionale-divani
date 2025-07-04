@@ -21,6 +21,7 @@ use App\Http\Controllers\PermissionController;
 use App\Http\Controllers\SearchController;
 use App\Http\Controllers\WarehouseController;
 use App\Http\Controllers\ComponentCategoryController;
+use App\Http\Controllers\Api\SupplierApiController;
 
 /*
 |--------------------------------------------------------------------------
@@ -50,6 +51,18 @@ Route::middleware([
     // Global Search
     Route::get('/search', [SearchController::class, '__invoke'])
         ->name('search');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Gestione Fornitori – Autocomplete per ricerca fornitori
+    |--------------------------------------------------------------------------
+    |
+    | Fornisce un'API per la ricerca di fornitori.
+    |
+    */
+    Route::get('/suppliers/search', [SupplierApiController::class, 'search'])
+        ->name('suppliers.search')
+        ->middleware('permission:suppliers.view');
 
     /*
 |--------------------------------------------------------------------------
@@ -556,7 +569,7 @@ Route::middleware([
             'show'  => 'orders.supplier.show',
         ])
         ->middleware('permission:orders.supplier.view');
-
+    
     /*
     |--------------------------------------------------------------------------
     | Gestione Ordini Fornitore – solo create & store (creazione)
