@@ -109,11 +109,11 @@
                                         :class="openId === {{ $order->id }} ? 'bg-gray-200 dark:bg-gray-700' : ''"
                                     @endif
                                 >
-                                    <td class="px-6 py-2 text-right">{{ $order->id }}</td>
+                                    <td class="px-6 py-2 text-center">{{ $order->orderNumber->number }}</td>
                                     <td class="px-6 py-2">{{ $order->supplier?->name }}</td>
                                     <td class="px-6 py-2">{{ $order->ordered_at?->format('d/m/Y') }}</td>
                                     <td class="px-6 py-2">{{ $order->delivery_date?->format('d/m/Y') }}</td>
-                                    <td class="px-6 py-2 text-right">{{ number_format($order->total, 2, ',', '.') }}</td>
+                                    <td class="px-6 py-2 text-center">{{ number_format($order->total, 2, ',', '.') }}</td>
                                 </tr>
 
                                 {{-- ───────── RIGA ESPANSA CRUD ───────── --}}

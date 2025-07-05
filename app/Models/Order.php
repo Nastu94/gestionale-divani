@@ -5,12 +5,13 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Spatie\Activitylog\Traits\LogsActivity;
 use Spatie\Activitylog\LogOptions;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use App\Models\Supplier;
 use App\Models\Customer;
 use App\Models\OrderItem;
 use App\Models\StockReservation;
-use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use App\Models\OrderNumber;
 
 /**
  * Modello per la tabella 'orders'.
@@ -27,7 +28,7 @@ class Order extends Model
     protected static $logAttributes = [
         'supplier_id',  // ID del fornitore associato, se ordine fornitore
         'customer_id',  // ID del cliente associato, se ordine cliente
-        'cause',      // purchase/production/return/scrap
+        'order_number_id',  // ID del numero d'ordine associato
         'total',      // Valore totale
         'ordered_at', // Data ordine
         'delivery_date', // Data prevista di consegna
@@ -57,7 +58,7 @@ class Order extends Model
     protected $fillable = [
         'supplier_id',
         'customer_id',
-        'cause',      // purchase/production/return/scrap
+        'order_number_id',  // ID del numero d'ordine associato
         'total',      // Valore totale
         'ordered_at', // Data ordine
         'delivery_date', // Data prevista di consegna
@@ -69,8 +70,9 @@ class Order extends Model
      * Attributi da castare a un tipo specifico.
      */
     protected $casts    = [
-        'delivery_date'     => 'date',
-        'registration_date' => 'date',
+        'ordered_at'        => 'datetime:d/m/Y',
+        'delivery_date'     => 'date:d/m/Y',
+        'registration_date' => 'date:d/m/Y',
     ];
 
     /**
@@ -90,6 +92,13 @@ class Order extends Model
     }
 
     /**
+     * Numero dell'ordine associato.
+     */
+    public function orderNumber() { 
+        return $this->belongsTo(OrderNumber::class); 
+    }
+
+    /**
      * Righe di dettaglio dell'ordine.
      */
     public function items()
@@ -103,5 +112,23 @@ class Order extends Model
     public function reservations()
     {
         return $this->hasMany(StockReservation::class);
+    }
+
+    /**
+     * Ottiene il numero dell'ordine associato.
+     *
+     * @return int|null
+     */
+    public function getNumberAttribute() { 
+        return $this->orderNumber->number ?? null; 
+    }
+
+    /**
+     * Ottiene il tipo dell'ordine associato.
+     *
+     * @return string|null
+     */
+    public function getTypeAttribute()   { 
+        return $this->orderNumber->order_type ?? null; 
     }
 }

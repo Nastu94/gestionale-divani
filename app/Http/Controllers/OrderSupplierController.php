@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\Order;
+use App\Models\OrderItem;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class OrderSupplierController extends Controller
 {
@@ -28,8 +30,10 @@ class OrderSupplierController extends Controller
 
         /*────────── QUERY BASE ───────────────*/
         $orders = Order::query()
-            ->with('supplier:id,name')             // eager-load nome fornitore
-            ->where('cause', 'purchase')           // solo ordini fornitore
+            ->with(['supplier:id,name', 'orderNumber:id,number,order_type'])  // eager-load
+            ->whereHas('orderNumber', fn ($q) =>
+                $q->where('order_type', 'supplier')
+            )
             /*───── FILTRI COLUMNA ────────────*/
             ->when($filters['id']          ?? null,
                    fn ($q,$v) => $q->where('id', $v))
@@ -68,11 +72,58 @@ class OrderSupplierController extends Controller
     }
 
     /**
-     * Store a newly created resource in storage.
+     * Salva un nuovo ordine fornitore + righe.
+     * Attende nel payload:
+     *  - order_number_id  (FK al registro)
+     *  - supplier_id
+     *  - delivery_date
+     *  - lines[ {component_id, quantity, price} … ]
+     * 
+     * @param  \Illuminate\Http\Request  $request
      */
     public function store(Request $request)
     {
-        //
+        $data = $request->validate([
+            'order_number_id'            => ['required','exists:order_numbers,id'],
+            'supplier_id'                => ['required','exists:suppliers,id'],
+            'delivery_date'              => ['required','date'],
+            'lines'                      => ['required','array','min:1'],
+            'lines.*.component_id'       => ['required','exists:components,id'],
+            'lines.*.quantity'           => ['required','numeric','min:0.01'],
+            'lines.*.price'              => ['required','numeric','min:0'],
+        ]);
+
+        DB::transaction(function () use ($data) {
+
+            /* ---------- Ordine ---------- */
+            $order = Order::create([
+                'order_number_id' => $data['order_number_id'],   // FK registro
+                'supplier_id'     => $data['supplier_id'],
+                'total'           => 0,                           // temp
+                'ordered_at'      => now(),
+                'delivery_date'   => $data['delivery_date'],
+            ]);
+
+            /* ---------- Righe & totale ---------- */
+            $total = 0;
+
+            foreach ($data['lines'] as $row) {
+                $subtotal = $row['quantity'] * $row['price'];
+
+                OrderItem::create([
+                    'order_id'     => $order->id,
+                    'component_id' => $row['component_id'],
+                    'quantity'     => $row['quantity'],
+                    'unit_price'   => $row['price'],
+                ]);
+
+                $total += $subtotal;
+            }
+
+            $order->update(['total' => $total]);
+        });
+
+        return response()->json(['success' => true]);
     }
 
     /**

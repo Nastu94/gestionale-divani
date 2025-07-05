@@ -22,7 +22,8 @@ use App\Http\Controllers\SearchController;
 use App\Http\Controllers\WarehouseController;
 use App\Http\Controllers\ComponentCategoryController;
 use App\Http\Controllers\Api\SupplierApiController;
-
+use App\Http\Controllers\Api\ComponentApiController;
+use App\Http\Controllers\Api\OrderNumberApiController;
 /*
 |--------------------------------------------------------------------------
 | Rotte pubbliche
@@ -63,6 +64,30 @@ Route::middleware([
     Route::get('/suppliers/search', [SupplierApiController::class, 'search'])
         ->name('suppliers.search')
         ->middleware('permission:suppliers.view');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Gestione Componenti – Autocomplete per ricerca componenti
+    |--------------------------------------------------------------------------
+    |
+    | Fornisce un'API per la ricerca di componenti.
+    |
+    */
+    Route::get('/components/search', [ComponentApiController::class, 'search'])
+        ->name('components.search')
+        ->middleware(['permission:components.view']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Gestione Ordini Fornitore – Autocomplete numero ordine
+    |--------------------------------------------------------------------------
+    |
+    | Fornisce un'API per ottenere il prossimo numero ordine fornitore.
+    |
+    */
+    Route::post('/order-numbers/reserve', [OrderNumberApiController::class, 'reserve'])
+        ->name('order.number.reserve')
+        ->middleware(['permission:orders.supplier.create']);
 
     /*
 |--------------------------------------------------------------------------
@@ -223,7 +248,6 @@ Route::middleware([
     /*
 |--------------------------------------------------------------------------
     | Componenti (Articoli)
-|--------------------------------------------------------------------------
 |--------------------------------------------------------------------------
     | Gestione Componenti – Generazione Codice
     |--------------------------------------------------------------------------
