@@ -3,9 +3,40 @@
 <x-app-layout>
     {{-- ========== HEADER ========== --}}
     <x-slot name="header">
-        <h2 class="font-semibold text-lg text-gray-800 dark:text-gray-200 leading-tight">
-            {{ __('Ordini Fornitore') }}
-        </h2>
+        <div class="flex flex-wrap items-center justify-between">
+            <h2 class="font-semibold text-lg text-gray-800 dark:text-gray-200 leading-tight">
+                {{ __('Ordini Fornitore') }}
+            </h2>
+            <x-dashboard-tiles />
+        </div>
+        
+        @if (session('success'))
+            <div
+                x-data="{ show: true }"
+                x-init="setTimeout(() => show = false, 10000)"
+                x-show="show"
+                x-transition.opacity.duration.500ms
+                class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative mt-2"
+                role="alert"
+            >
+                <i class="fas fa-check-circle mr-2"></i>
+                <span class="block sm:inline">{{ session('success') }}</span>
+            </div>
+        @endif
+
+        @if (session('error'))
+            <div
+                x-data="{ show: true }"
+                x-init="setTimeout(() => show = false, 10000)"
+                x-show="show"
+                x-transition.opacity.duration.500ms
+                class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mt-2"
+                role="alert"
+            >
+                <i class="fas fa-exclamation-triangle mr-2"></i>
+                <span class="block sm:inline">{{ session('error') }}</span>
+            </div>
+        @endif
     </x-slot>
 
     {{-- ========== MAIN ========== --}}
@@ -52,6 +83,7 @@
                                     :dir="$dir" 
                                     :filters="$filters" 
                                     reset-route="orders.supplier.index" 
+                                    :filterable="false"
                                     align="left" 
                                 />
                                 <x-th-menu 
@@ -96,7 +128,7 @@
                         <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                             @foreach($orders as $order)
                                 @php
-                                    $canEdit   = auth()->user()->can('orders.supplier.edit');
+                                    $canEdit   = auth()->user()->can('orders.supplier.update');
                                     $canDelete = auth()->user()->can('orders.supplier.delete');
                                     $canCrud   = $canEdit || $canDelete;
                                 @endphp

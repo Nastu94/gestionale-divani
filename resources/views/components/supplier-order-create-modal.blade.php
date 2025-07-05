@@ -125,8 +125,17 @@
                                 <td class="px-2 py-1" x-text="line.unit"></td>
                                 <td class="px-2 py-1 text-right" x-text="formatCurrency(line.price)"></td>
                                 <td class="px-2 py-1 text-right" x-text="formatCurrency(line.subtotal)"></td>
-                                <td class="px-2 py-1 text-center">
-                                    <button type="button" @click="removeLine(idx)"
+                                <td class="px-2 py-1 text-center space-x-2 flex justify-between">
+                                    {{-- Modifica --}}
+                                    <button type="button"
+                                            @click="editLine(idx)"
+                                            class="text-yellow-600 hover:text-yellow-800">
+                                        <i class="fas fa-pencil-alt"></i>
+                                    </button>
+
+                                    {{-- Elimina --}}
+                                    <button type="button"
+                                            @click="removeLine(idx)"
                                             class="text-red-600 hover:text-red-800">
                                         <i class="fas fa-trash"></i>
                                     </button>
@@ -361,6 +370,19 @@ function supplierOrderModal() {
             // reset input
             this.selectedComponent = null; this.componentSearch = '';
             this.unit = ''; this.price = 0; this.quantity = 1;
+        },
+        editLine(i) {
+            // 1. estrai e rimuovi la riga
+            const line = this.lines.splice(i, 1)[0];
+
+            // 2. ripopola i campi input
+            this.selectedComponent = line.component;
+            this.unit  = line.unit;
+            this.price = line.price;
+            this.quantity = line.qty;
+
+            // 3. mostra nuovamente l'input di ricerca vuoto
+            this.componentSearch = '';
         },
         removeLine(i) { this.lines.splice(i, 1); },
 
