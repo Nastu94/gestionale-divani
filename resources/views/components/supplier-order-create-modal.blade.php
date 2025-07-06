@@ -75,7 +75,7 @@
                                            selectedSupplier.address.postal_code + ', ' +
                                            selectedSupplier.address.country">
                                 </p>
-                                <button type="button" @click="selectedSupplier=null"
+                                <button type="button" x-show="!editMode" @click="selectedSupplier=null"
                                         class="text-xs text-red-600 mt-1">Cambia</button>
                             </div>
                         </template>

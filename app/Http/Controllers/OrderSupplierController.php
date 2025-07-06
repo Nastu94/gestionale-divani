@@ -226,7 +226,10 @@ class OrderSupplierController extends Controller
     }
 
     /**
-     * Update the specified resource in storage.
+     * Aggiorna un ordine fornitore e le sue righe.
+     * 
+     * @param  \Illuminate\Http\Request  $req
+     * @param  \App\Models\Order         $order
      */
     public function update(Request $req, Order $order)
     {
@@ -278,6 +281,52 @@ class OrderSupplierController extends Controller
     }
 
     /**
+     * Aggiorna data registrazione + n. bolla dell’ordine fornitore.
+     * Invocato dal pulsante SALVA del modale ricevimento merce.
+     *
+     * @param  \Illuminate\Http\Request $request
+     * @param  \App\Models\Order        $order
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function updateRegistration(Request $request, Order $order)
+    {
+        /* convalida i campi base  */
+        $data = $request->validate([
+            'delivery_date' => 'required|date',
+            'bill_number'   => 'nullable|string|max:50',
+        ]);
+
+        /* verifica che TUTTE le righe siano registrate */
+        $missing = $order->items->reject(function ($item) use ($order) {
+            $sl = $order->stockLevels
+                    ->firstWhere('component_id', $item->component_id);
+
+            return $sl                                      // deve esistere
+                && $sl->quantity > 0                       // qty ricevuta
+                && $sl->supplier_lot_code !== null         // lotto forn.
+                && $sl->internal_lot_code  !== null;       // lotto int.
+        });
+
+        if ($missing->isNotEmpty()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Devi registrare tutte le righe prima di salvare la bolla.',
+            ], 422);
+        }
+
+        /* salva registrazione */
+        $order->fill([
+            'registration_date' => $data['delivery_date'],
+            'bill_number'       => $data['bill_number'],
+        ])->save();
+
+        return response()->json([
+            'success' => true,
+            'order'   => $order->only(['registration_date', 'bill_number']),
+        ]);
+    }
+
+    /**
      * Elimina un ordine fornitore e le sue righe.
      * – pulisce le righe in order_items
      * – rimuove la voce nel registro order_numbers
@@ -294,23 +343,14 @@ class OrderSupplierController extends Controller
 
         DB::transaction(function () use ($order) {
 
-            // 1. elimina righe (FK cascade OK, ma esplicito per chiarezza)
+            // elimina righe (FK cascade OK, ma esplicito per chiarezza)
             $order->items()->delete();
 
-            // 2. salva il progressivo per feedback
-            $number = $order->orderNumber->number;
-
-            // 3. elimina l’ordine
+            // elimina l’ordine
             $order->delete();
 
-            // 4. elimina la riga nel registro (opzionale; se vuoi conservarla, commenta)
+            // elimina la riga nel registro (opzionale; se vuoi conservarla, commenta)
             $order->orderNumber()->delete();
-
-            // 5. (facoltativo) log activity
-            activity()
-                ->performedOn($order)
-                ->withProperties(['number' => $number])
-                ->log('Ordine fornitore eliminato');
         });
 
         return back()->with('success', 'Ordine eliminato con successo.');

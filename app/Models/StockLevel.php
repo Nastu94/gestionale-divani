@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Spatie\Activitylog\Traits\LogsActivity;
 use Spatie\Activitylog\LogOptions;
+use App\Models\Concerns\GeneratesLot;
 
 /**
  * Modello per la tabella 'stock_levels'.
@@ -19,7 +20,8 @@ use Spatie\Activitylog\LogOptions;
  */
 class StockLevel extends Model
 {
-    use LogsActivity;
+    use LogsActivity;    
+    use GeneratesLot;
     
     /**
      * Attributi che devono essere registrati nel log delle attività.
@@ -85,6 +87,19 @@ class StockLevel extends Model
     public function movements()
     {
         return $this->hasMany(StockMovement::class);
+    }
+
+    /**
+     * Ordini legati a questa giacenza.
+     *
+     * Questa relazione è una Many-to-Many attraverso la tabella pivot 'order_stock_level'.
+     */
+    public function orders()
+    {
+        return $this->belongsToMany(
+            Order::class,
+            'order_stock_level'
+        )->withTimestamps();
     }
 
     /**

@@ -115,6 +115,17 @@ class Order extends Model
     }
 
     /**
+     * Registrazioni di magazzino collegate a questo ordine.
+     */
+    public function stockLevels()
+    {
+        return $this->belongsToMany(
+            StockLevel::class,
+            'order_stock_level'      // nome pivot
+        )->withTimestamps();
+    }
+
+    /**
      * Ottiene il numero dell'ordine associato.
      *
      * @return int|null

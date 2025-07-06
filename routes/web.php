@@ -24,6 +24,8 @@ use App\Http\Controllers\ComponentCategoryController;
 use App\Http\Controllers\Api\SupplierApiController;
 use App\Http\Controllers\Api\ComponentApiController;
 use App\Http\Controllers\Api\OrderNumberApiController;
+use App\Http\Controllers\Api\LotApiController;
+
 /*
 |--------------------------------------------------------------------------
 | Rotte pubbliche
@@ -54,6 +56,9 @@ Route::middleware([
         ->name('search');
 
     /*
+|--------------------------------------------------------------------------
+    | Chiamte API
+|--------------------------------------------------------------------------
     |--------------------------------------------------------------------------
     | Gestione Fornitori – Autocomplete per ricerca fornitori
     |--------------------------------------------------------------------------
@@ -112,6 +117,18 @@ Route::middleware([
     Route::get('/orders/supplier/{order}/lines', [OrderSupplierController::class, 'lines'])
         ->name('orders.supplier.lines')
         ->middleware(['permission:orders.supplier.view']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Gestione Lotti – Recupero prossimo lotto
+    |--------------------------------------------------------------------------
+    |
+    | Fornisce un'API per ottenere il prossimo lotto disponibile.
+    |
+    */
+    Route::get('/lots/next', [LotApiController::class, 'next'])
+      ->middleware('permission:stock.entry');
+
     /*
 |--------------------------------------------------------------------------
     | Anagrafica Clienti
@@ -653,6 +670,18 @@ Route::middleware([
         ->middleware('permission:orders.supplier.update');
 
     /*
+    |-----------------------------------------------------------|
+    | Ordini fornitore – aggiorna data registrazione & bolla
+    |-----------------------------------------------------------|
+    |
+    | Questa rotta permette di aggiornare la data di registrazione
+    | e il numero di bolla di un ordine fornitore.
+    */
+    Route::patch('orders/supplier/{order}/registration', [OrderSupplierController::class, 'updateRegistration'])
+        ->name('orders.supplier.updateRegistration')
+        ->middleware('permission:orders.supplier.update');
+
+    /*
     |--------------------------------------------------------------------------
     | Gestione Ordini Fornitore – solo destroy (cancellazione)
     |--------------------------------------------------------------------------
@@ -695,7 +724,7 @@ Route::middleware([
     | Accessibile con permesso stock.entry.
     |
     */
-    Route::get('stock-movements-entry', [StockMovementController::class, 'indexEntry'])
+    Route::get('stock-movements-entry', [StockLevelController::class, 'indexEntry'])
         ->name('stock-movements-entry.index')
         ->middleware('permission:stock.entry');
 
@@ -708,7 +737,7 @@ Route::middleware([
     | Protetta dal permesso stock.entry.
     |
     */
-    Route::post('stock-movements-entry', [StockMovementController::class, 'storeEntry'])
+    Route::post('stock-movements-entry', [StockLevelController::class, 'storeEntry'])
         ->name('stock-movements-entry.store')
         ->middleware('permission:stock.entry');
 
@@ -722,7 +751,7 @@ Route::middleware([
     | Accessibile con permesso stock.exit.
     |
     */
-    Route::get('stock-movements-exit', [StockMovementController::class, 'indexExit'])
+    Route::get('stock-movements-exit', [StockLevelController::class, 'indexExit'])
         ->name('stock-movements-exit.index')
         ->middleware('permission:stock.exit');
 
@@ -736,7 +765,7 @@ Route::middleware([
     | Protetta dal permesso stock.exit.
     |
     */
-    Route::put('stock-movements-exit/{stock_movement}', [StockMovementController::class, 'updateExit'])
+    Route::put('stock-movements-exit/{stock_movement}', [StockLevelController::class, 'updateExit'])
         ->name('stock-movements-exit.update')
         ->middleware('permission:stock.exit');
 
@@ -793,7 +822,7 @@ Route::middleware([
 
     /*
     |--------------------------------------------------------------------------
-    | Gestione Magazzino – solo delete (movimenti di magazzino)
+    | Gestione Magazzino – solo delete (lista di magazzini)
     |--------------------------------------------------------------------------
     |
     | Gestisce la cancellazione di un magazzino dal sistema.
