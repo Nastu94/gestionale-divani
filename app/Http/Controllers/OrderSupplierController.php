@@ -4,8 +4,14 @@ namespace App\Http\Controllers;
 
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\OrderNumber;
+use App\Models\Supplier;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Contracts\View\View;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 
 class OrderSupplierController extends Controller
 {
@@ -64,6 +70,35 @@ class OrderSupplierController extends Controller
     }
 
     /**
+     * Mostra le righe di un ordine fornitore.
+     * 
+     * @param  \App\Models\Order  $order
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function lines(Order $order): JsonResponse
+    {
+        abort_unless(
+            $order->orderNumber->order_type === 'supplier',
+            403, 'Non è un ordine fornitore'
+        );
+
+        $rows = $order->items()
+            ->with('component:id,code,description,unit_of_measure')
+            ->orderBy('id')
+            ->get()
+            ->map(fn($it) => [
+                'code'   => $it->component->code,
+                'desc'   => $it->component->description,
+                'unit'   => $it->component->unit_of_measure,
+                'qty'    => $it->quantity,
+                'price'  => (float) $it->unit_price,
+                'subtot' => $it->quantity * $it->unit_price,
+            ]);
+
+        return response()->json($rows);
+    }
+
+    /**
      * Show the form for creating a new resource.
      */
     public function create()
@@ -90,7 +125,7 @@ class OrderSupplierController extends Controller
             'lines'                      => ['required','array','min:1'],
             'lines.*.component_id'       => ['required','exists:components,id'],
             'lines.*.quantity'           => ['required','numeric','min:0.01'],
-            'lines.*.price'              => ['required','numeric','min:0'],
+            'lines.*.last_cost'              => ['required','numeric','min:0'],
         ]);
 
         DB::transaction(function () use ($data) {
@@ -108,13 +143,13 @@ class OrderSupplierController extends Controller
             $total = 0;
 
             foreach ($data['lines'] as $row) {
-                $subtotal = $row['quantity'] * $row['price'];
+                $subtotal = $row['quantity'] * $row['last_cost'];
 
                 OrderItem::create([
                     'order_id'     => $order->id,
                     'component_id' => $row['component_id'],
                     'quantity'     => $row['quantity'],
-                    'unit_price'   => $row['price'],
+                    'unit_price'   => $row['last_cost'],
                 ]);
 
                 $total += $subtotal;
@@ -127,10 +162,58 @@ class OrderSupplierController extends Controller
     }
 
     /**
+     * Permette di visualizzare un ordine fornitore specifico.
+     * 
+     * @param  int  $id
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function showApi(int $id): JsonResponse
+    {
+        try {
+            $order = Order::with([
+                        'supplier:id,name,vat_number,email,address',
+                        'orderNumber:id,number,order_type',
+                        'items.component:id,code,description,unit_of_measure'
+                    ])
+                    ->whereHas('orderNumber', fn ($q) => $q->where('order_type','supplier'))
+                    ->findOrFail($id);
+
+            // trasforma righe per il front-end
+            $lines = $order->items->map(fn ($it) => [
+                'component' => [
+                    'id'          => $it->component->id,
+                    'code'        => $it->component->code,
+                    'description' => $it->component->description,
+                    'unit_of_measure'        => $it->component->unit_of_measure,
+                ],
+                'qty'      => $it->quantity,
+                'unit_of_measure' => $it->component->unit_of_measure,
+                'last_cost' => $it->unit_price,
+                'subtotal' => $it->quantity * $it->unit_price,
+            ]);
+
+            return response()->json([
+                'id'              => $order->id,
+                'order_number_id' => $order->order_number_id,
+                'order_number'    => $order->orderNumber->number,
+                'supplier'        => $order->supplier,
+                'delivery_date'   => $order->delivery_date->format('Y-m-d'),
+                'lines'           => $lines,
+            ]);
+        }
+        catch (ModelNotFoundException $e) {
+            return response()->json(['message' => 'Ordine non trovato'], 404);
+        }
+        catch (\Throwable $e) {
+            report($e);                                 // log errori server
+            return response()->json(['message' => 'Errore interno'], 500);
+        }
+    }
+    
+    /**
      * Display the specified resource.
      */
-    public function show(Order $order)
-    {
+    public function show(){
         //
     }
 
@@ -145,16 +228,91 @@ class OrderSupplierController extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(Request $request, Order $order)
+    public function update(Request $req, Order $order)
     {
-        //
+        $data = $req->validate([
+            'delivery_date'              => ['required','date'],
+            'lines'                      => ['required','array','min:1'],
+            'lines.*.id'                 => ['nullable','exists:order_items,id'],
+            'lines.*.component_id'       => ['required','exists:components,id'],
+            'lines.*.quantity'           => ['required','numeric','min:0.01'],
+            'lines.*.last_cost'          => ['required','numeric','min:0'],
+        ]);
+
+        DB::transaction(function () use ($order, $data) {
+
+            /* ── aggiornamento header ── */
+            $order->update([
+                'delivery_date' => $data['delivery_date'],
+            ]);
+
+            /* ── sincronizzazione righe ── */
+            $keepIds = [];
+            $total   = 0;
+
+            foreach ($data['lines'] as $row) {
+
+                $subtotal = $row['quantity'] * $row['last_cost'];
+                $total   += $subtotal;
+
+                // se l’id esiste aggiorno, altrimenti creo
+                $item = $order->items()->updateOrCreate(
+                    ['id' => $row['id'] ?? 0],      // condizione
+                    [
+                        'component_id' => $row['component_id'],
+                        'quantity'     => $row['quantity'],
+                        'unit_price'   => $row['last_cost'],
+                    ]
+                );
+                $keepIds[] = $item->id;
+            }
+
+            // elimina righe rimosse dall’utente
+            $order->items()->whereNotIn('id', $keepIds)->delete();
+
+            // aggiorna il totale
+            $order->update(['total' => $total]);
+        });
+
+        return response()->json(['success' => true]);
     }
 
     /**
-     * Remove the specified resource from storage.
+     * Elimina un ordine fornitore e le sue righe.
+     * – pulisce le righe in order_items
+     * – rimuove la voce nel registro order_numbers
+     * 
+     * @param  \App\Models\Order  $order
+     * @return \Illuminate\Http\RedirectResponse
      */
-    public function destroy(Order $order)
+    public function destroy(Order $order): RedirectResponse
     {
-        //
+        // sicurezza: deve essere davvero un ordine fornitore
+        if ($order->orderNumber->order_type !== 'supplier') {
+            abort(403, 'Operazione non consentita');
+        }
+
+        DB::transaction(function () use ($order) {
+
+            // 1. elimina righe (FK cascade OK, ma esplicito per chiarezza)
+            $order->items()->delete();
+
+            // 2. salva il progressivo per feedback
+            $number = $order->orderNumber->number;
+
+            // 3. elimina l’ordine
+            $order->delete();
+
+            // 4. elimina la riga nel registro (opzionale; se vuoi conservarla, commenta)
+            $order->orderNumber()->delete();
+
+            // 5. (facoltativo) log activity
+            activity()
+                ->performedOn($order)
+                ->withProperties(['number' => $number])
+                ->log('Ordine fornitore eliminato');
+        });
+
+        return back()->with('success', 'Ordine eliminato con successo.');
     }
 }

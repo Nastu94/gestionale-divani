@@ -34,6 +34,14 @@ class OrderItem extends Model
     }
 
     /**
+     * Componente associato alla riga ordine.
+     */
+    public function component()
+    {
+        return $this->belongsTo(Component::class);
+    }
+
+    /**
      * Prodotto associato alla riga ordine.
      */
     public function product()

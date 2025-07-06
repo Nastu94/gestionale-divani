@@ -52,7 +52,36 @@
                     window.dispatchEvent(
                         new CustomEvent('open-supplier-order-modal', { detail: { orderId: id } })
                     )
-                }
+                },
+                sidebarOpen       : false,
+                sidebarLines      : [],
+                sidebarOrderNumber: null,
+                sidebarLoading    : false,
+                formatCurrency(v){ return Intl.NumberFormat('it-IT',{minimumFractionDigits:2}).format(v); },
+                openSidebar(id, num) {
+                    this.sidebarOpen    = true
+                    this.sidebarLoading = true
+                    this.sidebarLines   = []
+                    this.sidebarOrderNumber = num
+
+                    fetch(`/orders/supplier/${id}/lines`, {
+                        headers     : { Accept: 'application/json' },
+                        credentials : 'same-origin'
+                    })
+                    .then(r => {
+                        if (!r.ok) throw new Error('Errore ' + r.status)
+                        return r.json()
+                    })
+                    .then(rows => {
+                        this.sidebarLines   = rows
+                        this.sidebarLoading = false
+                    })
+                    .catch(e => {
+                        alert('Impossibile caricare le righe')
+                        console.error(e)
+                        this.sidebarLoading = false
+                    })
+                },
             }"
             class="max-w-full mx-auto sm:px-6 lg:px-8"
         >
@@ -135,7 +164,7 @@
 
                                 {{-- ───────── RIGA PRINCIPALE ───────── --}}
                                 <tr
-                                    @if($canCrud)
+                                    @if($canCrud || auth()->user()->can('orders.supplier.view'))
                                         @click="openId = (openId === {{ $order->id }} ? null : {{ $order->id }})"
                                         class="cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700"
                                         :class="openId === {{ $order->id }} ? 'bg-gray-200 dark:bg-gray-700' : ''"
@@ -149,10 +178,19 @@
                                 </tr>
 
                                 {{-- ───────── RIGA ESPANSA CRUD ───────── --}}
-                                @if($canCrud)
+                                @if($canCrud || auth()->user()->can('orders.supplier.view'))
                                 <tr x-show="openId === {{ $order->id }}" x-cloak>
                                     <td :colspan="5" class="px-6 py-3 bg-gray-200 dark:bg-gray-700">
                                         <div class="flex items-center space-x-4 text-xs">
+
+                                            {{-- Visualizza --}}
+                                            @can('orders.supplier.view')
+                                                <button type="button"
+                                                        @click.stop="openSidebar({{ $order->id }}, {{ $order->number }})"
+                                                        class="inline-flex items-center hover:text-blue-600">
+                                                    <i class="fas fa-eye mr-1"></i> Visualizza
+                                                </button>
+                                            @endcan
 
                                             {{-- Modifica --}}
                                             @if($canEdit)
@@ -170,7 +208,7 @@
                                                 <form
                                                     action="{{ route('orders.supplier.destroy', $order) }}"
                                                     method="POST"
-                                                    onsubmit="return confirm('Confermi di voler eliminare l\'ordine #{{ $order->id }}?');"
+                                                    onsubmit="return confirm('Confermi di voler eliminare l\'ordine #{{ $order->orderNumber->number }}?');"
                                                 >
                                                     @csrf
                                                     @method('DELETE')
@@ -197,9 +235,73 @@
                     {{ $orders->links('vendor.pagination.tailwind-compact') }}
                 </div>
             </div>
-        </div>
+            {{-- Modale per la creazione/modifica ordine fornitore --}}
+            <x-supplier-order-create-modal />
 
-        {{-- Modale per la creazione/modifica ordine fornitore --}}
-        <x-supplier-order-create-modal />
+            {{-- === SIDEBAR DETTAGLIO ORDINE === --}}
+            <div x-show="sidebarOpen"
+                x-cloak
+                class="fixed inset-0 z-50 flex justify-end">
+
+                {{-- backdrop semi-trasparente --}}
+                <div class="flex-1 bg-black/50" @click="sidebarOpen=false"></div>
+
+                {{-- pannello --}}
+                <div class="w-full max-w-lg bg-white dark:bg-gray-900 shadow-xl
+                            overflow-y-auto"
+                    x-transition:enter="transition transform duration-300"
+                    x-transition:enter-start="translate-x-full"
+                    x-transition:leave="transition transform duration-300"
+                    x-transition:leave-end="translate-x-full">
+
+                    <div class="p-6 border-b flex justify-between items-center">
+                        <h3 class="text-lg font-semibold">
+                            Righe ordine #
+                            <span x-text="sidebarOrderNumber"></span>
+                        </h3>
+                        <button @click="sidebarOpen=false">
+                            <i class="fas fa-times text-gray-600"></i>
+                        </button>
+                    </div>
+
+                    <!-- overlay spinner -->
+                    <div x-show="sidebarLoading"
+                        x-transition.opacity
+                        x-cloak
+                        class="absolute inset-0 flex items-center justify-center bg-white/70">
+                        <i class="fas fa-circle-notch fa-spin text-3xl text-gray-600"></i>
+                    </div>
+
+                    <div x-show="sidebarLines.length > 0" class="p-4">
+                        <table class="w-full text-sm border divide-y">
+                            <thead class="bg-gray-100">
+                                <tr>
+                                    <th class="px-2 py-1">Codice</th>
+                                    <th class="px-2 py-1">Componente</th>
+                                    <th class="px-2 py-1 w-14 text-right">Q.tà</th>
+                                    <th class="px-2 py-1 w-14">Unit</th>
+                                    <th class="px-2 py-1 w-20 text-right">Prezzo</th>
+                                    <th class="px-2 py-1 w-24 text-right">Subtot.</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="row in sidebarLines" :key="row.code">
+                                    <tr>
+                                        <td class="px-2 py-1" x-text="row.code"></td>
+                                        <td class="px-2 py-1" x-text="row.desc"></td>
+                                        <td class="px-2 py-1 text-right" x-text="row.qty"></td>
+                                        <td class="px-2 py-1 uppercase" x-text="row.unit"></td>
+                                        <td class="px-2 py-1 text-right"
+                                            x-text="formatCurrency(row.price)"></td>
+                                        <td class="px-2 py-1 text-right"
+                                            x-text="formatCurrency(row.subtot)"></td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </x-app-layout>

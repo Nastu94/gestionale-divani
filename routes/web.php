@@ -90,6 +90,29 @@ Route::middleware([
         ->middleware(['permission:orders.supplier.create']);
 
     /*
+    |--------------------------------------------------------------------------
+    | Gestione Ordini Fornitore – Recupero numero ordine e righe
+    |--------------------------------------------------------------------------
+    |
+    | Fornisce un'API per recuperare il numero ordine fornitore e le righe associate.
+    |
+    */
+    Route::get('/orders/supplier/{order}/api', [OrderSupplierController::class, 'showApi'])
+     ->name('orders.supplier.show-api')
+     ->middleware(['permission:orders.supplier.view']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Gestione Ordini Fornitore – Recupero righe ordine fornitore
+    |--------------------------------------------------------------------------
+    |
+    | Fornisce un'API per recuperare le righe di un ordine fornitore specifico.
+    |
+    */
+    Route::get('/orders/supplier/{order}/lines', [OrderSupplierController::class, 'lines'])
+        ->name('orders.supplier.lines')
+        ->middleware(['permission:orders.supplier.view']);
+    /*
 |--------------------------------------------------------------------------
     | Anagrafica Clienti
 |--------------------------------------------------------------------------
@@ -587,10 +610,9 @@ Route::middleware([
     */
     Route::resource('orders/supplier', OrderSupplierController::class)
         ->parameters(['supplier' => 'order'])
-        ->only(['index', 'show'])
+        ->only(['index'])
         ->names([
-            'index' => 'orders.supplier.index',
-            'show'  => 'orders.supplier.show',
+            'index' => 'orders.supplier.index'
         ])
         ->middleware('permission:orders.supplier.view');
     

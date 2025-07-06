@@ -23,7 +23,7 @@ class ComponentApiController extends Controller
             'components.id',
             'components.code',
             'components.description',
-            'components.unit_of_measure as unit',
+            'components.unit_of_measure as unit_of_measure',
         ];
 
         /* ---------- Query ---------- */
@@ -35,7 +35,7 @@ class ComponentApiController extends Controller
                              ->where('cs.supplier_id', '=', $supplierId);
                     });
                 // Aggiungo il prezzo alla SELECT con alias 'price'
-                $columns[] = 'cs.last_cost as price';
+                $columns[] = 'cs.last_cost as last_cost';
             })
             ->where('components.is_active', true)
             ->when($q, fn ($qry) => $qry->where(function ($sq) use ($q) {

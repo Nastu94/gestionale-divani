@@ -24,7 +24,7 @@
         </div>
 
         {{-- FORM --}}
-        <form @submit.prevent="save" class="space-y-4">
+        <form @submit.prevent="editMode ? update() : save()" class="space-y-4">
             {{-- ========= DATI TESTATA ========= --}}
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {{-- Colonna SX --}}
@@ -122,8 +122,8 @@
                                 <td class="px-2 py-1" x-text="line.component.code"></td>
                                 <td class="px-2 py-1" x-text="line.component.description"></td>
                                 <td class="px-2 py-1 text-right" x-text="line.qty"></td>
-                                <td class="px-2 py-1" x-text="line.unit"></td>
-                                <td class="px-2 py-1 text-right" x-text="formatCurrency(line.price)"></td>
+                                <td class="px-2 py-1 uppercase" x-text="line.unit_of_measure"></td>
+                                <td class="px-2 py-1 text-right" x-text="formatCurrency(line.last_cost)"></td>
                                 <td class="px-2 py-1 text-right" x-text="formatCurrency(line.subtotal)"></td>
                                 <td class="px-2 py-1 text-center space-x-2 flex justify-between">
                                     {{-- Modifica --}}
@@ -183,10 +183,10 @@
                                 <p><strong x-text="selectedComponent.code"></strong> —
                                    <span x-text="selectedComponent.description"></span></p>
                                 <p class="text-xs">
-                                    Unità: <span x-text="unit"></span>
+                                    Unità: <span x-text="unit_of_measure"></span>
                                     <br>
-                                    <template x-if="selectedComponent.price">
-                                        <span x-text="'Prezzo listino: € ' + selectedComponent.price"></span>
+                                    <template x-if="selectedComponent.last_cost">
+                                        <span x-text="'Prezzo listino: € ' + selectedComponent.last_cost"></span>
                                     </template>
                                 </p>
                                 <button type="button" @click="selectedComponent=null"
@@ -200,13 +200,13 @@
                         <label class="block text-sm font-medium">Quantità</label>
                         <input type="number" min="1" x-model.number="quantity"
                                class="w-full mt-1 input" :disabled="!canAddLines">
-                        <p class="text-xs mt-1" x-text="unit ? 'Unità: ' + unit : ''"></p>
+                        <p class="text-xs mt-1" x-text="unit_of_measure ? 'Unità: ' + unit_of_measure : ''"></p>
                     </div>
 
                     {{-- Prezzo + pulsante --}}
                     <div class="flex flex-col">
                         <label class="block text-sm font-medium">Prezzo (€)</label>
-                        <input type="text" x-model="price" class="w-full mt-1 input bg-gray-100" readonly>
+                        <input type="text" x-model="last_cost" class="w-full mt-1 input bg-gray-100" readonly>
 
                         <button type="button"
                                 class="mt-3 inline-flex items-center justify-center
@@ -224,9 +224,10 @@
             <div class="flex justify-end border-t pt-4 mt-4">
                 <button type="submit"
                         class="inline-flex items-center px-4 py-2 bg-purple-600
-                               rounded-md text-sm font-semibold text-white uppercase
-                               hover:bg-purple-500">
-                    <i class="fas fa-save mr-2"></i> Salva ordine
+                            rounded-md text-sm font-semibold text-white uppercase
+                            hover:bg-purple-500">
+                    <i class="fas fa-save mr-2"></i>
+                    <span x-text="editMode ? 'Modifica Ordine' : 'Salva Ordine'"></span>
                 </button>
             </div>
         </form>
@@ -257,8 +258,8 @@ function supplierOrderModal() {
         componentSearch  : '',
         componentOptions : [],
         selectedComponent: null,
-        unit             : '',
-        price            : 0,
+        unit_of_measure  : '',
+        last_cost        : 0,
         quantity         : 1,
 
         /* ==== Getter computed ==== */
@@ -316,8 +317,8 @@ function supplierOrderModal() {
             this.lines             = [];
             this.selectedComponent = null;
             this.componentSearch   = '';
-            this.unit              = '';
-            this.price             = 0;
+            this.unit_of_measure   = '';
+            this.last_cost         = 0;
             this.quantity          = 1;
         },
 
@@ -352,8 +353,8 @@ function supplierOrderModal() {
         },
         selectComponent(c) {
             this.selectedComponent = c;
-            this.unit  = c.unit;
-            this.price = c.price ?? 0;
+            this.unit_of_measure  = c.unit_of_measure;
+            this.last_cost = c.last_cost ?? 0;
             this.componentOptions = [];
         },
 
@@ -363,13 +364,16 @@ function supplierOrderModal() {
             this.lines.push({
                 component : this.selectedComponent,
                 qty       : this.quantity,
-                unit      : this.unit,
-                price     : this.price,
-                subtotal  : this.price * this.quantity
+                unit_of_measure : this.unit_of_measure,
+                last_cost : this.last_cost,
+                subtotal  : this.last_cost * this.quantity
             });
             // reset input
-            this.selectedComponent = null; this.componentSearch = '';
-            this.unit = ''; this.price = 0; this.quantity = 1;
+            this.selectedComponent = null; 
+            this.componentSearch = '';
+            this.unit_of_measure = ''; 
+            this.last_cost = 0; 
+            this.quantity = 1;
         },
         editLine(i) {
             // 1. estrai e rimuovi la riga
@@ -377,8 +381,8 @@ function supplierOrderModal() {
 
             // 2. ripopola i campi input
             this.selectedComponent = line.component;
-            this.unit  = line.unit;
-            this.price = line.price;
+            this.unit_of_measure  = line.unit_of_measure;
+            this.last_cost = line.last_cost;
             this.quantity = line.qty;
 
             // 3. mostra nuovamente l'input di ricerca vuoto
@@ -404,7 +408,7 @@ function supplierOrderModal() {
                 lines           : this.lines.map(l => ({
                     component_id : l.component.id,
                     quantity     : l.qty,
-                    price        : l.price
+                    last_cost    : l.last_cost
                 }))
             };
 
@@ -430,7 +434,89 @@ function supplierOrderModal() {
                 console.error('Errore salvataggio', e);
                 alert('Si è verificato un errore nel salvataggio.');
             }
-        }
+        },
+
+        /* ==== Fetch ordine esistente ==== */
+        async fetchOrder(id) {
+            try {
+                const r = await fetch(`/orders/supplier/${id}/api`, {
+                    headers: { Accept: 'application/json' },
+                    credentials: 'same-origin'
+                });
+
+                if (!r.ok) {
+                    const msg = (await r.json()).message ?? 'Errore';
+                    throw new Error(`${r.status} – ${msg}`);
+                }
+
+                const o = await r.json();
+
+                /* ▼ header */
+                this.orderId         = o.id;            // utile per update()
+                this.order_number_id = o.order_number_id;
+                this.order_number    = o.order_number;
+                this.selectedSupplier= o.supplier;
+                this.delivery_date   = o.delivery_date;
+
+                /* ▼ righe  (mappo nei nomi interni) */
+                this.lines = o.lines.map(l => ({
+                    id              : l.id,
+                    component       : l.component,
+                    qty             : l.qty,
+                    unit_of_measure : l.unit_of_measure,    // ora esiste
+                    last_cost       : Number(l.last_cost),      // coerente con addLine()
+                    subtotal        : l.subtotal
+                }));
+
+                /* ▼ reset campi “nuova riga” */
+                this.selectedComponent = null;
+                this.componentSearch   = '';
+                this.unit_of_measure   = '';
+                this.last_cost         = 0;
+                this.quantity          = 1;
+
+            } catch (e) {
+                console.error('Impossibile caricare ordine', e);
+                alert(e.message);
+                this.close();
+            }
+        },
+
+        /* ==== Aggiorna ordine esistente ==== */
+        async update() {
+            if (!this.lines.length) { alert('Serve almeno una riga'); return }
+
+            const payload = {
+                delivery_date : this.delivery_date,
+                lines         : this.lines.map(l => ({
+                    id           : l.id ?? null,          // id riga se già esiste
+                    component_id : l.component.id,
+                    quantity     : l.qty,
+                    last_cost    : l.last_cost
+                }))
+            };
+
+            try {
+                const r = await fetch(`/orders/supplier/${this.orderId}`, {
+                    method : 'PUT',
+                    headers: {
+                        'Accept'       : 'application/json',
+                        'Content-Type' : 'application/json',
+                        'X-CSRF-TOKEN' : document.querySelector('meta[name="csrf-token"]').content
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify(payload)
+                });
+                if (!r.ok) throw new Error(await r.text());
+
+                this.close();
+                window.location.reload();
+            } catch (e) {
+                console.error('Errore update', e);
+                alert('Errore durante la modifica.');
+            }
+        },
+
     };
 }
 </script>
