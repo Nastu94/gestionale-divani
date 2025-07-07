@@ -36,7 +36,7 @@ class StockLevelController extends Controller
                 'stockLevels',
             ])
             ->whereNotNull('supplier_id')        // ordine di acquisto
-            ->orderByDesc('delivery_date')
+            ->orderBy('delivery_date', 'asc')
             ->paginate(15);
 
         return view('pages.warehouse.entry', compact('supplierOrders'));
@@ -80,6 +80,12 @@ class StockLevelController extends Controller
             'qty_received'        => 'required|numeric|min:0.01',
             'lot_supplier'        => 'nullable|string|max:50',
             'internal_lot_code'   => 'nullable|string|max:50',
+        ],
+        [   //  ⬅️  messaggi custom (chiave: <campo>.<regola>)
+            'component_code.required'    => 'Seleziona un componente.',
+            'qty_received.required'      => 'Inserisci la quantità ricevuta.',
+            'lot_supplier.required'      => 'Inserisci il lotto fornitore.',
+            'internal_lot_code.required' => 'Genera o inserisci il lotto interno.',
         ]);
 
         /* INDIVIDUA COMPONENTE / DEPOSITO ------------------------------ */
@@ -100,6 +106,20 @@ class StockLevelController extends Controller
             $stockLevel->generateLot();          // trait GeneratesLot
         } else {
             $stockLevel->internal_lot_code = $data['internal_lot_code'];
+        }
+
+        /* controllo duplicato  ----------------------------------------- */
+        $duplicate = StockLevel::where([
+                'component_id'       => $stockLevel->component_id,
+                'warehouse_id'       => $stockLevel->warehouse_id,
+                'internal_lot_code'  => $stockLevel->internal_lot_code,
+        ])->exists();
+
+        if ($duplicate) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Questa riga è già stata registrata (lotto interno duplicato).',
+            ], 422);
         }
         
         $stockLevel->save();
@@ -131,7 +151,6 @@ class StockLevelController extends Controller
             'pivot_exists' => isset($order),
         ]);
     }
-
 
     /**
      * Display the specified resource.

@@ -82,18 +82,35 @@ class OrderSupplierController extends Controller
             403, 'Non è un ordine fornitore'
         );
 
+        /* ──────────── lookup registrazioni già caricate ─────────── */
+        //  creiamo una mappa component_id → stock_level
+        $received = $order->stockLevels        // eager-load della relazione
+            ->keyBy('component_id');           // es.: [45] => StockLevel …
+
+        /* ──────────── righe dell’ordine con extra info ─────────── */
         $rows = $order->items()
             ->with('component:id,code,description,unit_of_measure')
             ->orderBy('id')
             ->get()
-            ->map(fn($it) => [
-                'code'   => $it->component->code,
-                'desc'   => $it->component->description,
-                'unit'   => $it->component->unit_of_measure,
-                'qty'    => $it->quantity,
-                'price'  => (float) $it->unit_price,
-                'subtot' => $it->quantity * $it->unit_price,
-            ]);
+            ->map(function ($it) use ($received) {
+
+                $sl = $received->get($it->component_id);   // può essere null
+
+                return [
+                    'id'              => $it->id,  
+                    'code'            => $it->component->code,
+                    'desc'            => $it->component->description,
+                    'unit'            => $it->component->unit_of_measure,
+                    'qty'             => $it->quantity,
+                    'price'           => (float) $it->unit_price,
+                    'subtot'          => $it->quantity * $it->unit_price,
+
+                    // ── campi aggiunti ────────────────────────────────
+                    'qty_received'    => $sl ? $sl->quantity : 0,
+                    'lot_supplier'    => $sl ? $sl->supplier_lot_code : null,
+                    'internal_lot'    => $sl ? $sl->internal_lot_code : null,
+                ];
+            });
 
         return response()->json($rows);
     }

@@ -48,6 +48,7 @@
                 <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">N. Bolla</label>
                 <input  type="text" name="bill_number"
                         x-model="$store.entryModal.formData.bill_number"
+                        :readonly="!$store.entryModal.isNew"
                         class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
                                text-sm text-gray-900 dark:text-gray-100">
             </div>
@@ -57,6 +58,7 @@
                 <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">Data consegna</label>
                 <input  type="date" name="delivery_date"
                         x-model="$store.entryModal.formData.delivery_date"
+                        :readonly="!$store.entryModal.isNew"
                         class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
                                text-sm text-gray-900 dark:text-gray-100">
             </div>
@@ -172,14 +174,57 @@
 
             <div class="grid gap-4 sm:grid-cols-2">
 
-                {{-- Componente (codice + nome) --}}
-                <div>
-                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">Componente</label>
+                {{-- === Componente (autocomplete) === --}}
+                <div class="relative">
+
+                    {{-- Label visibile quando non è selezionato --}}
+                    <label 
+                        class="block text-xs font-medium text-gray-700 dark:text-gray-300">
+                        Componente
+                    </label>
+
+                    {{-- Input ricerca (solo se NON è una riga dell’ordine) --}}
                     <input  type="text"
-                            x-model="$store.entryModal.currentRow.component"
-                            :readonly="$store.entryModal.currentRow.id !== null"
+                            x-show="!$store.entryModal.currentRow.id && !$store.entryModal.selectedComponent"          
+                            x-cloak
+                            x-model="$store.entryModal.componentSearch"
+                            @input.debounce.500="$store.entryModal.searchComponents()"
+                            placeholder="Cerca componente..."
                             class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
                                text-sm text-gray-900 dark:text-gray-100">
+
+                    {{-- Dropdown risultati --}}
+                    <div  x-show="$store.entryModal.componentOptions.length" x-cloak
+                        class="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border rounded shadow
+                                max-h-40 overflow-y-auto">
+                        <template x-for="opt in $store.entryModal.componentOptions" :key="opt.id">
+                            <div  class="px-2 py-1 hover:bg-gray-200 dark:hover:bg-gray-700 cursor-pointer"
+                                @click="$store.entryModal.selectComponent(opt)">
+                                <span class="text-xs" x-text="opt.code"></span> - 
+                                <span class="text-xs ml-1" x-text="opt.description"></span>
+                            </div>
+                        </template>
+                    </div>
+
+                    {{-- Riepilogo selezionato (solo create-mode) --}}
+                    <template x-if="$store.entryModal.selectedComponent">
+                        <div class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
+                               text-sm text-gray-900 dark:text-gray-100">
+                            <p class="font-semibold" x-text="$store.entryModal.selectedComponent.code + ' – ' + $store.entryModal.selectedComponent.description"></p>
+                            <button type="button"
+                                    @click="$store.entryModal.clearComponent()"
+                                    class="text-red-600 mt-1">Cambia</button>
+                        </div>
+                    </template>
+
+                    {{-- readonly quando la riga proviene dall’ordine --}}
+                    <input  x-show="$store.entryModal.currentRow.id"
+                            x-cloak
+                            x-model="$store.entryModal.currentRow.component"
+                            readonly
+                            class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
+                               text-sm text-gray-900 dark:text-gray-100">
+
                 </div>
 
                 {{-- Quantità ordinata --}}

@@ -157,7 +157,10 @@
                                             {{-- Pulsante Visualizza (sidebar) --}}
                                             @can('orders.supplier.view')
                                                 <button type="button"
-                                                        @click="$dispatch('open-view',{orderId:{{ $order->id }}})"
+                                                        @click="$dispatch('open-lines', {
+                                                            orderId: {{ $order->id }},
+                                                            orderNumber: '{{ $order->number }}'
+                                                        })"
                                                         class="inline-flex items-center hover:text-indigo-700">
                                                     <i class="fas fa-eye mr-1"></i> Visualizza
                                                 </button>
@@ -186,6 +189,69 @@
         <div class="relative z-10 w-full max-w-5xl">
             {{-- componente Blade riutilizzabile --}}
             <x-stock-entry-modal />
+        </div>
+    </div>
+
+    {{-- Sidebar Righe Ordine --}}
+    <div x-show="$store.orderSidebar.open"
+        x-cloak
+        class="fixed inset-0 z-50 flex justify-end">
+
+        {{-- backdrop --}}
+        <div class="flex-1 bg-black/50" @click="$store.orderSidebar.close()"></div>
+
+        {{-- pannello --}}
+        <div class="w-full max-w-lg bg-white dark:bg-gray-900 shadow-xl overflow-y-auto"
+            x-transition:enter="transition transform duration-300"
+            x-transition:enter-start="translate-x-full"
+            x-transition:leave="transition transform duration-300"
+            x-transition:leave-end="translate-x-full">
+
+            <div class="p-6 border-b flex justify-between items-center">
+                <h3 class="text-lg font-semibold">
+                    Righe ordine #<span x-text="$store.orderSidebar.number"></span>
+                </h3>
+                <button @click="$store.orderSidebar.close()">
+                    <i class="fas fa-times text-gray-600"></i>
+                </button>
+            </div>
+
+            {{-- overlay spinner --}}
+            <div x-show="$store.orderSidebar.loading"
+                x-transition.opacity
+                x-cloak
+                class="absolute inset-0 flex items-center justify-center bg-white/70">
+                <i class="fas fa-circle-notch fa-spin text-3xl text-gray-600"></i>
+            </div>
+
+            <div x-show="$store.orderSidebar.lines.length" x-cloak class="p-4">
+                <table class="w-full text-xs border divide-y">
+                    <thead class="bg-gray-100 dark:bg-gray-800 uppercase">
+                        <tr>
+                            <th class="px-2 py-1">Codice</th>
+                            <th class="px-2 py-1">Componente</th>
+                            <th class="px-2 py-1 text-right w-14">Ord.</th>
+                            <th class="px-2 py-1 text-right w-14">Ric.</th>
+                            <th class="px-2 py-1">Lotto&nbsp;forn.</th>
+                            <th class="px-2 py-1">Lotto&nbsp;int.</th>
+                            <th class="px-2 py-1 w-10">Unit</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="l in $store.orderSidebar.lines" :key="l.id">
+                            <tr>
+                                <td class="px-2 py-1" x-text="l.code"></td>
+                                <td class="px-2 py-1" x-text="l.desc"></td>
+                                <td class="px-2 py-1 text-right" x-text="l.qty"></td>
+                                <td class="px-2 py-1 text-right" x-text="l.qty_received"></td>
+                                <td class="px-2 py-1" x-text="l.lot_supplier ?? '—'"></td>
+                                <td class="px-2 py-1" x-text="l.internal_lot ?? '—'"></td>
+                                <td class="px-2 py-1 uppercase" x-text="l.unit"></td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 
@@ -218,6 +284,11 @@
                     supplierSearch  : '',
                     supplierOptions : [],
                     selectedSupplier: null,
+
+                    /* ------------------------- AUTOCOMPONENT --------------------------- */
+                    componentSearch   : '',   
+                    componentOptions  : [],   
+                    selectedComponent : null, 
 
                     /* stato corrente della riga selezionata ----------------------------- */
                     currentRow: {
@@ -281,7 +352,35 @@
 
                         this.show = true;
                     },
-                    close() { this.show = false; },
+                    close() {
+                        /* reset autocomplete fornitore */
+                        this.supplierSearch   = '';
+                        this.supplierOptions  = [];
+                        this.selectedSupplier = null;
+
+                        /* reset autocomplete componente */
+                        this.componentSearch  = '';
+                        this.componentOptions = [];
+                        this.selectedComponent = null;
+
+                        /* reset riga corrente */
+                        this.resetRow();          // usa già la funzione che svuota currentRow
+
+                        /* reset header */
+                        this.formData = {
+                            order_id         : null,
+                            supplier_id      : null,
+                            supplier_name    : '',
+                            order_number_id  : null,
+                            order_number     : '',
+                            delivery_date    : '',
+                            bill_number      : '',
+                        };
+
+                        /* reset flag/modal */
+                        this.isNew = true;
+                        this.show  = false;
+                    },
 
                     /* ─────── ricerca fornitori (solo create) ─────── */
                     async searchSuppliers() {
@@ -307,6 +406,33 @@
                         this.formData.supplier_id   = null;
                         this.formData.supplier_name = '';
                         this.supplierSearch         = '';
+                    },
+
+                    /* ricerca componenti --------------------------- */
+                    async searchComponents() {
+                        if (this.componentSearch.trim().length < 2) { this.componentOptions = []; return; }
+
+                        try {
+                            const r = await fetch(`/components/search?q=${encodeURIComponent(this.componentSearch.trim())}` +
+                                                (this.formData.supplier_id ? `&supplier_id=${this.formData.supplier_id}` : ''),
+                                                { headers:{Accept:'application/json'}, credentials:'same-origin' });
+                            if (!r.ok) throw new Error(r.status);
+                            this.componentOptions = await r.json();
+                        } catch { this.componentOptions = []; }
+                    },
+                    selectComponent(o) {
+                        this.selectedComponent             = o;
+                        this.currentRow.component_code     = o.code;
+                        this.currentRow.component          = `${o.code} – ${o.name}`;
+                        this.currentRow.unit               = o.unit;
+                        this.componentOptions              = [];
+                    },
+                    clearComponent() {
+                        this.selectedComponent   = null;
+                        this.componentSearch     = '';
+                        this.currentRow.component         = '';
+                        this.currentRow.component_code    = '';
+                        this.currentRow.unit              = '';
                     },
 
                     /* ---------- DETTAGLI fornitore (modalità “Registra”) ---------- */
@@ -374,6 +500,14 @@
                         };
                     },
                     async saveRow() {
+                        if (!this.currentRow.component_code
+                            || !this.currentRow.qty_received
+                            || !this.currentRow.lot_supplier
+                            || !this.currentRow.internal_lot_code)
+                        {
+                            alert('Compila tutti i campi (componente, quantità, lotti) prima di registrare.');
+                            return;
+                        }
                         try {
                             const r = await fetch('{{ route('stock-movements-entry.store') }}', {
                                 method : 'POST',
@@ -391,7 +525,11 @@
                                     internal_lot_code   : this.currentRow.internal_lot_code,
                                 })
                             });
-                            if (!r.ok) throw new Error(await r.text());
+                            if (!r.ok) {
+                                const err = await r.json();
+                                this.resetRow();
+                                throw new Error(err.message || 'Errore sconosciuto');
+                            }
                             const j = await r.json();
 
                             // 🔄 aggiorna la tabella senza ricaricare la pagina
@@ -488,10 +626,6 @@
 
                 });
 
-                document.addEventListener('open-row', e =>
-                    Alpine.store('entryModal').loadRow(e.detail.itemId)
-                );
-
                 /* ───── STORE GLOBALE per la cache degli ordini ───── */
                 Alpine.store('orderCache', {});
 
@@ -504,6 +638,41 @@
                     openModal(data = null) { Alpine.store('entryModal').open(data); },
                     closeModal()          { Alpine.store('entryModal').close(); },
                 }));
+
+                /* ───── STORE GLOBALE per la sidebar righe ordine ───── */
+                Alpine.store('orderSidebar', {
+                    open    : false,
+                    loading : false,
+                    number  : '',
+                    lines   : [],
+
+                    openSidebar(orderId, orderNumber) {
+                        this.open    = true;
+                        this.loading = true;
+                        this.number  = orderNumber;
+                        this.lines   = [];
+
+                        fetch(`/orders/supplier/${orderId}/lines`, {
+                            headers: {Accept:'application/json'},
+                            credentials:'same-origin'
+                        })
+                        .then(r => r.json())
+                        .then(data => { this.lines = data; })
+                        .catch(() => alert('Errore nel recupero righe ordine.'))
+                        .finally(() => { this.loading = false; });
+                    },
+                    close() { this.open = false; }
+                });
+
+                /* ───── EVENTI PERSONALIZZATI ───── */
+                document.addEventListener('open-row', e =>
+                    Alpine.store('entryModal').loadRow(e.detail.itemId)
+                );
+
+                document.addEventListener('open-lines', e =>
+                    Alpine.store('orderSidebar')
+                        .openSidebar(e.detail.orderId, e.detail.orderNumber)
+                );
             });
         </script>
     @endpush
