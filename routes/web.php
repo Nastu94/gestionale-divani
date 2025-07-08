@@ -20,11 +20,11 @@ use App\Http\Controllers\RoleController;
 use App\Http\Controllers\PermissionController;
 use App\Http\Controllers\SearchController;
 use App\Http\Controllers\WarehouseController;
+use App\Http\Controllers\LotsController;
 use App\Http\Controllers\ComponentCategoryController;
 use App\Http\Controllers\Api\SupplierApiController;
 use App\Http\Controllers\Api\ComponentApiController;
 use App\Http\Controllers\Api\OrderNumberApiController;
-use App\Http\Controllers\Api\LotApiController;
 
 /*
 |--------------------------------------------------------------------------
@@ -126,7 +126,7 @@ Route::middleware([
     | Fornisce un'API per ottenere il prossimo lotto disponibile.
     |
     */
-    Route::get('/lots/next', [LotApiController::class, 'next'])
+    Route::post('/lots/reserve', [LotsController::class, 'reserve'])
       ->middleware('permission:stock.entry');
 
     /*

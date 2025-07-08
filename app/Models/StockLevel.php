@@ -7,11 +7,12 @@ use App\Models\Component;
 use App\Models\Warehouse;
 use App\Models\StockMovement;
 use App\Models\StockReservation;
+use App\Models\StockLevelLot;
+use App\Models\Order;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Spatie\Activitylog\Traits\LogsActivity;
 use Spatie\Activitylog\LogOptions;
-use App\Models\Concerns\GeneratesLot;
 
 /**
  * Modello per la tabella 'stock_levels'.
@@ -21,7 +22,6 @@ use App\Models\Concerns\GeneratesLot;
 class StockLevel extends Model
 {
     use LogsActivity;    
-    use GeneratesLot;
     
     /**
      * Attributi che devono essere registrati nel log delle attività.
@@ -31,8 +31,6 @@ class StockLevel extends Model
     protected static $logAttributes = [
         'component_id',       // ID del componente
         'warehouse_id',       // ID del deposito
-        'internal_lot_code',  // Codice lotto interno
-        'supplier_lot_code',  // Codice lotto fornitore
         'quantity',           // Quantità disponibile
     ];
     
@@ -60,8 +58,6 @@ class StockLevel extends Model
     protected $fillable = [
         'component_id',
         'warehouse_id',
-        'internal_lot_code',   // Codice lotto interno
-        'supplier_lot_code',   // Codice lotto fornitore
         'quantity',            // Quantità disponibile
     ];
 
@@ -108,5 +104,21 @@ class StockLevel extends Model
     public function reservations()
     {
         return $this->hasMany(StockReservation::class);
+    }
+
+    /**
+     * Lotti associati a questa giacenza.
+     *
+     * Questa relazione è una One-to-Many con il modello StockLevelLot.
+     */
+    public function lots()
+    {
+        return $this->hasMany(StockLevelLot::class);
+    }
+
+    /** quantità totale ricevuta = somma lotti */
+    public function getTotalQuantityAttribute(): float
+    {
+        return (float) $this->lots()->sum('quantity');
     }
 }

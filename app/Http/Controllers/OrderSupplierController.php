@@ -307,31 +307,31 @@ class OrderSupplierController extends Controller
      */
     public function updateRegistration(Request $request, Order $order)
     {
-        /* convalida i campi base  */
+        /* 1. Convalida dei campi base ------------------------------------ */
         $data = $request->validate([
             'delivery_date' => 'required|date',
             'bill_number'   => 'nullable|string|max:50',
         ]);
 
-        /* verifica che TUTTE le righe siano registrate */
+        /* 2. Verifica completezza righe ---------------------------------- */
         $missing = $order->items->reject(function ($item) use ($order) {
-            $sl = $order->stockLevels
-                    ->firstWhere('component_id', $item->component_id);
 
-            return $sl                                      // deve esistere
-                && $sl->quantity > 0                       // qty ricevuta
-                && $sl->supplier_lot_code !== null         // lotto forn.
-                && $sl->internal_lot_code  !== null;       // lotto int.
+            /** @var \App\Models\StockLevel|null $stock */
+            $stock = $order->stockLevels
+                ->firstWhere('component_id', $item->component_id);
+
+            return $stock &&                               // deve esistere
+                $stock->lots()->sum('quantity') > 0;    // almeno un lotto con qty > 0
         });
 
         if ($missing->isNotEmpty()) {
             return response()->json([
                 'success' => false,
-                'message' => 'Devi registrare tutte le righe prima di salvare la bolla.',
+                'message' => 'Devi registrare tutte le righe (lotto + quantità) prima di salvare la bolla.',
             ], 422);
         }
 
-        /* salva registrazione */
+        /* 3. Salva registrazione ---------------------------------------- */
         $order->fill([
             'registration_date' => $data['delivery_date'],
             'bill_number'       => $data['bill_number'],

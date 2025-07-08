@@ -48,7 +48,6 @@
                 <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">N. Bolla</label>
                 <input  type="text" name="bill_number"
                         x-model="$store.entryModal.formData.bill_number"
-                        :readonly="!$store.entryModal.isNew"
                         class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
                                text-sm text-gray-900 dark:text-gray-100">
             </div>
@@ -117,35 +116,56 @@
                 <input type="hidden" name="supplier_id" x-model="$store.entryModal.formData.supplier_id">
             </div>
         </div>
-
-        {{-- === Tabella righe ordine === --}}
+        
+        {{-- === Tabella righe ordine / registrazioni === --}}
         <div class="mt-6">
-            <table class="min-w-full divide-y divide-gray-200 text-xs">
+            <table class="min-w-full text-xs divide-y divide-gray-200">
                 <thead class="bg-gray-100 dark:bg-gray-700 uppercase">
                     <tr>
-                        <th class="px-4 py-2 text-left">Codice</th>
-                        <th class="px-4 py-2 text-left">Componente</th>
-                        <th class="px-4 py-2 text-right">Q. ordinata</th>
-                        <th class="px-4 py-2 text-right">Q. ricevuta</th>
-                        <th class="px-4 py-2 text-left">Unità</th>
-                        <th class="px-4 py-2 text-left">Lotto&nbsp;forn.</th>
-                        <th class="px-4 py-2 text-left">Lotto&nbsp;int.</th>
-                        <th class="px-2 py-2 w-8"></th> {{-- icona --}}
+                        <th class="px-3 py-1 text-left">Codice</th>
+                        <th class="px-3 py-1 text-left">Componente</th>
+                        <th class="px-3 py-1 text-right w-14 whitespace-nowrap">Q. ord.</th>
+                        <th class="px-3 py-1 text-right w-14 whitespace-nowrap">Q. ric.</th>
+                        <th class="px-3 py-1 whitespace-nowrap">Lotto&nbsp;forn.</th>
+                        <th class="px-3 py-1 whitespace-nowrap">Lotti&nbsp;interni</th>
+                        <th class="px-3 py-1 w-10 whitespace-nowrap">Unit</th>
+                        <th class="px-2 py-1 w-8"></th> {{-- icona azione --}}
                     </tr>
                 </thead>
 
                 <tbody class="divide-y divide-gray-200 dark:divide-gray-600">
-                    <template x-for="item in $store.entryModal.items" :key="item.id">
-                        <tr>
-                            <td class="px-4 py-1 whitespace-nowrap" x-text="item.code"></td>
-                            <td class="px-4 py-1" x-text="item.name"></td>
-                            <td class="px-4 py-1 text-right" x-text="item.qty_ordered"></td>
-                            <td class="px-4 py-1 text-right" x-text="item.qty_received ?? '—'"></td>
-                            <td class="px-4 py-1" x-text="item.unit"></td>
-                            <td class="px-4 py-1" x-text="item.lot_supplier ?? '—'"></td>
-                            <td class="px-4 py-1" x-text="item.internal_lot_code ?? '—'"></td>
 
-                            {{-- pulsante “registra riga” – solo icona --}}
+                    {{-- riga proveniente dall’ordine --}}
+                    <template x-for="item in $store.entryModal.items" :key="item.code">
+                        <tr>
+                            <td class="px-3 py-1 whitespace-nowrap" x-text="item.code"></td>
+                            <td class="px-3 py-1" x-text="item.name"></td>
+                            <td class="px-3 py-1 text-right" x-text="item.qty_ordered"></td>
+
+                            {{-- somma lotti interni registrati --}}
+                            <td class="px-3 py-1 text-right"
+                                x-text="item.lots.reduce((t,l)=>t + parseFloat(l.qty||0), 0)"></td>
+
+                            {{-- lotto fornitore (mostra il più recente) --}}
+                            <td class="px-3 py-1 text-center"
+                                x-text="item.lots.length ? item.lots[item.lots.length-1].supplier ?? '—' : '—'"></td>
+
+                            {{-- lotti interni multipli --}}
+                            <td class="px-3 py-1"
+                                :class="{ 'text-center': item.lots.length === 0 }">
+                                <template x-if="item.lots.length === 0">
+                                    <span class="text-gray-500">—</span>
+                                </template>
+                                <template x-for="l in item.lots" :key="l.code">
+                                    <span class="inline-block bg-indigo-100 text-indigo-800
+                                                px-1.5 py-0.5 rounded mr-1 mb-0.5"
+                                        x-text="l.code + ' (' + l.qty + ')' ? l.code + ' (' + l.qty + ')' : '—'"></span>
+                                </template>
+                            </td>
+
+                            <td class="px-3 py-1 uppercase" x-text="item.unit"></td>
+
+                            {{-- pulsante “Registra lotto” --}}
                             <td class="px-2 py-1 text-center">
                                 <button type="button"
                                         class="text-green-700 hover:text-green-900"
@@ -156,17 +176,18 @@
                         </tr>
                     </template>
 
-                    {{-- placeholder se non ci sono righe in create-mode --}}
-                    <template x-if="$store.entryModal.isNew && $store.entryModal.items.length === 0">
+                    {{-- placeholder quando non ci sono righe --}}
+                    <template x-if="$store.entryModal.items.length === 0">
                         <tr>
                             <td colspan="8" class="px-4 py-4 text-center text-gray-500">
-                                Nessuna riga presente. Aggiungila nel prossimo passaggio.
+                                Nessuna riga presente.
                             </td>
                         </tr>
                     </template>
                 </tbody>
             </table>
         </div>
+
 
         {{-- Sezione registrazione riga --}}
         <div class="mt-8 border-t pt-4" x-data>
@@ -237,42 +258,67 @@
                                text-sm text-gray-900 dark:text-gray-100">
                 </div>
 
-                {{-- Quantità ricevuta (sempre editabile) --}}
-                <div>
-                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">Q. ricevuta</label>
-                    <input  type="number" min="0" step="0.01"
-                            x-model="$store.entryModal.currentRow.qty_received"
-                            class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
+                {{-- === Registrazione lotti interni (repeater) === --}}
+                <div class="mt-8">
+
+                    <h4 class="font-semibold text-sm mb-2">Lotti interni</h4>
+
+                    <template x-for="(lot, idx) in $store.entryModal.currentRow.lots" :key="idx">
+                        <div class="grid grid-cols-6 gap-2 mb-2">
+
+                            {{-- Lotto interno --}}
+                            <div class="col-span-2 flex items-end space-x-2">
+                                <div class="flex-1">
+                                    <label class="text-xs">Lotto interno</label>
+                                    <input type="text"
+                                        x-model="lot.code"
+                                        class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
                                text-sm text-gray-900 dark:text-gray-100">
-                </div>
+                                </div>
+                                <button type="button"
+                                        class="mb-1 px-2 py-1 bg-indigo-600 text-white rounded text-xs
+                                            hover:bg-indigo-500"
+                                        @click="$store.entryModal.generateLot(idx)">
+                                    <i class="fas fa-sync-alt"></i>
+                                </button>
+                            </div>
 
-                {{-- Lotto fornitore (sempre editabile) --}}
-                <div>
-                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">Lotto fornitore</label>
-                    <input  type="text"
-                            x-model="$store.entryModal.currentRow.lot_supplier"
-                            class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
+                            {{-- Lotto fornitore --}}
+                            <div class="col-span-2">
+                                <label class="text-xs">Lotto fornitore</label>
+                                <input type="text"
+                                    x-model="lot.supplier"
+                                    class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
                                text-sm text-gray-900 dark:text-gray-100">
-                </div>
+                            </div>
 
-                {{-- Lotto interno (readonly per ora) --}}
-                <div class="flex space-x-2 items-end">
-                    <div class="flex-1">
-                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">Lotto interno</label>
-                        <input  type="text"
-                                x-model="$store.entryModal.currentRow.internal_lot_code"
-                                readonly
-                                class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-100 dark:bg-gray-700
-                                    text-sm text-gray-900 dark:text-gray-100">
-                    </div>
+                            {{-- Quantità del lotto --}}
+                            <div>
+                                <label class="text-xs">Q.tà</label>
+                                <input type="number" min="0" step="0.01"
+                                    x-model="lot.qty"
+                                    class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
+                               text-sm text-gray-900 dark:text-gray-100 text-right">
+                            </div>
 
-                    {{-- Bottone che chiede il prossimo lotto --}}
+                            {{-- Pulsante per rimuovere il lotto --}}
+                            <div class="flex items-end">
+                                <button type="button"
+                                        class="text-red-600 text-xs"
+                                        @click="$store.entryModal.removeLot(idx)">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </template>
+
                     <button type="button"
-                            class="mb-1 px-2 py-1 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-500"
-                            @click="$store.entryModal.generateLot()">
-                        <i class="fas fa-sync-alt"></i>
-                    </button>                    
+                            class="mt-2 text-xs text-indigo-600"
+                            @click="$store.entryModal.addLot()">
+                        + Aggiungi lotto
+                    </button>
                 </div>
+
             </div>
 
             {{-- Pulsante REGISTRA --}}

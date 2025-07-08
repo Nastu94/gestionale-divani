@@ -2,12 +2,15 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\StockLevel;
-use App\Models\Order;
 use App\Models\Component;
+use App\Models\Order;
+use App\Models\StockLevel;
+use App\Models\StockLevelLot;
 use App\Models\Warehouse;
 use App\Models\StockMovement;
+use App\Models\LotNumber;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
 
 class StockLevelController extends Controller
 {
@@ -71,84 +74,103 @@ class StockLevelController extends Controller
      * @param  \Illuminate\Http\Request $request
      * @return \Illuminate\Http\JsonResponse
      */
-    public function storeEntry(Request $request)
+    public function storeEntry(Request $request): JsonResponse
     {
-        /* VALIDAZIONE --------------------------------------------------- */
+
+        /* 1. Validazione ------------------------------------------------ */
         $data = $request->validate([
-            'order_id'            => 'nullable|exists:orders,id',
-            'component_code'      => 'required|string|exists:components,code',
-            'qty_received'        => 'required|numeric|min:0.01',
-            'lot_supplier'        => 'nullable|string|max:50',
-            'internal_lot_code'   => 'nullable|string|max:50',
-        ],
-        [   //  ⬅️  messaggi custom (chiave: <campo>.<regola>)
-            'component_code.required'    => 'Seleziona un componente.',
-            'qty_received.required'      => 'Inserisci la quantità ricevuta.',
-            'lot_supplier.required'      => 'Inserisci il lotto fornitore.',
-            'internal_lot_code.required' => 'Genera o inserisci il lotto interno.',
+            'order_id'          => 'nullable|exists:orders,id',
+            'component_code'    => 'required|string|exists:components,code',
+            'qty_received'      => 'required|numeric|min:0.01',
+            'lot_supplier'      => 'nullable|string|max:50',
+            'internal_lot_code' => 'required|string|max:50',
+        ], [
+            'internal_lot_code.required' => 'Inserisci o genera il lotto interno.',
         ]);
+        
+        /* 0. Conferma lotto prenotato ----------------------------------- */
+        $lotNumber = LotNumber::where('code', $data['internal_lot_code'])
+            ->where('status', 'reserved')
+            ->first();
 
-        /* INDIVIDUA COMPONENTE / DEPOSITO ------------------------------ */
-        $component = Component::where('code', $data['component_code'])->first();
-
-        // decidi tu da dove recuperare il deposito (es. default o scelto nel form)
-        $warehouse = Warehouse::firstWhere('code', 'MG-STOCK');
-
-        /* CREA (o aggiorna) STOCK_LEVEL -------------------------------- */
-        $stockLevel = new StockLevel;
-        $stockLevel->component_id       = $component->id;
-        $stockLevel->warehouse_id       = $warehouse->id;
-        $stockLevel->quantity           = $data['qty_received'];
-        $stockLevel->supplier_lot_code  = $data['lot_supplier'] ?? null;
-
-        // Se il lotto interno non è stato passato generiamone uno nuovo
-        if (! filled($data['internal_lot_code'])) {
-            $stockLevel->generateLot();          // trait GeneratesLot
-        } else {
-            $stockLevel->internal_lot_code = $data['internal_lot_code'];
-        }
-
-        /* controllo duplicato  ----------------------------------------- */
-        $duplicate = StockLevel::where([
-                'component_id'       => $stockLevel->component_id,
-                'warehouse_id'       => $stockLevel->warehouse_id,
-                'internal_lot_code'  => $stockLevel->internal_lot_code,
-        ])->exists();
-
-        if ($duplicate) {
+        if (! $lotNumber) {
             return response()->json([
                 'success' => false,
-                'message' => 'Questa riga è già stata registrata (lotto interno duplicato).',
+                'message' => 'Lotto già utilizzato o non prenotato.',
             ], 422);
         }
-        
-        $stockLevel->save();
 
-        /* LEGA ALL’ORDINE (se presente) ------------------------------- */
-        if ($data['order_id']) {
-            $order = Order::find($data['order_id']);
+        /* 2. Lookup component & magazzino ------------------------------- */
+        $component = Component::where('code', $data['component_code'])->firstOrFail();
+        $warehouse = Warehouse::firstWhere('code', 'MG-STOCK');
 
-            // evita duplicati se la stessa riga viene registrata più volte
-            $order->stockLevels()->syncWithoutDetaching($stockLevel->id);
-            
-            $order->save();
-        }
+        /* 3. Recupera/crea blocco StockLevel --------------------------- */
+        $stockLevel = StockLevel::firstOrCreate(
+            [
+                'component_id' => $component->id,
+                'warehouse_id' => $warehouse->id,
+            ]
+        );
 
-        /* LOG MOVIMENTO (opzionale ma utile) --------------------------- */
-        StockMovement::create([
-            'stock_level_id' => $stockLevel->id,
-            'type'           => 'IN',                 // carico
-            'quantity'       => $data['qty_received'],
-            'note'           => 'Carico ordine forn. #' . ($data['order_id'] ?? 'manuale'),
+        /* 4. Crea o aggiorna il lotto specifico ------------------------ */
+        $lot = $stockLevel->lots()->firstOrNew([
+            'internal_lot_code' => $data['internal_lot_code'],
         ]);
 
-        /* 6️⃣ RISPOSTA ------------------------------------------------------ */
+        // se duplicato → errore leggibile
+        if ($lot->exists) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Questo lotto interno è già stato registrato.',
+            ], 422);
+        }
+
+        $lot->supplier_lot_code = $data['lot_supplier'] ?? null;
+        $lot->quantity          = $data['qty_received'];
+        $lot->save();
+        
+        $lot->lot_number_id = $lotNumber->id;
+        $lot->save();
+
+        /* segna come confermato */
+        $lotNumber->update([
+            'status'            => 'confirmed',
+            'stock_level_lot_id'=> $lot->id,
+        ]);
+
+        /* 5. Mantieni in sync la quantità aggregata -------------------- */
+        $stockLevel->quantity = $stockLevel->total_quantity;
+        $stockLevel->save();
+
+        /* 6. Collega all’ordine (pivot) -------------------------------- */
+        if ($data['order_id']) {
+
+            $order = Order::where('id', $data['order_id'])
+                        ->whereHas('orderNumber', fn($q) => $q->where('order_type', 'supplier'))
+                        ->first();
+
+            if (! $order) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Ordine fornitore non trovato o non valido.',
+                ], 422);
+            }
+
+            $order->stockLevels()->syncWithoutDetaching($stockLevel->id);
+        }
+
+        /* 7. Log movimento --------------------------------------------- */
+        StockMovement::create([
+            'stock_level_id' => $stockLevel->id,
+            'type'           => 'IN',
+            'quantity'       => $data['qty_received'],
+            'note'           => 'Carico lotto interno ' . $lot->internal_lot_code,
+        ]);
+
+        /* 8. Risposta --------------------------------------------------- */
         return response()->json([
-            'success'      => true,
-            'stock_level'  => $stockLevel->only([
-                'id','quantity','supplier_lot_code','internal_lot_code'
-            ]),
-            'pivot_exists' => isset($order),
+            'success' => true,
+            'lot'     => $lot->only(['internal_lot_code','supplier_lot_code','quantity']),
         ]);
     }
 

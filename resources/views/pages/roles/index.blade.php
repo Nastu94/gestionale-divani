@@ -40,7 +40,7 @@
         <div x-data="roleCrud()" class="max-w-full mx-auto sm:px-6 lg:px-8">
             <div class="bg-white dark:bg-gray-800 shadow sm:rounded-lg">                
 
-                @if(auth()->user()->can('roles.create'))
+                @if(auth()->user()->can('roles.manage'))
                     {{-- Pulsante “Nuovo” --}}
                     <div class="flex justify-end m-4 p-4">
                         <button @click="openCreate"

@@ -121,6 +121,7 @@
                                                             order_id        : {{ $order->id }},
                                                             order_number_id : {{ $order->order_number_id }},
                                                             order_number    : @js($order->number),
+
                                                             delivery_date   : @js(optional($order->delivery_date)->format('Y-m-d')),
                                                             bill_number     : @js($order->bill_number),
 
@@ -133,18 +134,22 @@
                                                             /* righe dell’ordine (solo i campi necessari) */
                                                             items: @js(
                                                                 $order->items->map(function ($i) use ($order) {
-                                                                    $linked = $order->stockLevels
+                                                                    $stock = $order->stockLevels
                                                                             ->firstWhere('component_id', $i->component_id);
 
                                                                     return [
-                                                                        'id'            => $i->id,
-                                                                        'code'          => $i->component->code,
-                                                                        'name'          => $i->component->description,
-                                                                        'qty_ordered'   => $i->quantity,
-                                                                        'qty_received'  => $linked?->quantity ?? null,
-                                                                        'lot_supplier'  => $linked?->supplier_lot_code ?? null,
-                                                                        'internal_lot_code'  => $linked?->internal_lot_code ?? null,
-                                                                        'unit'          => $i->component->unit_of_measure,
+                                                                        'id'           => $i->id,
+                                                                        'code'         => $i->component->code,
+                                                                        'name'         => $i->component->description,
+                                                                        'qty_ordered'  => $i->quantity,
+                                                                        'lots'         => $stock
+                                                                            ? $stock->lots->map(fn($l) => [
+                                                                                'code'      => $l->internal_lot_code,
+                                                                                'supplier'  => $l->supplier_lot_code,
+                                                                                'qty'       => $l->quantity,
+                                                                            ])
+                                                                            : [],
+                                                                        'unit'         => $i->component->unit_of_measure,
                                                                     ];
                                                                 })
                                                             ),
@@ -290,16 +295,16 @@
                     componentOptions  : [],   
                     selectedComponent : null, 
 
-                    /* stato corrente della riga selezionata ----------------------------- */
+                    /* === stato corrente della riga ================================== */
                     currentRow: {
-                        id           : null,   // id dell'OrderItem se proviene da ordine
-                        component    : '',
-                        component_code: '',
-                        qty_ordered  : '',
-                        qty_received : '',
-                        unit         : '',
-                        lot_supplier : '',
-                        internal_lot_code : '',
+                        id             : null,           // id riga ordine, o null se manuale
+                        component      : '',
+                        component_code : '',
+                        unit           : '',
+                        lot_supplier   : '',
+
+                        // sempre presente ↓ (almeno un oggetto vuoto)
+                        lots           : [{ code:'', supplier:'', qty:'' }],
                     },
 
                     /* ═══════════════ METODI ═══════════════ */
@@ -352,6 +357,8 @@
 
                         this.show = true;
                     },
+
+                    /* Chiude il modale e resetta lo stato */
                     close() {
                         /* reset autocomplete fornitore */
                         this.supplierSearch   = '';
@@ -395,12 +402,14 @@
                             this.supplierOptions = await r.json();
                         } catch { this.supplierOptions = []; }
                     },
+                    /* seleziona fornitore dalla lista */
                     selectSupplier(o) {
                         this.selectedSupplier          = o;
                         this.formData.supplier_id      = o.id;
                         this.formData.supplier_name    = o.name;
                         this.supplierOptions           = [];
                     },
+                    /* cancella fornitore selezionato */
                     clearSupplier() {
                         this.selectedSupplier       = null;
                         this.formData.supplier_id   = null;
@@ -420,6 +429,8 @@
                             this.componentOptions = await r.json();
                         } catch { this.componentOptions = []; }
                     },
+
+                    /* seleziona componente dalla lista */
                     selectComponent(o) {
                         this.selectedComponent             = o;
                         this.currentRow.component_code     = o.code;
@@ -427,6 +438,8 @@
                         this.currentRow.unit               = o.unit;
                         this.componentOptions              = [];
                     },
+
+                    /* cancella componente selezionato */
                     clearComponent() {
                         this.selectedComponent   = null;
                         this.componentSearch     = '';
@@ -483,100 +496,179 @@
                         if (!r) return;
 
                         this.currentRow = {
-                            id           : r.id,
-                            component    : `${r.code} – ${r.name}`,
-                            component_code: r.code,
-                            qty_ordered  : r.qty_ordered,
-                            qty_received : r.qty_received ?? r.qty_ordered,   // proposta = tutto ricevuto
-                            unit         : r.unit,
-                            lot_supplier : r.lot_supplier ?? '',
-                            internal_lot_code : r.internal_lot_code ?? '',
+                            id             : r.id,
+                            component      : `${r.code} – ${r.name}`,
+                            component_code : r.code,
+                            qty_ordered    : r.qty_ordered,
+                            unit           : r.unit,
+                            lot_supplier   : r.lots.length ? r.lots[0].supplier ?? '' : '',
+
+                            // clona in profondità per evitare riferimenti condivisi
+                            lots           : r.lots.length
+                                            ? JSON.parse(JSON.stringify(r.lots))
+                                            : [{ code:'', supplier:'', qty:'' }],
                         };
                     },
+
+                    // resetta la riga corrente a uno stato vuoto
                     resetRow() {
                         this.currentRow = {
-                            id : null, component:'', component_code:'', qty_ordered:'',
-                            qty_received:'', unit:'', lot_supplier:'', internal_lot_code:''
+                            id : null, 
+                            component:'', 
+                            component_code:'', 
+                            qty_ordered:'',
+                            qty_received:'', 
+                            unit:'', 
+                            lot_supplier:'', 
+                            lots: [{ code:'', supplier:'', qty:'' }],
                         };
                     },
-                    async saveRow() {
-                        if (!this.currentRow.component_code
-                            || !this.currentRow.qty_received
-                            || !this.currentRow.lot_supplier
-                            || !this.currentRow.internal_lot_code)
-                        {
-                            alert('Compila tutti i campi (componente, quantità, lotti) prima di registrare.');
-                            return;
+
+                    /* aggiungi/rimuovi lotti -------------------------------- */
+                    // aggiunge un lotto vuoto alla riga corrente
+                    addLot() {
+                        // assicura che lots esista
+                        if (!Array.isArray(this.currentRow.lots)) {
+                            this.currentRow.lots = [];
                         }
-                        try {
+                        this.currentRow.lots.push({ code:'', supplier:this.currentRow.lot_supplier, qty:'' });
+                    },
+
+                    // rimuove un lotto dalla riga corrente
+                    removeLot(idx) {
+                        if (this.currentRow.lots && this.currentRow.lots.length > 1) {
+                            this.currentRow.lots.splice(idx, 1);
+                        }
+                    },
+
+                    // genera un lotto casuale per l'indice specificato
+                    generateLot(idx) {
+                        fetch('/lots/reserve', {
+                            method:'POST',
+                            headers:{
+                                'Accept':'application/json',
+                                'X-CSRF-TOKEN':document.querySelector('meta[name="csrf-token"]').content
+                            },
+                            credentials:'same-origin'
+                        })
+                        .then(r => r.json())
+                        .then(j => this.currentRow.lots[idx].code = j.next)
+                        .catch(() => alert('Impossibile generare lotto.'));
+                    },
+
+                    /* validazione prima del fetch ---------------------------------------- */
+                    validateRow() {
+                        if (!this.currentRow.component_code) return 'Seleziona un componente.';
+                        const invalid = this.currentRow.lots.some(l => !l.code || !l.qty);
+                        if (invalid) return 'Completa codice e quantità per ogni lotto.';
+                        return null;
+                    },
+
+                    /* Salva riga corrente (crea o aggiorna) */
+                    async saveRow() {
+
+                        /* 0‧ validazione base già esistente --------------------------- */
+                        const err = this.validateRow();
+                        if (err) { alert(err); return; }
+
+                        /* 1‧ controllo duplicati lotto nella stessa riga ------------- */
+                        const localDup = new Set();
+                        const dup = this.currentRow.lots.some(l => {
+                            if (localDup.has(l.code)) return true;   // trovato doppione
+                            localDup.add(l.code);
+                            return false;
+                        });
+
+                        if (dup) {
+                            alert('Hai inserito lo stesso lotto interno due volte nella stessa riga.');
+                            return;      // blocca il salvataggio
+                        }
+
+                        /* 2‧ individua (una sola volta) la riga nella tabella ---------- */
+                        let idx = this.items.findIndex(i => i.code === this.currentRow.component_code);
+                        let rowCreated = false;   // flag se dobbiamo creare la riga fuori-ordine
+
+                        /* 3‧ ciclo sui lotti da registrare ----------------------------- */
+                        for (const lot of this.currentRow.lots) {
+
                             const r = await fetch('{{ route('stock-movements-entry.store') }}', {
-                                method : 'POST',
+                                method: 'POST',
                                 headers: {
                                     'Accept'       : 'application/json',
                                     'Content-Type' : 'application/json',
                                     'X-CSRF-TOKEN' : document.querySelector('meta[name="csrf-token"]').content
                                 },
-                                credentials : 'same-origin',
-                                body : JSON.stringify({
-                                    order_id       : this.formData.order_id,          // null se create-mode
-                                    component_code : this.currentRow.component_code,
-                                    qty_received   : this.currentRow.qty_received,
-                                    lot_supplier   : this.currentRow.lot_supplier,
-                                    internal_lot_code   : this.currentRow.internal_lot_code,
+                                credentials: 'same-origin',
+                                body: JSON.stringify({
+                                    order_id         : this.formData.order_id,
+                                    component_code   : this.currentRow.component_code,
+                                    qty_received     : lot.qty,
+                                    lot_supplier     : lot.supplier,
+                                    internal_lot_code: lot.code,
                                 })
                             });
-                            if (!r.ok) {
-                                const err = await r.json();
-                                this.resetRow();
-                                throw new Error(err.message || 'Errore sconosciuto');
-                            }
-                            const j = await r.json();
 
-                            // 🔄 aggiorna la tabella senza ricaricare la pagina
-                            const idx = this.items.findIndex(i => i.id === this.currentRow.id);
+                            const resp = await r.json();
+                            if (!resp.success) {
+                                alert(resp.message || 'Errore sconosciuto');    // exit immediato
+                                return;
+                            }
+
+                            /* 4‧ aggiorna la tabella reattiva -------------------------- */
                             if (idx !== -1) {
-                                this.items[idx] = {
-                                    ...this.items[idx],
-                                    qty_received : j.stock_level.quantity,
-                                    lot_supplier : j.stock_level.supplier_lot_code,
-                                    internal_lot_code : j.stock_level.internal_lot_code,
-                                };
+                                /* riga esiste già → pushiamo il nuovo lotto */
+                                this.items[idx].lots.push({
+                                    code     : resp.lot.internal_lot_code,
+                                    supplier : resp.lot.supplier_lot_code,
+                                    qty      : resp.lot.quantity,
+                                });
                             } else {
-                                // riga extra in create-mode
-                                this.items.push({
-                                    id            : null,
-                                    code          : this.currentRow.component_code,
-                                    name          : this.currentRow.component,
-                                    qty_ordered   : this.currentRow.qty_ordered,
-                                    qty_received  : j.stock_level.quantity,
-                                    lot_supplier  : j.stock_level.supplier_lot_code,
-                                    internal_lot_code  : j.stock_level.internal_lot_code,
-                                    unit          : this.currentRow.unit,
+                                /* prima iterazione: riga “fuori ordine” */
+                                if (!rowCreated) {
+                                    this.items.push({
+                                        id          : null,
+                                        code        : this.currentRow.component_code,
+                                        name        : this.currentRow.component,
+                                        qty_ordered : 0,
+                                        lots        : [],
+                                        unit        : this.currentRow.unit,
+                                    });
+                                    idx = this.items.length - 1;
+                                    rowCreated = true;
+                                }
+                                this.items[idx].lots.push({
+                                    code     : resp.lot.internal_lot_code,
+                                    supplier : resp.lot.supplier_lot_code,
+                                    qty      : resp.lot.quantity,
                                 });
                             }
-
-                            /* aggiorna la cache dell’ordine */
-                            if (this.formData.order_id) {
-                                Alpine.store('orderCache')[this.formData.order_id] = this.items;
-                            }
-
-                            this.resetRow();          // pulisci il form riga
-                        } catch (e) {
-                            alert('Errore nel salvataggio: ' + e.message);
                         }
+
+                        /* 5‧ reset del form riga dopo ciclo completo ------------------- */
+                        this.resetRow();
                     },
 
                     /* Salva registrazione ordine fornitore */
                     async saveRegistration() {
-                        const incomplete = this.items.some(i =>
-                            !i.qty_received || !i.lot_supplier || !i.internal_lot_code
-                        );
+
+                        /* 1 ‧ controllo completezza righe ----------------------------- */
+                        const incomplete = this.items.some(i => {
+                            // deve esistere almeno un lotto per la riga
+                            if (!i.lots || i.lots.length === 0) return true;
+
+                            // ogni lotto deve avere codice + quantità > 0
+                            return i.lots.some(l =>
+                                !l.code || l.code.trim() === '' ||
+                                !l.qty  || parseFloat(l.qty) <= 0
+                            );
+                        });
 
                         if (incomplete) {
                             alert('Registra tutte le righe (quantità + lotti) prima di salvare.');
                             return;
                         }
 
+                        /* 2 ‧ chiamata PATCH → /orders/supplier/{id}/registration ------ */
                         try {
 
                             const url = `{{ url('/orders/supplier') }}/${this.formData.order_id}/registration`;
@@ -586,7 +678,7 @@
                                 headers: {
                                     'Accept'       : 'application/json',
                                     'Content-Type' : 'application/json',
-                                    'X-CSRF-TOKEN' : document.querySelector('meta[name=\"csrf-token\"]').content
+                                    'X-CSRF-TOKEN' : document.querySelector('meta[name="csrf-token"]').content
                                 },
                                 credentials : 'same-origin',
                                 body : JSON.stringify({
@@ -594,33 +686,19 @@
                                     bill_number   : this.formData.bill_number,
                                 })
                             });
-                            if (!r.ok) throw new Error(await r.text());
-                            const j = await r.json();
 
-                            /* aggiorna cache ordine */
+                            if (! r.ok) throw new Error(await r.text());
+
+                            /* 3 ‧ aggiorna cache, feedback, reload --------------------- */
                             if (this.formData.order_id) {
                                 Alpine.store('orderCache')[this.formData.order_id] = [...this.items];
                             }
-                            alert('Registrazione salvata con successo!');
 
-                            location.reload();
+                            alert('Registrazione salvata con successo!');
+                            location.reload();          // ricarica solo in caso di esito positivo
+
                         } catch (e) {
                             alert('Errore salvataggio registrazione: ' + e.message);
-                        }
-                    },
-
-                    /* Genera lotto interno */
-                    async generateLot() {
-                        try {
-                            const r = await fetch('/lots/next', {
-                                headers: {Accept:'application/json'},
-                                credentials: 'same-origin'
-                            });
-                            if (!r.ok) throw new Error(r.status);
-                            const j = await r.json();
-                            this.currentRow.internal_lot_code = j.next;
-                        } catch {
-                            alert('Impossibile generare lotto.');
                         }
                     },
 

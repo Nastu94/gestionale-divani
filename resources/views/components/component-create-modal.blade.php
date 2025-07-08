@@ -163,7 +163,7 @@
                     id="height" 
                     name="height" 
                     x-model="form.height" 
-                    type="url" 
+                    type="text" 
                     class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100" 
                 />
                 <p x-text="errors.height?.[0]" class="text-red-600 text-xs mt-1"></p>
