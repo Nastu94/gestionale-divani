@@ -26,6 +26,7 @@ class Order extends Model
      * Attributi che devono essere registrati nel log delle attività.
      */
     protected static $logAttributes = [
+        'parent_order_id', // ID dell'ordine padre, se presente
         'supplier_id',  // ID del fornitore associato, se ordine fornitore
         'customer_id',  // ID del cliente associato, se ordine cliente
         'order_number_id',  // ID del numero d'ordine associato
@@ -56,6 +57,7 @@ class Order extends Model
      * Attributi assegnabili in massa.
      */
     protected $fillable = [
+        'parent_order_id',
         'supplier_id',
         'customer_id',
         'order_number_id',  // ID del numero d'ordine associato
@@ -117,12 +119,14 @@ class Order extends Model
     /**
      * Registrazioni di magazzino collegate a questo ordine.
      */
-    public function stockLevels()
+    public function stockLevelLots()
     {
         return $this->belongsToMany(
-            StockLevel::class,
-            'order_stock_level'      // nome pivot
-        )->withTimestamps();
+            StockLevelLot::class,
+            'order_stock_level'      // tabella pivot
+        )
+        ->withTimestamps()
+        ->with('stockLevel');
     }
 
     /**

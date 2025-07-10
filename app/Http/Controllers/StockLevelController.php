@@ -36,7 +36,7 @@ class StockLevelController extends Controller
                 'supplier',
                 'orderNumber',
                 'items.component',
-                'stockLevels',
+                'stockLevelLots',
             ])
             ->whereNotNull('supplier_id')        // ordine di acquisto
             ->orderBy('delivery_date', 'asc')
@@ -156,7 +156,7 @@ class StockLevelController extends Controller
                 ], 422);
             }
 
-            $order->stockLevels()->syncWithoutDetaching($stockLevel->id);
+            $order->stockLevelLots()->syncWithoutDetaching($stockLevel->lots->pluck('id'));
         }
 
         /* 7. Log movimento --------------------------------------------- */

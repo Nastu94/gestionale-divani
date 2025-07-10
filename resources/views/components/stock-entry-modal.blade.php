@@ -57,7 +57,6 @@
                 <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">Data consegna</label>
                 <input  type="date" name="delivery_date"
                         x-model="$store.entryModal.formData.delivery_date"
-                        :readonly="!$store.entryModal.isNew"
                         class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
                                text-sm text-gray-900 dark:text-gray-100">
             </div>
@@ -272,6 +271,7 @@
                                     <label class="text-xs">Lotto interno</label>
                                     <input type="text"
                                         x-model="lot.code"
+                                        readonly
                                         class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
                                text-sm text-gray-900 dark:text-gray-100">
                                 </div>

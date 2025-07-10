@@ -12,6 +12,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use App\Services\ShortfallService;
 
 class OrderSupplierController extends Controller
 {
@@ -84,7 +85,7 @@ class OrderSupplierController extends Controller
 
         /* ──────────── lookup registrazioni già caricate ─────────── */
         //  creiamo una mappa component_id → stock_level
-        $received = $order->stockLevels        // eager-load della relazione
+        $received = $order->stockLevelLots        // eager-load della relazione
             ->keyBy('component_id');           // es.: [45] => StockLevel …
 
         /* ──────────── righe dell’ordine con extra info ─────────── */
@@ -190,7 +191,8 @@ class OrderSupplierController extends Controller
             $order = Order::with([
                         'supplier:id,name,vat_number,email,address',
                         'orderNumber:id,number,order_type',
-                        'items.component:id,code,description,unit_of_measure'
+                        'items.component:id,code,description,unit_of_measure',
+                        'stockLevelLots.stockLevel:id,component_id'
                     ])
                     ->whereHas('orderNumber', fn ($q) => $q->where('order_type','supplier'))
                     ->findOrFail($id);
@@ -298,48 +300,52 @@ class OrderSupplierController extends Controller
     }
 
     /**
-     * Aggiorna data registrazione + n. bolla dell’ordine fornitore.
-     * Invocato dal pulsante SALVA del modale ricevimento merce.
+     * Salva bolla e, se occorre, genera l’eventuale ordine “short-fall”.
      *
-     * @param  \Illuminate\Http\Request $request
-     * @param  \App\Models\Order        $order
+     * @param  \Illuminate\Http\Request        $request
+     * @param  \App\Models\Order               $order          Ordine che si sta chiudendo
+     * @param  \App\Services\ShortfallService  $svc            Service che crea l’ordine mancante
      * @return \Illuminate\Http\JsonResponse
      */
-    public function updateRegistration(Request $request, Order $order)
-    {
-        /* 1. Convalida dei campi base ------------------------------------ */
-        $data = $request->validate([
-            'delivery_date' => 'required|date',
-            'bill_number'   => 'nullable|string|max:50',
-        ]);
+    public function updateRegistration(
+        Request           $request,
+        Order             $order,
+        ShortfallService  $svc
+    ): JsonResponse {
 
-        /* 2. Verifica completezza righe ---------------------------------- */
-        $missing = $order->items->reject(function ($item) use ($order) {
+        /* ──────────────────────────────────────────────────────────────
+        | 1‧ Validazione campi header ( data bolla + n° DDT )
+        ────────────────────────────────────────────────────────────── */
+        $data = $request->validate(
+            [
+                'delivery_date' => 'required|date',
+                'bill_number'   => 'required|string|max:50',
+            ],
+            [
+                'delivery_date.required' => 'La data di consegna è obbligatoria.',
+                'bill_number.required'   => 'Il numero bolla è obbligatorio.',
+            ]
+        );
 
-            /** @var \App\Models\StockLevel|null $stock */
-            $stock = $order->stockLevels
-                ->firstWhere('component_id', $item->component_id);
-
-            return $stock &&                               // deve esistere
-                $stock->lots()->sum('quantity') > 0;    // almeno un lotto con qty > 0
-        });
-
-        if ($missing->isNotEmpty()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Devi registrare tutte le righe (lotto + quantità) prima di salvare la bolla.',
-            ], 422);
-        }
-
-        /* 3. Salva registrazione ---------------------------------------- */
+        /* ──────────────────────────────────────────────────────────────
+        | 2‧ Aggiorna header dell’ordine
+        ────────────────────────────────────────────────────────────── */
         $order->fill([
             'registration_date' => $data['delivery_date'],
             'bill_number'       => $data['bill_number'],
         ])->save();
 
+        /* ──────────────────────────────────────────────────────────────
+        | 3‧ Genera eventuale ordine “short-fall”
+        |     (sarà null se tutte le quantità sono state evase)
+        ────────────────────────────────────────────────────────────── */
+        $followUp = $svc->capture($order);
+
         return response()->json([
-            'success' => true,
-            'order'   => $order->only(['registration_date', 'bill_number']),
+            'success'            => true,
+            'order'              => $order->only(['registration_date', 'bill_number']),
+            'follow_up_order_id' => optional($followUp)->id,
+            'follow_up_number'   => optional($followUp)->number,
         ]);
     }
 

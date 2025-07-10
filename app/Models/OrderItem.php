@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use App\Models\Order;
 use App\Models\Product;
+use App\Models\OrderItemShortfall;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
@@ -47,5 +48,14 @@ class OrderItem extends Model
     public function product()
     {
         return $this->belongsTo(Product::class);
+    }
+    
+    /**
+     * Short-fall (quantità non consegnata) associato a questa riga.
+     * Ritorna null se la riga è stata interamente evasa.
+     */
+    public function shortfall()
+    {
+        return $this->hasOne(OrderItemShortfall::class);
     }
 }

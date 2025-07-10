@@ -21,11 +21,11 @@ return new class extends Migration
                   ->constrained()
                   ->cascadeOnDelete();
 
-            $table->foreignId('stock_level_id')
+            $table->foreignId('stock_level_lot_id')
                   ->constrained()
                   ->cascadeOnDelete();
 
-            $table->unique(['order_id', 'stock_level_id']);  // evita doppi legami
+            $table->unique(['order_id', 'stock_level_lot_id']);  // evita doppi legami
             $table->timestamps();
         });
     }

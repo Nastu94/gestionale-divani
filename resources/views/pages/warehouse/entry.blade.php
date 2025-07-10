@@ -132,27 +132,32 @@
                                                             address        : @js($order->supplier->address),
 
                                                             /* righe dell’ordine (solo i campi necessari) */
-                                                            items: @js(
-                                                                $order->items->map(function ($i) use ($order) {
-                                                                    $stock = $order->stockLevels
-                                                                            ->firstWhere('component_id', $i->component_id);
+items: @js(
+    $order->items->map(function ($i) use ($order) {
 
-                                                                    return [
-                                                                        'id'           => $i->id,
-                                                                        'code'         => $i->component->code,
-                                                                        'name'         => $i->component->description,
-                                                                        'qty_ordered'  => $i->quantity,
-                                                                        'lots'         => $stock
-                                                                            ? $stock->lots->map(fn($l) => [
-                                                                                'code'      => $l->internal_lot_code,
-                                                                                'supplier'  => $l->supplier_lot_code,
-                                                                                'qty'       => $l->quantity,
-                                                                            ])
-                                                                            : [],
-                                                                        'unit'         => $i->component->unit_of_measure,
-                                                                    ];
-                                                                })
-                                                            ),
+        // tutti i lotti dell’ordine relativi a **quel componente**
+        $lots = $order->stockLevelLots
+            ->filter(fn($lot) =>
+                optional($lot->stockLevel)->component_id === $i->component_id
+            )
+            ->map(fn($lot) => [
+                'code'     => $lot->internal_lot_code,
+                'supplier' => $lot->supplier_lot_code,
+                'qty'      => $lot->quantity,
+            ])
+            ->values();   // rimuove eventuali chiavi sparse
+
+        return [
+            'id'          => $i->id,
+            'code'        => $i->component->code,
+            'name'        => $i->component->description,
+            'qty_ordered' => $i->quantity,
+            'lots'        => $lots,
+            'unit'        => $i->component->unit_of_measure,
+        ];
+    })
+),
+
                                                         })"
                                                         class="inline-flex items-center hover:text-green-700">
                                                     <i class="fas fa-arrow-down mr-1"></i> Registra ricevimento
@@ -651,29 +656,39 @@
                     /* Salva registrazione ordine fornitore */
                     async saveRegistration() {
 
-                        /* 1 ‧ controllo completezza righe ----------------------------- */
-                        const incomplete = this.items.some(i => {
-                            // deve esistere almeno un lotto per la riga
-                            if (!i.lots || i.lots.length === 0) return true;
-
-                            // ogni lotto deve avere codice + quantità > 0
-                            return i.lots.some(l =>
+                        /* 1a ‧ controlla righe con lotti “incompleti”  (bloccante) ---- */
+                        const hasInvalidLot = this.items.some(i =>
+                            (i.lots || []).some(l =>
                                 !l.code || l.code.trim() === '' ||
                                 !l.qty  || parseFloat(l.qty) <= 0
-                            );
-                        });
+                            )
+                        );
 
-                        if (incomplete) {
-                            alert('Registra tutte le righe (quantità + lotti) prima di salvare.');
+                        if (hasInvalidLot) {
+                            alert('Alcuni lotti hanno codice o quantità non validi: correggi prima di salvare.');
                             return;
                         }
 
-                        /* 2 ‧ chiamata PATCH → /orders/supplier/{id}/registration ------ */
-                        try {
+                        /* 1b ‧ righe senza alcun lotto  (mancata consegna) ------------ */
+                        const hasShortfall = this.items.some(i => {
+                            const tot = (i.lots || []).reduce((t,l) => t + parseFloat(l.qty||0), 0);
+                            return tot < parseFloat(i.qty_ordered);          // <—— differenza
+                        });
 
+                        if (hasShortfall) {
+                            const goOn = confirm(
+                                'Non tutto il materiale è stato ricevuto.\n' +
+                                'Procedendo verrà generato un ordine di recupero con le quantità mancanti.\n\n' +
+                                'Vuoi continuare?'
+                            );
+                            if (!goOn) return;       // utente annulla
+                        }
+
+                        /* 2‧ PATCH → /orders/supplier/{id}/registration --------------- */
+                        try {
                             const url = `{{ url('/orders/supplier') }}/${this.formData.order_id}/registration`;
 
-                            const r = await fetch(url, {
+                            const resp = await fetch(url, {
                                 method : 'PATCH',
                                 headers: {
                                     'Accept'       : 'application/json',
@@ -687,15 +702,26 @@
                                 })
                             });
 
-                            if (! r.ok) throw new Error(await r.text());
+                            const j = await resp.json();
 
-                            /* 3 ‧ aggiorna cache, feedback, reload --------------------- */
+                            if (!resp.ok || !j.success) {
+                                throw new Error(j.message || 'Errore HTTP ' + resp.status);
+                            }
+
+                            /* 3‧ aggiorna cache ordine localmente ---------------------- */
                             if (this.formData.order_id) {
                                 Alpine.store('orderCache')[this.formData.order_id] = [...this.items];
                             }
 
-                            alert('Registrazione salvata con successo!');
-                            location.reload();          // ricarica solo in caso di esito positivo
+                            /* 4‧ feedback finale -------------------------------------- */
+                            if (j.follow_up_order_id) {
+                                alert('Registrazione OK.\nGenerato ordine di recupero #' + j.follow_up_number + '.');
+                            } else {
+                                alert('Registrazione salvata con successo!');
+                            }
+
+                            /* 5‧ reload pagina (solo esito positivo) ------------------- */
+                            location.reload();
 
                         } catch (e) {
                             alert('Errore salvataggio registrazione: ' + e.message);
