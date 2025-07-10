@@ -132,31 +132,31 @@
                                                             address        : @js($order->supplier->address),
 
                                                             /* righe dell’ordine (solo i campi necessari) */
-items: @js(
-    $order->items->map(function ($i) use ($order) {
+                                                            items: @js(
+                                                                $order->items->map(function ($i) use ($order) {
 
-        // tutti i lotti dell’ordine relativi a **quel componente**
-        $lots = $order->stockLevelLots
-            ->filter(fn($lot) =>
-                optional($lot->stockLevel)->component_id === $i->component_id
-            )
-            ->map(fn($lot) => [
-                'code'     => $lot->internal_lot_code,
-                'supplier' => $lot->supplier_lot_code,
-                'qty'      => $lot->quantity,
-            ])
-            ->values();   // rimuove eventuali chiavi sparse
+                                                                    // tutti i lotti dell’ordine relativi a **quel componente**
+                                                                    $lots = $order->stockLevelLots
+                                                                        ->filter(fn($lot) =>
+                                                                            optional($lot->stockLevel)->component_id === $i->component_id
+                                                                        )
+                                                                        ->map(fn($lot) => [
+                                                                            'code'     => $lot->internal_lot_code,
+                                                                            'supplier' => $lot->supplier_lot_code,
+                                                                            'qty'      => $lot->quantity,
+                                                                        ])
+                                                                        ->values();   // rimuove eventuali chiavi sparse
 
-        return [
-            'id'          => $i->id,
-            'code'        => $i->component->code,
-            'name'        => $i->component->description,
-            'qty_ordered' => $i->quantity,
-            'lots'        => $lots,
-            'unit'        => $i->component->unit_of_measure,
-        ];
-    })
-),
+                                                                    return [
+                                                                        'id'          => $i->id,
+                                                                        'code'        => $i->component->code,
+                                                                        'name'        => $i->component->description,
+                                                                        'qty_ordered' => $i->quantity,
+                                                                        'lots'        => $lots,
+                                                                        'unit'        => $i->component->unit_of_measure,
+                                                                    ];
+                                                                })
+                                                            ),
 
                                                         })"
                                                         class="inline-flex items-center hover:text-green-700">
@@ -647,6 +647,11 @@ items: @js(
                                     qty      : resp.lot.quantity,
                                 });
                             }
+                        }
+
+                        if(this.formData.order_id){
+                            Alpine.store('orderCache')[this.formData.order_id] =
+                                JSON.parse(JSON.stringify(this.items));
                         }
 
                         /* 5‧ reset del form riga dopo ciclo completo ------------------- */

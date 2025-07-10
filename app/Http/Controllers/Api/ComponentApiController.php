@@ -5,43 +5,55 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Component;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;     // <-- usato per le raw query
 
 class ComponentApiController extends Controller
 {
     /**
-     * Autocomplete componenti (max 10 risultati).
-     * Se è presente supplier_id, limita ai componenti forniti da quel
-     * fornitore e restituisce anche il prezzo di listino (last_cost).
+     * Autocomplete componenti (max 20 risultati).
+     *
+     * Accetta:
+     *   ?q=term          ⇒ filtro per codice o descrizione
+     *   ?supplier_id=id  ⇒ limita al listino di quel fornitore
+     *
+     * Ritorna JSON:
+     *   id, code, description, unit_of_measure, (eventuale) last_cost
      */
     public function search(Request $request)
     {
-        $q          = trim($request->get('q', ''));
-        $supplierId = $request->get('supplier_id');   // opzionale
+        $term       = trim($request->get('q', ''));      // stringa di ricerca
+        $supplierId = $request->get('supplier_id');      // opzionale
 
-        /* ---------- SELECT base ---------- */
+        /* --- SELECT base ------------------------------------------------ */
         $columns = [
             'components.id',
             'components.code',
             'components.description',
-            'components.unit_of_measure as unit_of_measure',
+            'components.unit_of_measure',
         ];
 
-        /* ---------- Query ---------- */
+        /* --- query ------------------------------------------------------ */
         $components = Component::query()
-            ->when($supplierId, function ($qry) use ($supplierId, &$columns) {
-                // Join pivot solo se voglio filtrare per fornitore
-                $qry->join('component_supplier as cs', function ($join) use ($supplierId) {
+            /* filtro fornitore + prezzo ---------------------------------- */
+            ->when($supplierId, function ($q) use ($supplierId, &$columns) {
+                $q->join('component_supplier as cs', function ($join) use ($supplierId) {
                         $join->on('cs.component_id', '=', 'components.id')
                              ->where('cs.supplier_id', '=', $supplierId);
                     });
-                // Aggiungo il prezzo alla SELECT con alias 'price'
                 $columns[] = 'cs.last_cost as last_cost';
             })
             ->where('components.is_active', true)
-            ->when($q, fn ($qry) => $qry->where(function ($sq) use ($q) {
-                $sq->where('components.code',        'like', "%{$q}%")
-                   ->orWhere('components.description','like', "%{$q}%");
-            }))
+
+            /* filtro testuale case-insensitive --------------------------- */
+            ->when($term !== '', function ($q) use ($term) {
+                $needle = '%'.strtolower($term).'%';
+
+                $q->where(function ($sub) use ($needle) {
+                    $sub->whereRaw('LOWER(components.code)        LIKE ?', [$needle])
+                        ->orWhereRaw('LOWER(components.description) LIKE ?', [$needle]);
+                });
+            })
+
             ->orderBy('components.code')
             ->limit(20)
             ->get($columns);
