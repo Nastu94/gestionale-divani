@@ -652,6 +652,20 @@ Route::middleware([
         ->middleware('permission:orders.supplier.create');
 
     /*
+    |---------------------------------------------------------------------------
+    | Gestione Ordini Fornitore – crea “da registrazione” (testata sola)
+    |---------------------------------------------------------------------------
+    |
+    | Questa rotta permette di creare un ordine fornitore a partire da una registrazione
+    | di ricevimento merce, senza le righe. Utilizza il metodo storeByRegistration.
+    | Protetta dal permesso orders.supplier.create.
+    |
+    */
+    Route::post('orders/supplier/by-registration', [OrderSupplierController::class, 'storeByRegistration'])
+        ->name('orders.supplier.storeByRegistration')
+        ->middleware('permission:orders.supplier.create');
+
+    /*
     |--------------------------------------------------------------------------
     | Gestione Ordini Fornitore – solo edit & update (modifica)
     |--------------------------------------------------------------------------

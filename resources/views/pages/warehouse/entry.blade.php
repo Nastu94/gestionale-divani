@@ -276,6 +276,18 @@
                     show  : false,
                     isNew : true,
 
+                    /* stato ordine appena creato ma NON ancora salvato */
+                    orderSaved : false,
+
+                    /* ritorna true quando tutti i campi di testata sono completi
+                          (abbrevia le espressioni nelle x-show / x-bind) */
+                    get headerComplete() {
+                        return  this.formData.order_number   &&
+                                this.formData.delivery_date  &&
+                                this.formData.supplier_id    &&
+                                this.formData.bill_number;
+                    },
+
                     // cache righe tabella (reattivo)
                     items : [],
 
@@ -317,6 +329,7 @@
                     // Open modal (data = payload dal pulsante, oppure null se “Nuovo”)
                     open(data = null) {
                         this.isNew = !data;
+                        this.orderSaved = !this.isNew;
 
                         // reset autocomplete
                         this.supplierSearch  = '';
@@ -439,8 +452,8 @@
                     selectComponent(o) {
                         this.selectedComponent             = o;
                         this.currentRow.component_code     = o.code;
-                        this.currentRow.component          = `${o.code} – ${o.name}`;
-                        this.currentRow.unit               = o.unit;
+                        this.currentRow.component          = `${o.description}`;
+                        this.currentRow.unit               = o.unit_of_measure ?? o.unit;
                         this.componentOptions              = [];
                     },
 
@@ -569,6 +582,50 @@
                         return null;
                     },
 
+                    /* Salva testata ordine fornitore (crea o aggiorna) */
+                    saveOrderHeader: async function () {
+
+                        /* 1 – pre-check rapidi */
+                        if (!this.headerComplete) {
+                            alert('Compila tutti i dati di testata prima di salvare.');
+                            return;
+                        }
+
+                        /* 2 – payload */
+                        const payload = {
+                            order_number_id : this.formData.order_number_id,
+                            supplier_id     : this.selectedSupplier?.id,
+                            delivery_date   : this.formData.delivery_date,
+                            bill_number     : this.formData.bill_number,
+                        };
+
+                        /* 3 – POST → /orders/supplier/by-registration */
+                        try {
+                            const resp = await fetch('{{ url('orders/supplier/by-registration') }}', {
+                                method : 'POST',
+                                headers: {
+                                    'Accept'       : 'application/json',
+                                    'Content-Type' : 'application/json',
+                                    'X-CSRF-TOKEN' : document.querySelector('meta[name="csrf-token"]').content
+                                },
+                                credentials: 'same-origin',
+                                body : JSON.stringify(payload)
+                            });
+
+                            const j = await resp.json();
+                            if (!resp.ok || !j.success) throw new Error(j.message || 'HTTP ' + resp.status);
+
+                            alert('Ordine #' + j.number + ' salvato! Ora puoi registrare i componenti.');
+
+                            /* 4 – aggiorna stato front-end */
+                            this.formData.order_id = j.id;          // servirà ai call successivi
+                            this.orderSaved        = true;          // sblocca la sezione dettagli
+
+                        } catch (e) {
+                            alert('Errore salvataggio testata: ' + e.message);
+                        }
+                    },
+
                     /* Salva riga corrente (crea o aggiorna) */
                     async saveRow() {
 
@@ -655,6 +712,7 @@
                         }
 
                         /* 5‧ reset del form riga dopo ciclo completo ------------------- */
+                        this.clearComponent();
                         this.resetRow();
                     },
 

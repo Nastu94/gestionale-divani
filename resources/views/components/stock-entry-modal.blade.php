@@ -48,15 +48,7 @@
                 <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">N. Bolla</label>
                 <input  type="text" name="bill_number"
                         x-model="$store.entryModal.formData.bill_number"
-                        class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
-                               text-sm text-gray-900 dark:text-gray-100">
-            </div>
-
-            {{-- Data consegna --}}
-            <div>
-                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">Data consegna</label>
-                <input  type="date" name="delivery_date"
-                        x-model="$store.entryModal.formData.delivery_date"
+                        :disabled="$store.entryModal.orderSaved"
                         class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
                                text-sm text-gray-900 dark:text-gray-100">
             </div>
@@ -104,7 +96,7 @@
                         </p>
                         <button type="button"
                                 @click="$store.entryModal.clearSupplier()"
-                                x-show="$store.entryModal.isNew"
+                                x-show="$store.entryModal.isNew && !$store.entryModal.orderSaved"
                                 class="text-xs text-red-600 mt-1">
                             Cambia
                         </button>
@@ -113,6 +105,28 @@
 
                 {{-- hidden supplier_id per il POST --}}
                 <input type="hidden" name="supplier_id" x-model="$store.entryModal.formData.supplier_id">
+            </div>
+
+            {{-- Data consegna --}}
+            <div>
+                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">Data consegna</label>
+                <input  type="date" name="delivery_date"
+                        x-model="$store.entryModal.formData.delivery_date"
+                        :disabled="$store.entryModal.orderSaved"
+                        class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
+                               text-sm text-gray-900 dark:text-gray-100">
+                <div class="flex justify-center mt-8">
+                    <button
+                        x-show="$store.entryModal.isNew && !$store.entryModal.orderSaved && $store.entryModal.headerComplete"
+                        @click="$store.entryModal.saveOrderHeader()"
+                        type="button"
+                        class="inline-flex items-center px-3 py-1.5 bg-emerald-700
+                            text-white rounded-md text-xs font-semibold uppercase
+                            hover:bg-emerald-600 focus:outline-none focus:ring-2
+                            focus:ring-emerald-300 transition">
+                        <i class="fas fa-save mr-1"></i> Salva dati ordine
+                    </button>
+                </div>
             </div>
         </div>
         
@@ -187,151 +201,153 @@
             </table>
         </div>
 
+        
+        <fieldset :disabled="$store.entryModal.isNew && !$store.entryModal.orderSaved">
+            {{-- Sezione registrazione riga --}}
+            <div class="mt-8 border-t pt-4" x-data>
+                <h4 class="font-semibold text-sm mb-3">Registrazione riga</h4>
 
-        {{-- Sezione registrazione riga --}}
-        <div class="mt-8 border-t pt-4" x-data>
-            <h4 class="font-semibold text-sm mb-3">Registrazione riga</h4>
+                <div class="grid gap-4 sm:grid-cols-2">
 
-            <div class="grid gap-4 sm:grid-cols-2">
+                    {{-- === Componente (autocomplete) === --}}
+                    <div class="relative">
 
-                {{-- === Componente (autocomplete) === --}}
-                <div class="relative">
+                        {{-- Label visibile quando non è selezionato --}}
+                        <label 
+                            class="block text-xs font-medium text-gray-700 dark:text-gray-300">
+                            Componente
+                        </label>
 
-                    {{-- Label visibile quando non è selezionato --}}
-                    <label 
-                        class="block text-xs font-medium text-gray-700 dark:text-gray-300">
-                        Componente
-                    </label>
+                        {{-- Input ricerca (solo se NON è una riga dell’ordine) --}}
+                        <input  type="text"
+                                x-show="!$store.entryModal.currentRow.id && !$store.entryModal.selectedComponent"          
+                                x-cloak
+                                x-model="$store.entryModal.componentSearch"
+                                @input.debounce.500="$store.entryModal.searchComponents()"
+                                placeholder="Cerca componente..."
+                                class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
+                                text-sm text-gray-900 dark:text-gray-100">
 
-                    {{-- Input ricerca (solo se NON è una riga dell’ordine) --}}
-                    <input  type="text"
-                            x-show="!$store.entryModal.currentRow.id && !$store.entryModal.selectedComponent"          
-                            x-cloak
-                            x-model="$store.entryModal.componentSearch"
-                            @input.debounce.500="$store.entryModal.searchComponents()"
-                            placeholder="Cerca componente..."
-                            class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
-                               text-sm text-gray-900 dark:text-gray-100">
+                        {{-- Dropdown risultati --}}
+                        <div  x-show="$store.entryModal.componentOptions.length" x-cloak
+                            class="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border rounded shadow
+                                    max-h-40 overflow-y-auto">
+                            <template x-for="opt in $store.entryModal.componentOptions" :key="opt.id">
+                                <div  class="px-2 py-1 hover:bg-gray-200 dark:hover:bg-gray-700 cursor-pointer"
+                                    @click="$store.entryModal.selectComponent(opt)">
+                                    <span class="text-xs" x-text="opt.code"></span> - 
+                                    <span class="text-xs ml-1" x-text="opt.description"></span>
+                                </div>
+                            </template>
+                        </div>
 
-                    {{-- Dropdown risultati --}}
-                    <div  x-show="$store.entryModal.componentOptions.length" x-cloak
-                        class="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border rounded shadow
-                                max-h-40 overflow-y-auto">
-                        <template x-for="opt in $store.entryModal.componentOptions" :key="opt.id">
-                            <div  class="px-2 py-1 hover:bg-gray-200 dark:hover:bg-gray-700 cursor-pointer"
-                                @click="$store.entryModal.selectComponent(opt)">
-                                <span class="text-xs" x-text="opt.code"></span> - 
-                                <span class="text-xs ml-1" x-text="opt.description"></span>
+                        {{-- Riepilogo selezionato (solo create-mode) --}}
+                        <template x-if="$store.entryModal.selectedComponent">
+                            <div class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
+                                text-sm text-gray-900 dark:text-gray-100">
+                                <p class="font-semibold" x-text="$store.entryModal.selectedComponent.code + ' – ' + $store.entryModal.selectedComponent.description"></p>
+                                <button type="button"
+                                        @click="$store.entryModal.clearComponent()"
+                                        class="text-red-600 mt-1">Cambia</button>
                             </div>
                         </template>
+
+                        {{-- readonly quando la riga proviene dall’ordine --}}
+                        <input  x-show="$store.entryModal.currentRow.id"
+                                x-cloak
+                                x-model="$store.entryModal.currentRow.component"
+                                readonly
+                                class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
+                                text-sm text-gray-900 dark:text-gray-100">
+
                     </div>
 
-                    {{-- Riepilogo selezionato (solo create-mode) --}}
-                    <template x-if="$store.entryModal.selectedComponent">
-                        <div class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
-                               text-sm text-gray-900 dark:text-gray-100">
-                            <p class="font-semibold" x-text="$store.entryModal.selectedComponent.code + ' – ' + $store.entryModal.selectedComponent.description"></p>
-                            <button type="button"
-                                    @click="$store.entryModal.clearComponent()"
-                                    class="text-red-600 mt-1">Cambia</button>
-                        </div>
-                    </template>
+                    {{-- Quantità ordinata --}}
+                    <div>
+                        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">Q. ordinata</label>
+                        <input  type="number"
+                                x-model="$store.entryModal.currentRow.qty_ordered"
+                                :readonly="$store.entryModal.currentRow.id !== null"
+                                class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
+                                text-sm text-gray-900 dark:text-gray-100">
+                    </div>
 
-                    {{-- readonly quando la riga proviene dall’ordine --}}
-                    <input  x-show="$store.entryModal.currentRow.id"
-                            x-cloak
-                            x-model="$store.entryModal.currentRow.component"
-                            readonly
-                            class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
-                               text-sm text-gray-900 dark:text-gray-100">
+                    {{-- === Registrazione lotti interni (repeater) === --}}
+                    <div class="mt-8">
 
-                </div>
+                        <h4 class="font-semibold text-sm mb-2">Lotti interni</h4>
 
-                {{-- Quantità ordinata --}}
-                <div>
-                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">Q. ordinata</label>
-                    <input  type="number"
-                            x-model="$store.entryModal.currentRow.qty_ordered"
-                            :readonly="$store.entryModal.currentRow.id !== null"
-                            class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
-                               text-sm text-gray-900 dark:text-gray-100">
-                </div>
+                        <template x-for="(lot, idx) in $store.entryModal.currentRow.lots" :key="idx">
+                            <div class="grid grid-cols-6 gap-2 mb-2">
 
-                {{-- === Registrazione lotti interni (repeater) === --}}
-                <div class="mt-8">
-
-                    <h4 class="font-semibold text-sm mb-2">Lotti interni</h4>
-
-                    <template x-for="(lot, idx) in $store.entryModal.currentRow.lots" :key="idx">
-                        <div class="grid grid-cols-6 gap-2 mb-2">
-
-                            {{-- Lotto interno --}}
-                            <div class="col-span-2 flex items-end space-x-2">
-                                <div class="flex-1">
-                                    <label class="text-xs">Lotto interno</label>
-                                    <input type="text"
-                                        x-model="lot.code"
-                                        readonly
-                                        class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
-                               text-sm text-gray-900 dark:text-gray-100">
+                                {{-- Lotto interno --}}
+                                <div class="col-span-2 flex items-end space-x-2">
+                                    <div class="flex-1">
+                                        <label class="text-xs">Lotto interno</label>
+                                        <input type="text"
+                                            x-model="lot.code"
+                                            readonly
+                                            class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
+                                text-sm text-gray-900 dark:text-gray-100">
+                                    </div>
+                                    <button type="button"
+                                            class="mb-1 px-2 py-1 bg-indigo-600 text-white rounded text-xs
+                                                hover:bg-indigo-500"
+                                            @click="$store.entryModal.generateLot(idx)">
+                                        <i class="fas fa-sync-alt"></i>
+                                    </button>
                                 </div>
-                                <button type="button"
-                                        class="mb-1 px-2 py-1 bg-indigo-600 text-white rounded text-xs
-                                            hover:bg-indigo-500"
-                                        @click="$store.entryModal.generateLot(idx)">
-                                    <i class="fas fa-sync-alt"></i>
-                                </button>
-                            </div>
 
-                            {{-- Lotto fornitore --}}
-                            <div class="col-span-2">
-                                <label class="text-xs">Lotto fornitore</label>
-                                <input type="text"
-                                    x-model="lot.supplier"
-                                    class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
-                               text-sm text-gray-900 dark:text-gray-100">
-                            </div>
+                                {{-- Lotto fornitore --}}
+                                <div class="col-span-2">
+                                    <label class="text-xs">Lotto fornitore</label>
+                                    <input type="text"
+                                        x-model="lot.supplier"
+                                        class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
+                                text-sm text-gray-900 dark:text-gray-100">
+                                </div>
 
-                            {{-- Quantità del lotto --}}
-                            <div>
-                                <label class="text-xs">Q.tà</label>
-                                <input type="number" min="0" step="0.01"
-                                    x-model="lot.qty"
-                                    class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
-                               text-sm text-gray-900 dark:text-gray-100 text-right">
-                            </div>
+                                {{-- Quantità del lotto --}}
+                                <div>
+                                    <label class="text-xs">Q.tà</label>
+                                    <input type="number" min="0" step="0.01"
+                                        x-model="lot.qty"
+                                        class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
+                                text-sm text-gray-900 dark:text-gray-100 text-right">
+                                </div>
 
-                            {{-- Pulsante per rimuovere il lotto --}}
-                            <div class="flex items-end">
-                                <button type="button"
-                                        class="text-red-600 text-xs"
-                                        @click="$store.entryModal.removeLot(idx)">
-                                    <i class="fas fa-trash"></i>
-                                </button>
+                                {{-- Pulsante per rimuovere il lotto --}}
+                                <div class="flex items-end">
+                                    <button type="button"
+                                            class="text-red-600 text-xs"
+                                            @click="$store.entryModal.removeLot(idx)">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
                             </div>
-                        </div>
-                    </template>
+                        </template>
 
+                        <button type="button"
+                                class="mt-2 text-xs text-indigo-600"
+                                @click="$store.entryModal.addLot()">
+                            + Aggiungi lotto
+                        </button>
+                    </div>
+
+                </div>
+
+                {{-- Pulsante REGISTRA --}}
+                <div class="mt-4 flex justify-end">
                     <button type="button"
-                            class="mt-2 text-xs text-indigo-600"
-                            @click="$store.entryModal.addLot()">
-                        + Aggiungi lotto
+                            class="inline-flex items-center px-3 py-1.5 bg-purple-600 rounded-md text-xs font-semibold
+                                text-white uppercase hover:bg-purple-500 focus:outline-none focus:ring-2
+                                focus:ring-purple-300 transition"
+                            @click="$store.entryModal.saveRow()">
+                        <i class="fas fa-save mr-1"></i> Registra
                     </button>
                 </div>
-
             </div>
-
-            {{-- Pulsante REGISTRA --}}
-            <div class="mt-4 flex justify-end">
-                <button type="button"
-                        class="inline-flex items-center px-3 py-1.5 bg-purple-600 rounded-md text-xs font-semibold
-                            text-white uppercase hover:bg-purple-500 focus:outline-none focus:ring-2
-                            focus:ring-purple-300 transition"
-                        @click="$store.entryModal.saveRow()">
-                    <i class="fas fa-save mr-1"></i> Registra
-                </button>
-            </div>
-        </div>
+        </fieldset>
 
         {{-- FOOTER --}}
         <div class="mt-6 flex justify-end space-x-2">
@@ -341,13 +357,17 @@
                            text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600">
                 Annulla
             </button>
-            <button type="submit"
-                    class="inline-flex items-center px-3 py-1.5 bg-emerald-600 rounded-md text-xs font-semibold
-                           text-white uppercase hover:bg-emerald-500 focus:outline-none focus:ring-2
-                           focus:ring-emerald-300 transition"
-                    @click="$store.entryModal.saveRegistration()">
-                <i class="fas fa-save mr-1"></i> Salva
-            </button>
+            
+            <fieldset :disabled="$store.entryModal.isNew && !$store.entryModal.orderSaved">
+                <button type="submit"
+                        class="inline-flex items-center px-3 py-1.5 bg-emerald-600 rounded-md text-xs font-semibold
+                            text-white uppercase hover:bg-emerald-500 focus:outline-none focus:ring-2
+                            focus:ring-emerald-300 transition"
+                        :disabled="$store.entryModal.isNew && !$store.entryModal.orderSaved"
+                        @click="$store.entryModal.saveRegistration()">
+                    <i class="fas fa-save mr-1"></i> Salva
+                </button>
+            </fieldset>
         </div>
     </form>
 </div>

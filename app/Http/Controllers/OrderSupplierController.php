@@ -180,6 +180,64 @@ class OrderSupplierController extends Controller
     }
 
     /**
+     * Salva un ordine “vuoto” creato dal modale di registrazione.
+     *
+     * Attende nel payload JSON:
+     *  - order_number_id  FK già prenotato (tabella order_numbers)
+     *  - supplier_id      Fornitore
+     *  - delivery_date    Data consegna / registrazione / ordine
+     *  - bill_number      Numero bolla (-nullable)
+     *
+     * Ritorna: { success:true, id, number }
+     *
+     * @param  \Illuminate\Http\Request  $req
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function storeByRegistration(Request $req): JsonResponse
+    {
+        /*─── VALIDAZIONE ─────────────────────────────────────────────*/
+        $data = $req->validate([
+            'order_number_id' => ['required','exists:order_numbers,id','unique:orders,order_number_id'],
+            'supplier_id'     => ['required','exists:suppliers,id'],
+            'delivery_date'   => ['required','date'],
+            'bill_number'     => ['required','string','max:50'],
+        ],[
+            'order_number_id.unique' => 'Questo numero ordine è già stato utilizzato.',
+            'bill_number.max'        => 'Il numero bolla non può superare i 50 caratteri.',
+            'bill_number.string'     => 'Il numero bolla deve essere una stringa.',
+            'bill_number.required'   => 'Il numero bolla è obbligatorio.',
+            'delivery_date.required' => 'La data di consegna è obbligatoria.',
+            'delivery_date.date'     => 'La data di consegna deve essere una data valida.',
+            'supplier_id.required'   => 'Il fornitore è obbligatorio.',
+            'supplier_id.exists'     => 'Il fornitore selezionato non esiste.',
+            'order_number_id.required' => 'Il numero ordine è obbligatorio.',
+            'order_number_id.exists' => 'Il numero ordine selezionato non esiste.',
+            'order_number_id.unique' => 'Il numero ordine è già stato utilizzato.',
+        ]);
+
+        /*─── TRANSAZIONE ────────────────────────────────────────────*/
+        $order = DB::transaction(function () use ($data) {
+
+            /* crea l’ordine in stato “bozza” */
+            return Order::create([
+                'order_number_id'   => $data['order_number_id'],
+                'supplier_id'       => $data['supplier_id'],
+                'total'             => 0,
+                'ordered_at'        => $data['delivery_date'],   // stessa data per i 3 campi
+                'delivery_date'     => $data['delivery_date'],
+                'registration_date' => $data['delivery_date'],
+                'bill_number'       => $data['bill_number'],
+            ]);
+        });
+
+        return response()->json([
+            'success' => true,
+            'id'      => $order->id,
+            'number'  => $order->orderNumber->number,
+        ]);
+    }
+
+    /**
      * Permette di visualizzare un ordine fornitore specifico.
      * 
      * @param  int  $id

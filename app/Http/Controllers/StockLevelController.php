@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Component;
 use App\Models\Order;
+use App\Models\OrderItem;
 use App\Models\StockLevel;
 use App\Models\StockLevelLot;
 use App\Models\Warehouse;
@@ -159,6 +160,31 @@ class StockLevelController extends Controller
                 if (! $order->stockLevelLots->contains($lot->id)) {
                     $order->stockLevelLots()->attach($lot->id);
                 }
+
+                // gestione riga ordine
+                $orderItem = OrderItem::firstOrNew([
+                    'order_id'     => $order->id,
+                    'component_id' => $component->id,
+                ]);
+
+                if (!$orderItem->exists) {
+                    // nuova riga → quantità + prezzo da pivot component_supplier
+                    $unitPrice = $component->componentSuppliers()
+                                ->where('supplier_id', $order->supplier_id)
+                                ->value('last_cost') ?? 0;          // fallback 0 €
+
+                    $orderItem->fill([
+                        'quantity'   => $data['qty_received'],
+                        'unit_price' => $unitPrice,
+                    ]);
+                }
+
+                $orderItem->save();
+
+                $deltaQty = $data['qty_received'];           // sempre la quantità che stai registrando
+                $deltaVal = $deltaQty * $orderItem->unit_price;
+
+                $order->increment('total', $deltaVal); // aggiorna il totale dell'ordine
             }
 
             /* 9 ‧ LOG MOVIMENTO  ------------------------------------------- */
