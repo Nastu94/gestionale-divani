@@ -244,7 +244,7 @@
                             <th class="px-2 py-1 text-right w-14">Ric.</th>
                             <th class="px-2 py-1">Lotto&nbsp;forn.</th>
                             <th class="px-2 py-1">Lotto&nbsp;int.</th>
-                            <th class="px-2 py-1 w-10">Unit</th>
+                            <th class="px-2 py-1 w-10">U. M.</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -671,6 +671,19 @@
                             });
 
                             const resp = await r.json();
+
+                            if (!r.ok) {
+                                /*  ▼▼ nuovo ramo per il blocco short-fall ▼▼  */
+                                if (resp.blocked === 'shortfall') {
+                                    alert(resp.message);          // o toast
+                                    this.clearComponent();
+                                    this.resetRow();  // reset riga corrente
+                                    return;
+                                }
+                                /*  ▲▲ altrimenti continua col ramo errori già presente ▲▲  */
+                                throw new Error(resp.message || 'Errore');
+                            }
+
                             if (!resp.success) {
                                 alert(resp.message || 'Errore sconosciuto');    // exit immediato
                                 return;
@@ -737,15 +750,28 @@
                             const tot = (i.lots || []).reduce((t,l) => t + parseFloat(l.qty||0), 0);
                             return tot < parseFloat(i.qty_ordered);          // <—— differenza
                         });
-
-                        if (hasShortfall) {
+                        withoutShortfall = false;
+                        if (hasShortfall) {                            
                             const goOn = confirm(
                                 'Non tutto il materiale è stato ricevuto.\n' +
                                 'Procedendo verrà generato un ordine di recupero con le quantità mancanti.\n\n' +
                                 'Vuoi continuare?'
                             );
-                            if (!goOn) return;       // utente annulla
+                            if (!goOn) {
+                                withoutShortfall = confirm(
+                                    'La registrazione sarà salvata senza generare un ordine di recupero?'
+                                );
+                                if (!withoutShortfall) return;       // utente annulla
+                            }
                         }
+                        const skipShortfall = hasShortfall && withoutShortfall;
+
+                        /* build payload -------------------------------------- */
+                        const payload = {
+                            delivery_date : this.formData.delivery_date,
+                            bill_number   : this.formData.bill_number,
+                            skip_shortfall: skipShortfall           // <--- nuovo flag
+                        };
 
                         /* 2‧ PATCH → /orders/supplier/{id}/registration --------------- */
                         try {
@@ -759,10 +785,7 @@
                                     'X-CSRF-TOKEN' : document.querySelector('meta[name="csrf-token"]').content
                                 },
                                 credentials : 'same-origin',
-                                body : JSON.stringify({
-                                    delivery_date : this.formData.delivery_date,
-                                    bill_number   : this.formData.bill_number,
-                                })
+                                body : JSON.stringify(payload)
                             });
 
                             const j = await resp.json();
@@ -777,10 +800,16 @@
                             }
 
                             /* 4‧ feedback finale -------------------------------------- */
-                            if (j.follow_up_order_id) {
-                                alert('Registrazione OK.\nGenerato ordine di recupero #' + j.follow_up_number + '.');
+                            if (j.follow_up_order_id !== null) {
+                                alert('Registrazione completata.\nGenerato ordine di recupero #' + j.follow_up_number + '.');
+                            } else if (j.skipped) {
+                                alert('Registrazione completata.\nNon è stato creato un ordine di recupero.');
+                            } else if (hasShortfall && j.follow_up_order_id === null) {
+                                alert('Non è stato possibile generare alcun ordine di recupero, ' +
+                                      'perchè già presente.\n' +
+                                      'La registrazione è stata completata con successo.');
                             } else {
-                                alert('Registrazione salvata con successo!');
+                                alert('Registrazione completata.');
                             }
 
                             /* 5‧ reload pagina (solo esito positivo) ------------------- */

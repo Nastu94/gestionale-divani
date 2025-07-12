@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Component;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\OrderItemShortfall;
 use App\Models\StockLevel;
 use App\Models\StockLevelLot;
 use App\Models\Warehouse;
@@ -89,6 +90,24 @@ class StockLevelController extends Controller
         ], [
             'internal_lot_code.required' => 'Inserisci o genera il lotto interno.',
         ]);
+
+        /* 1-bis ‧ Controllo short-fall riga -------------------------------- */
+        if (!empty($data['order_id'])) {
+
+            $orderItem = OrderItem::where('order_id', $data['order_id'])
+                ->whereHas('component', fn($q) => $q->where('code', $data['component_code']))
+                ->first();
+
+            if ($orderItem &&
+                OrderItemShortfall::where('order_item_id', $orderItem->id)->exists()) {
+
+                return response()->json([
+                    'success' => false,
+                    'blocked' => 'shortfall',
+                    'message' => 'La quantità mancante per questo componente è già stata presa in carico da un ordine di recupero. Registra la consegna sullo short-fall.',
+                ], 422);
+            }
+        }
 
         try {
             DB::beginTransaction();

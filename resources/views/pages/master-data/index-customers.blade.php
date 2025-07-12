@@ -45,8 +45,9 @@
                     @if(auth()->user()->can('customers.create'))
                         <button 
                             @click="openCreate"
-                            class="inline-flex items-center m-2 px-3 py-1.5 bg-purple-600 rounded-md text-xs font-semibold text-white uppercase
-                                hover:bg-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-300 transition"
+                            class="inline-flex items-center m-2 px-3 py-1.5 bg-purple-600 rounded-md
+                                        text-xs font-semibold text-white uppercase hover:bg-purple-500
+                                        focus:outline-none focus:ring-2 focus:ring-purple-300 transition"
                         >
                             <i class="fas fa-plus mr-1"></i> Nuovo
                         </button>

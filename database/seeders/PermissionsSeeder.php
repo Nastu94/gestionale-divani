@@ -63,6 +63,7 @@ class PermissionsSeeder extends Seeder
 
             ['name' => 'stock.view',                  'display_name' => 'Visualizza giacenze',              'description' => 'Visualizza giacenze e storico movimenti di magazzino.'],
             ['name' => 'stock.entry',                 'display_name' => 'Registra entrate',                 'description' => 'Registra movimenti di entrata in magazzino.'],
+            ['name' => 'stock.entryEdit',             'display_name' => 'Modifica entrate',                 'description' => 'Modifica movimenti di entrata in magazzino.'],
             ['name' => 'stock.exit',                  'display_name' => 'Registra uscite',                  'description' => 'Registra movimenti di uscita in magazzino.'],
 
             ['name' => 'warehouses.view',            'display_name' => 'Visualizza magazzini',             'description' => 'Visualizza lista magazzini.'],

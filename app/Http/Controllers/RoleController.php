@@ -52,6 +52,7 @@ class RoleController extends Controller
             'update'          => ['A', 'Aggiorna'],
             'delete'          => ['E', 'Elimina'],
             'entry'           => ['I', 'Entrata'],
+            'entryEdit'       => ['ME', 'Modifica Entrata'],
             'exit'            => ['U', 'Uscita'],
             'manage'          => ['G', 'Gestisci'],
             'customer'        => ['CR', 'Cliente (report)'],

@@ -110,7 +110,7 @@
                             <th class="px-2 py-1">Codice</th>
                             <th class="px-2 py-1">Componente</th>
                             <th class="px-2 py-1 w-20 text-right">Q.tà</th>
-                            <th class="px-2 py-1 w-20">Unità</th>
+                            <th class="px-2 py-1 w-20">U. M.</th>
                             <th class="px-2 py-1 w-24 text-right">Prezzo</th>
                             <th class="px-2 py-1 w-24 text-right">Subtot.</th>
                             <th class="px-2 py-1 w-12"></th>

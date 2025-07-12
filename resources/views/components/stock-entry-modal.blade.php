@@ -48,7 +48,7 @@
                 <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">N. Bolla</label>
                 <input  type="text" name="bill_number"
                         x-model="$store.entryModal.formData.bill_number"
-                        :disabled="$store.entryModal.orderSaved"
+                        :disabled="$store.entryModal.orderSaved && $store.entryModal.bill_number === ''"
                         class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
                                text-sm text-gray-900 dark:text-gray-100">
             </div>
@@ -141,7 +141,7 @@
                         <th class="px-3 py-1 text-right w-14 whitespace-nowrap">Q. ric.</th>
                         <th class="px-3 py-1 whitespace-nowrap">Lotto&nbsp;forn.</th>
                         <th class="px-3 py-1 whitespace-nowrap">Lotti&nbsp;interni</th>
-                        <th class="px-3 py-1 w-10 whitespace-nowrap">Unit</th>
+                        <th class="px-3 py-1 w-10 whitespace-nowrap">U. M.</th>
                         <th class="px-2 py-1 w-8"></th> {{-- icona azione --}}
                     </tr>
                 </thead>

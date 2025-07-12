@@ -5,6 +5,9 @@ namespace App\Http\Controllers;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\OrderNumber;
+use App\Models\OrderItemShortfall;
+use App\Models\StockLevel;
+use App\Models\StockLevelLot;
 use App\Models\Supplier;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -378,6 +381,7 @@ class OrderSupplierController extends Controller
             [
                 'delivery_date' => 'required|date',
                 'bill_number'   => 'required|string|max:50',
+                'skip_shortfall' => ['sometimes','boolean'],
             ],
             [
                 'delivery_date.required' => 'La data di consegna è obbligatoria.',
@@ -393,17 +397,60 @@ class OrderSupplierController extends Controller
             'bill_number'       => $data['bill_number'],
         ])->save();
 
+        if ($data['skip_shortfall'] == true) {
+            return response()->json([
+                'success'            => true,
+                'skipped'            => true,      // info per il front-end
+                'order'              => $order->only(['registration_date','bill_number']),
+                'follow_up_order_id' => null,
+                'follow_up_number'   => null,
+            ]);
+        }
+
         /* ──────────────────────────────────────────────────────────────
-        | 3‧ Genera eventuale ordine “short-fall”
-        |     (sarà null se tutte le quantità sono state evase)
-        ────────────────────────────────────────────────────────────── */
-        $followUp = $svc->capture($order);
+        | 3‧ Gestione short-fall (nuovo o nessuno)
+        |────────────────────────────────────────────────────────────── */
+        $parent = $order->load(['items.component', 'stockLevelLots.stockLevel']);
+
+        /* 3-a  qty ricevute per componente */
+        $received = $parent->stockLevelLots
+            ->groupBy(fn ($lot) => $lot->stockLevel->component_id)
+            ->map(fn ($g) => $g->sum('quantity'));
+
+        /* 3-b  gap per riga ordine */
+        $gaps = collect();
+        foreach ($parent->items as $item) {
+            $missing = $item->quantity - $received->get($item->component_id, 0);
+            if ($missing > 0) {
+                $gaps->push($item->id);
+            }
+        }
+
+        /* 3-c  rimuovi gap già tracciati */
+        $gaps = $gaps->reject(function ($orderItemId) {
+            return OrderItemShortfall::where('order_item_id', $orderItemId)->exists();
+        });
+
+        /* 3-d  se non rimane nulla → nessun nuovo short-fall */
+        if ($gaps->isEmpty()) {
+            return response()->json([
+                'success'            => true,
+                'skipped'            => false,
+                'order'              => $parent->only(['registration_date','bill_number']),
+                'follow_up_order_id' => null,            // <-- front-end capirà che NON è stato creato
+                'follow_up_number'   => null,
+            ]);
+        }
+
+        /* 3-e  Crea *sempre* un NUOVO ordine short-fall con il service */
+        $followUp = $svc->capture($parent);   // costruisce ordine + righe mancanti
 
         return response()->json([
             'success'            => true,
-            'order'              => $order->only(['registration_date', 'bill_number']),
-            'follow_up_order_id' => optional($followUp)->id,
-            'follow_up_number'   => optional($followUp)->number,
+            'skipped'            => false,
+            'order'              => $parent->only(['registration_date','bill_number']),
+            'follow_up_order_id' => $followUp->id,
+            'follow_up_number'   => $followUp->number,
         ]);
     }
 
