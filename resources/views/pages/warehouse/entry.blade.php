@@ -116,8 +116,72 @@
                                         <div class="flex items-center space-x-4 text-xs">
                                             {{-- Pulsante Registra --}}
                                             @can('stock.entry')
+                                                @if( !($order->registration_date && $order->bill_number) )
+                                                    <button type="button"
+                                                            @click="openModal({
+                                                                order_id        : {{ $order->id }},
+                                                                order_number_id : {{ $order->order_number_id }},
+                                                                order_number    : @js($order->number),
+
+                                                                delivery_date   : @js(optional($order->delivery_date)->format('Y-m-d')),
+                                                                bill_number     : @js($order->bill_number),
+
+                                                                supplier_id    : {{ $order->supplier_id }},
+                                                                supplier_name  : @js($order->supplier->name),
+                                                                supplier_email : @js($order->supplier->email),
+                                                                vat_number     : @js($order->supplier->vat_number),
+                                                                address        : @js($order->supplier->address),
+
+                                                                /* righe dell’ordine (solo i campi necessari) */
+                                                                items: @js(
+                                                                    $order->items->map(function ($i) use ($order) {
+
+                                                                        // tutti i lotti dell’ordine relativi a **quel componente**
+                                                                        $lots = $order->stockLevelLots
+                                                                            ->filter(fn($lot) =>
+                                                                                optional($lot->stockLevel)->component_id === $i->component_id
+                                                                            )
+                                                                            ->map(fn($lot) => [
+                                                                                'code'     => $lot->internal_lot_code,
+                                                                                'supplier' => $lot->supplier_lot_code,
+                                                                                'qty'      => $lot->quantity,
+                                                                            ])
+                                                                            ->values();   // rimuove eventuali chiavi sparse
+
+                                                                        return [
+                                                                            'id'          => $i->id,
+                                                                            'code'        => $i->component->code,
+                                                                            'name'        => $i->component->description,
+                                                                            'qty_ordered' => $i->quantity,
+                                                                            'lots'        => $lots,
+                                                                            'unit'        => $i->component->unit_of_measure,
+                                                                        ];
+                                                                    })
+                                                                ),
+                                                            })"
+                                                            class="inline-flex items-center hover:text-green-700">
+                                                        <i class="fas fa-arrow-down mr-1"></i> Registra ricevimento
+                                                    </button>
+                                                @endif  
+                                            @endcan
+
+                                            {{-- Pulsante Visualizza (sidebar) --}}
+                                            @can('orders.supplier.view')
                                                 <button type="button"
-                                                        @click="openModal({
+                                                        @click="$dispatch('open-lines', {
+                                                            orderId: {{ $order->id }},
+                                                            orderNumber: '{{ $order->number }}'
+                                                        })"
+                                                        class="inline-flex items-center hover:text-indigo-700">
+                                                    <i class="fas fa-eye mr-1"></i> Visualizza
+                                                </button>
+                                            @endcan
+
+                                            @can('stock.entryEdit')
+                                                @if($order->registration_date && $order->bill_number)
+                                                    <button type="button"
+                                                            class="inline-flex items-center hover:text-amber-400"
+                                                        @click="$store.entryModal.openEdit({
                                                             order_id        : {{ $order->id }},
                                                             order_number_id : {{ $order->order_number_id }},
                                                             order_number    : @js($order->number),
@@ -131,49 +195,28 @@
                                                             vat_number     : @js($order->supplier->vat_number),
                                                             address        : @js($order->supplier->address),
 
-                                                            /* righe dell’ordine (solo i campi necessari) */
-                                                            items: @js(
-                                                                $order->items->map(function ($i) use ($order) {
-
-                                                                    // tutti i lotti dell’ordine relativi a **quel componente**
-                                                                    $lots = $order->stockLevelLots
-                                                                        ->filter(fn($lot) =>
-                                                                            optional($lot->stockLevel)->component_id === $i->component_id
-                                                                        )
-                                                                        ->map(fn($lot) => [
-                                                                            'code'     => $lot->internal_lot_code,
-                                                                            'supplier' => $lot->supplier_lot_code,
-                                                                            'qty'      => $lot->quantity,
-                                                                        ])
-                                                                        ->values();   // rimuove eventuali chiavi sparse
-
-                                                                    return [
-                                                                        'id'          => $i->id,
-                                                                        'code'        => $i->component->code,
-                                                                        'name'        => $i->component->description,
-                                                                        'qty_ordered' => $i->quantity,
-                                                                        'lots'        => $lots,
-                                                                        'unit'        => $i->component->unit_of_measure,
-                                                                    ];
-                                                                })
-                                                            ),
-
-                                                        })"
-                                                        class="inline-flex items-center hover:text-green-700">
-                                                    <i class="fas fa-arrow-down mr-1"></i> Registra ricevimento
-                                                </button>
-                                            @endcan
-
-                                            {{-- Pulsante Visualizza (sidebar) --}}
-                                            @can('orders.supplier.view')
-                                                <button type="button"
-                                                        @click="$dispatch('open-lines', {
-                                                            orderId: {{ $order->id }},
-                                                            orderNumber: '{{ $order->number }}'
-                                                        })"
-                                                        class="inline-flex items-center hover:text-indigo-700">
-                                                    <i class="fas fa-eye mr-1"></i> Visualizza
-                                                </button>
+                                                            items: @js($order->items->map(fn ($i) => [
+                                                                'id'          => $i->id,
+                                                                'code'        => $i->component->code,
+                                                                'name'        => $i->component->description,
+                                                                'qty_ordered' => $i->quantity,
+                                                                'lots'        => $order->stockLevelLots
+                                                                                    ->filter(fn($lot) =>
+                                                                                        optional($lot->stockLevel)->component_id === $i->component_id
+                                                                                    )
+                                                                                    ->map(fn($lot) => [
+                                                                                        'id'       => $lot->id,          // ↑ ci servirà in PATCH
+                                                                                        'code'     => $lot->internal_lot_code,
+                                                                                        'supplier' => $lot->supplier_lot_code,
+                                                                                        'qty'      => $lot->quantity,
+                                                                                    ])
+                                                                                    ->values(),
+                                                                'unit'        => $i->component->unit_of_measure,
+                                                            ])),
+                                                        })">
+                                                        <i class="fas fa-pencil-alt mr-1"></i> Modifica
+                                                    </button>
+                                                @endif
                                             @endcan
                                         </div>
                                     </td>
@@ -276,6 +319,10 @@
                     show  : false,
                     isNew : true,
 
+                    /*variabili per la modifica */
+                    editMode : false,          // true se stiamo modificando un carico già salvato
+                    originalLotId : null,      // id del lotto che stiamo editando
+
                     /* stato ordine appena creato ma NON ancora salvato */
                     orderSaved : false,
 
@@ -327,15 +374,17 @@
                     /* ═══════════════ METODI ═══════════════ */
 
                     // Open modal (data = payload dal pulsante, oppure null se “Nuovo”)
-                    open(data = null) {
-                        this.isNew = !data;
+                    open(data = null, mode = 'create') {
+                        /* 1. flag ------------------------------------------------------- */
+                        this.editMode   = mode === 'edit';
+                        this.isNew      = !this.editMode && !data;
                         this.orderSaved = !this.isNew;
 
-                        // reset autocomplete
+                        /* 2. reset autocomplete supplier ------------------------------- */
                         this.supplierSearch  = '';
                         this.supplierOptions = [];
 
-                        // header
+                        /* 3. header ----------------------------------------------------- */
                         this.formData = data ?? {
                             order_id      : null,
                             supplier_id   : null,
@@ -345,14 +394,25 @@
                             bill_number   : '',
                         };
 
-                        /* items: priorità alla cache */
+                        /* 4. items (cache > payload) ----------------------------------- */
                         const fromCache = data?.order_id
                             ? Alpine.store('orderCache')[data.order_id]
                             : null;
 
                         this.items = fromCache ?? (data?.items || []);
 
-                        /* numero progressivo */
+                        /* 4.a → assegno _oldQty e _oldSupplier */
+                        this.items.forEach(item => {
+                            if (!Array.isArray(item.lots)) {
+                                item.lots = Object.values(item.lots || {});
+                            }
+                            item.lots.forEach(lot => {
+                                lot._oldQty      = parseFloat(lot.qty);   // ← snapshot quantità originale
+                                lot._oldSupplier = lot.supplier || '';    // ← snapshot lotto fornitore
+                            });
+                        });
+
+                        /* 5. progressivo ordine ---------------------------------------- */
                         if (this.isNew) {
                             this.reserveOrderNumber();
                         } else {
@@ -360,20 +420,26 @@
                             this.formData.order_number    = data.order_number    ?? '';
                         }
 
-                        /* fornitore pre‑compilato */
-                        if (data?.supplier_id) {
-                            this.selectedSupplier = {
+                        /* 6. supplier pre-compilato ------------------------------------ */
+                        this.selectedSupplier = data?.supplier_id
+                            ? {
                                 id         : data.supplier_id,
                                 name       : data.supplier_name,
                                 email      : data.supplier_email,
                                 vat_number : data.vat_number,
-                                address    : data.address ?? { via:'', city:'', postal_code:'', country:'' },
-                            };
-                        } else {
-                            this.selectedSupplier = null;
-                        }
+                                address    : data.address ?? {
+                                    via:'', city:'', postal_code:'', country:''
+                                },
+                            }
+                            : null;
 
+                        /* 7. mostra modale --------------------------------------------- */
                         this.show = true;
+                    },
+
+                    // Open modal per modifica ricevimento esistente
+                    openEdit(payload) {
+                        this.open(payload, 'edit');
                     },
 
                     /* Chiude il modale e resetta lo stato */
@@ -510,21 +576,39 @@
 
                     /* ─────── CRUD per le righe della tabella ─────── */
                     loadRow(id) {
+
                         const r = this.items.find(i => i.id === id);
                         if (!r) return;
 
+                        /* 1‧ normalizza lots in ARRAY e clona -------------------------- */
+                        const lotsCloned = (
+                            Array.isArray(r.lots) ? r.lots : Object.values(r.lots || {})
+                        ).map(l => ({
+                            ...JSON.parse(JSON.stringify(l)),    // deep-clone
+                            _oldQty      : parseFloat(l.qty),    // 👈 snapshot quantità originale
+                            _oldSupplier : l.supplier || '',     // 👈 snapshot lotto fornitore
+                        }));
+
+                        /* 2‧ se righe senza lotto, prepariamo placeholder -------------- */
+                        const lotsSafe = lotsCloned.length
+                            ? lotsCloned
+                            : [{
+                                code        : '',
+                                supplier    : '',
+                                qty         : '',
+                                _oldQty      : 0,
+                                _oldSupplier : '',
+                            }];
+
+                        /* 3‧ popola currentRow ---------------------------------------- */
                         this.currentRow = {
                             id             : r.id,
                             component      : `${r.code} – ${r.name}`,
                             component_code : r.code,
                             qty_ordered    : r.qty_ordered,
                             unit           : r.unit,
-                            lot_supplier   : r.lots.length ? r.lots[0].supplier ?? '' : '',
-
-                            // clona in profondità per evitare riferimenti condivisi
-                            lots           : r.lots.length
-                                            ? JSON.parse(JSON.stringify(r.lots))
-                                            : [{ code:'', supplier:'', qty:'' }],
+                            lot_supplier   : lotsSafe[0].supplier,
+                            lots           : lotsSafe,
                         };
                     },
 
@@ -693,9 +777,12 @@
                             if (idx !== -1) {
                                 /* riga esiste già → pushiamo il nuovo lotto */
                                 this.items[idx].lots.push({
-                                    code     : resp.lot.internal_lot_code,
-                                    supplier : resp.lot.supplier_lot_code,
-                                    qty      : resp.lot.quantity,
+                                    id        : resp.lot.id,
+                                    code      : resp.lot.internal_lot_code,
+                                    supplier  : resp.lot.supplier_lot_code,
+                                    qty       : resp.lot.quantity,
+                                    _oldQty      : parseFloat(resp.lot.quantity),   // snapshot
+                                    _oldSupplier : resp.lot.supplier_lot_code,      // snapshot
                                 });
                             } else {
                                 /* prima iterazione: riga “fuori ordine” */
@@ -712,9 +799,12 @@
                                     rowCreated = true;
                                 }
                                 this.items[idx].lots.push({
-                                    code     : resp.lot.internal_lot_code,
-                                    supplier : resp.lot.supplier_lot_code,
-                                    qty      : resp.lot.quantity,
+                                    id        : resp.lot.id,
+                                    code      : resp.lot.internal_lot_code,
+                                    supplier  : resp.lot.supplier_lot_code,
+                                    qty       : resp.lot.quantity,
+                                    _oldQty      : parseFloat(resp.lot.quantity),   // snapshot
+                                    _oldSupplier : resp.lot.supplier_lot_code,      // snapshot
                                 });
                             }
                         }
@@ -727,6 +817,84 @@
                         /* 5‧ reset del form riga dopo ciclo completo ------------------- */
                         this.clearComponent();
                         this.resetRow();
+                    },
+
+                    /* Aggiorna uno o più lotti esistenti */
+                    async updateEntry() {
+
+                        /* a) differenze nella riga attualmente aperta ------------------ */
+                        const lotsChanged = this.currentRow.lots
+                            .filter(l => l.qty != l._oldQty || l.supplier != l._oldSupplier)
+                            .map(l => ({
+                                id           : l.id,
+                                qty          : l.qty,
+                                lot_supplier : l.supplier,
+                            }));
+
+                        if (!lotsChanged.length) {
+                            alert('Nessuna modifica da salvare.');
+                            return;
+                        }
+
+                        /* b) PATCH al back-end ---------------------------------------- */
+                        try {
+                            const r = await fetch('{{ route('stock-movements-entry.update') }}', {
+                                method : 'PATCH',
+                                headers: {
+                                    'Accept'      : 'application/json',
+                                    'Content-Type': 'application/json',
+                                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                                },
+                                body : JSON.stringify({ lots : lotsChanged })
+                            });
+                            const j = await r.json();
+                            console.log(j.blocked);
+                            if (!r.ok) {
+                                if (j.blocked === 'alreadyShortfall' || j.blocked === 'shortfall') {
+                                    alert(j.message); 
+                                    this.clearComponent();
+                                    this.resetRow();  // reset riga corrente
+                                    return;
+                                }
+                                alert(j.message || 'Errore server (' + r.status + ')'); return;
+                            }
+
+                            /* c) sincronia fra currentRow e items ---------------------- */
+                            j.updated.forEach(u => {
+
+                                /* aggiorna la vista in currentRow */
+                                const crLot = this.currentRow.lots.find(l => l.id === u.id);
+                                if (crLot) {
+                                    crLot.qty        = u.qty;
+                                    crLot.supplier   = u.lot_supplier;
+                                    crLot._oldQty    = u.qty;          // nuovo snapshot
+                                    crLot._oldSupplier = u.lot_supplier;
+                                }
+
+                                /* aggiorna la tabella riepilogo */
+                                this.items.forEach(it => {
+                                    const lot = it.lots.find(l => l.id === u.id);
+                                    if (lot) {
+                                        lot.qty        = u.qty;
+                                        lot.supplier   = u.lot_supplier;
+                                        lot._oldQty    = u.qty;
+                                        lot._oldSupplier = u.lot_supplier;
+                                    }
+                                });
+                            });
+
+                            if (j.shortfall_created) {
+                                alert('Aggiornamento effettuato. È stato creato l’ordine di recupero #' +
+                                    j.follow_up_number + '.');
+                            } else {
+                                alert('Lotti aggiornati con successo!');
+                            }
+                            this.resetRow();  // reset riga corrente
+                            this.clearComponent(); // reset componente selezionato
+
+                        } catch (e) {
+                            alert('Errore aggiornamento: ' + e.message);
+                        }
                     },
 
                     /* Salva registrazione ordine fornitore */

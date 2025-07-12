@@ -9,7 +9,7 @@
     {{-- HEADER --}}
     <div class="flex justify-between items-center mb-4">
         <h3  class="text-lg font-semibold text-gray-900 dark:text-gray-100"
-             x-text="$store.entryModal.isNew ? 'Nuovo ricevimento' : 'Registra ricevimento'">
+             x-text="$store.entryModal.isNew ? 'Nuovo ricevimento' : $store.entryModal.editMode ? 'Modifica ricevimento' : 'Registra ricevimento'">
         </h3>
         <button type="button" @click="$store.entryModal.close()"
                 class="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 focus:outline-none">
@@ -267,7 +267,7 @@
                         <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">Q. ordinata</label>
                         <input  type="number"
                                 x-model="$store.entryModal.currentRow.qty_ordered"
-                                :readonly="$store.entryModal.currentRow.id !== null"
+                                :readonly="$store.entryModal.currentRow.id !== null || $store.entryModal.editMode"
                                 class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
                                 text-sm text-gray-900 dark:text-gray-100">
                     </div>
@@ -288,11 +288,12 @@
                                             x-model="lot.code"
                                             readonly
                                             class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
-                                text-sm text-gray-900 dark:text-gray-100">
+                                            text-sm text-gray-900 dark:text-gray-100">
                                     </div>
                                     <button type="button"
                                             class="mb-1 px-2 py-1 bg-indigo-600 text-white rounded text-xs
                                                 hover:bg-indigo-500"
+                                            :disabled="$store.entryModal.editMode"
                                             @click="$store.entryModal.generateLot(idx)">
                                         <i class="fas fa-sync-alt"></i>
                                     </button>
@@ -302,6 +303,7 @@
                                 <div class="col-span-2">
                                     <label class="text-xs">Lotto fornitore</label>
                                     <input type="text"
+                                        :readonly="$store.entryModal.editMode"
                                         x-model="lot.supplier"
                                         class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
                                 text-sm text-gray-900 dark:text-gray-100">
@@ -336,14 +338,23 @@
 
                 </div>
 
-                {{-- Pulsante REGISTRA --}}
+                {{-- Pulsante REGISTRA/AGGIORNA --}}
                 <div class="mt-4 flex justify-end">
                     <button type="button"
+                            x-show="!$store.entryModal.editMode"
                             class="inline-flex items-center px-3 py-1.5 bg-purple-600 rounded-md text-xs font-semibold
                                 text-white uppercase hover:bg-purple-500 focus:outline-none focus:ring-2
                                 focus:ring-purple-300 transition"
                             @click="$store.entryModal.saveRow()">
                         <i class="fas fa-save mr-1"></i> Registra
+                    </button>
+                    <button type="button"
+                        x-show="$store.entryModal.editMode"
+                        @click="$store.entryModal.updateEntry()"
+                        class="inline-flex items-center px-3 py-1.5 bg-purple-600 rounded-md text-xs font-semibold
+                            text-white uppercase hover:bg-purple-500 focus:outline-none focus:ring-2
+                            focus:ring-purple-300 transition">
+                            <i class="fas fa-pencil-alt mr-1"></i>  Aggiorna
                     </button>
                 </div>
             </div>
@@ -363,7 +374,6 @@
                         class="inline-flex items-center px-3 py-1.5 bg-emerald-600 rounded-md text-xs font-semibold
                             text-white uppercase hover:bg-emerald-500 focus:outline-none focus:ring-2
                             focus:ring-emerald-300 transition"
-                        :disabled="$store.entryModal.isNew && !$store.entryModal.orderSaved"
                         @click="$store.entryModal.saveRegistration()">
                     <i class="fas fa-save mr-1"></i> Salva
                 </button>

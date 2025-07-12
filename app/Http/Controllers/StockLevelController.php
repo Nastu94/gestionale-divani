@@ -11,10 +11,13 @@ use App\Models\StockLevelLot;
 use App\Models\Warehouse;
 use App\Models\StockMovement;
 use App\Models\LotNumber;
+use App\Services\ShortfallService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Database\QueryException;
+use App\Exceptions\BusinessRuleException;
 
 class StockLevelController extends Controller
 {
@@ -265,6 +268,157 @@ class StockLevelController extends Controller
     public function update(Request $request, StockLevel $stockLevel)
     {
         //
+    }
+
+    /**
+     * Aggiorna una registrazione di magazzino già esistente.
+     *
+     * Permette di modificare quantità ricevuta e lotto fornitore;
+     * non tocca i dati di testata dell’ordine.
+     *
+     * Regole di dominio:
+     *  - il lotto interno è immutabile
+     *  - se la riga è già in uno short-fall, blocca la modifica
+     *  - se si riduce la quantità, deve esserci giacenza disponibile
+     *  - aggiorna stock_level, order_items, orders.total
+     *  - logga un movimento IN/OUT per audit
+     *
+     * @param  Request          $request
+     * @param  StockLevelLot    $lot          lotto da aggiornare (route-model-binding)
+     * @param  ShortfallService $svc
+     * @return JsonResponse
+     */
+    public function updateEntry(Request $request, ShortfallService $svc): JsonResponse
+    {
+        /* 1‧ VALIDAZIONE INPUT ------------------------------------------------ */
+        $payload = $request->validate([
+            'lots'                  => ['required','array','min:1'],
+            'lots.*.id'             => ['required','exists:stock_level_lots,id'],
+            'lots.*.qty'            => ['required','numeric','min:0.01'],
+            'lots.*.lot_supplier'   => ['nullable','string','max:50'],
+        ]);
+
+        Log::debug('⏩ updateEntry START', ['lots' => $payload['lots']]);
+
+        $updated          = [];
+        $shortfallCreated = false;
+        $followUpId       = null;
+        $followUpNumber   = null;
+
+        /* 2‧ TRANSAZIONE ------------------------------------------------------ */
+        try {
+            DB::transaction(function () use (
+                $payload, &$updated, $svc,
+                &$shortfallCreated, &$followUpId, &$followUpNumber
+            ) {
+
+                foreach ($payload['lots'] as $lotData) {
+                    Log::debug('🔍 Processing lot', $lotData);
+
+                    /** @var StockLevelLot $lot */
+                    $lot = StockLevelLot::with(['stockLevel','stockLevel.component'])
+                        ->lockForUpdate()
+                        ->find($lotData['id']);
+
+                    if (! $lot) {
+                        Log::warning('❌ Lot not found', ['id' => $lotData['id']]);
+                        continue;
+                    }
+
+                    /* === ORDINE COLLEGATO (via pivot) ======================= */
+                    $order = Order::whereHas('stockLevelLots', fn($q) =>
+                                $q->where('stock_level_lots.id', $lot->id)
+                            )->first();
+
+                    $stockLevel = $lot->stockLevel;
+                    $delta      = $lotData['qty'] - $lot->quantity;
+
+                    Log::debug('ℹ️  Delta calcolato', [
+                        'lot_id'    => $lot->id,
+                        'old_qty'   => $lot->quantity,
+                        'new_qty'   => $lotData['qty'],
+                        'delta'     => $delta,
+                        'stock_qty' => $stockLevel->quantity,
+                    ]);
+
+                    /* 3-a ‧ BLOCCA se la riga è già in uno short-fall -------- */
+                    $alreadySf = $order && OrderItemShortfall::whereRelation('orderItem',
+                                    'order_id',     $order->id)
+                                ->whereRelation('orderItem',
+                                    'component_id', $stockLevel->component_id)
+                                ->exists();
+
+                    if ($alreadySf) {
+                        Log::info('🚫 alreadyShortfall', ['lot_id' => $lot->id]);
+                        throw new \App\Exceptions\BusinessRuleException('alreadyShortfall');
+                    }
+
+                    /* 3-b ‧ BLOCCA se manca giacenza ------------------------- */
+                    if ($delta < 0 && ($stockLevel->quantity + $delta) < 0) {
+                        Log::info('🚫 insufficient_stock', ['lot_id' => $lot->id]);
+                        throw new \App\Exceptions\BusinessRuleException('insufficient_stock');
+                    }
+
+                    /* 4‧ APPLICA VARIAZIONE ---------------------------------- */
+                    if ($delta !== 0.0 || $lotData['lot_supplier'] !== $lot->supplier_lot_code) {
+
+                        $lot->update([
+                            'quantity'          => $lotData['qty'],
+                            'supplier_lot_code' => $lotData['lot_supplier'] ?: $lot->supplier_lot_code,
+                        ]);
+
+                        $stockLevel->increment('quantity', $delta);
+
+                        StockMovement::create([
+                            'stock_level_id' => $stockLevel->id,
+                            'type'           => $delta > 0 ? 'IN' : 'OUT',
+                            'quantity'       => abs($delta),
+                            'note'           => 'Modifica lotto ' . $lot->internal_lot_code,
+                        ]);
+
+                        Log::debug('✅ Lotto aggiornato', ['lot_id' => $lot->id]);
+
+                        $updated[] = [
+                            'id'           => $lot->id,
+                            'qty'          => $lot->quantity,
+                            'lot_supplier' => $lot->supplier_lot_code,
+                        ];
+
+                        /* 5‧ DELTA NEGATIVO → possibile nuovo short-fall ------ */
+                        if ($delta < 0 && $order) {
+                            $newSF = $svc->capture($order);   // null se nessun gap
+                            if ($newSF) {
+                                $shortfallCreated = true;
+                                $followUpId       = $newSF->id;
+                                $followUpNumber   = $newSF->number;
+                            }
+                        }
+                    }
+                }
+            });
+        } catch (BusinessRuleException $e) {
+            return response()->json([
+                'success' => false,
+                'blocked' => $e->getMessage(),     // alreadyShortfall | insufficient_stock
+                'message' => $e->getMessage() === 'alreadyShortfall'
+                    ? 'Non è possibile modificare questa riga perché esiste un ordine di recupero. Modifica la quantità direttamente lì.'
+                    : 'Non c’è abbastanza giacenza per ridurre questa quantità.',
+            ], 422);
+        }
+        
+        Log::debug('⏹ updateEntry END', [
+            'updated_count' => count($updated),
+            'shortfall'     => $shortfallCreated,
+        ]);
+
+        /* 6‧ RISPOSTA --------------------------------------------------------- */
+        return response()->json([
+            'success'             => true,
+            'updated'             => $updated,
+            'shortfall_created'   => $shortfallCreated,
+            'follow_up_order_id'  => $followUpId,
+            'follow_up_number'    => $followUpNumber,
+        ]);
     }
 
     /**

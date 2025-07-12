@@ -757,6 +757,19 @@ Route::middleware([
 
     /*
     |--------------------------------------------------------------------------
+    | Magazzino – Modifica Entrate (store)
+    |--------------------------------------------------------------------------
+    |
+    | Registra il ricevimento merce per un ordine fornitore.
+    | Protetta dal permesso stock.entry.
+    |
+    */
+    Route::patch('stock-movements-entry', [StockLevelController::class, 'updateEntry'])
+        ->name('stock-movements-entry.update')
+        ->middleware('permission:stock.entryEdit');
+
+    /*
+    |--------------------------------------------------------------------------
     | Magazzino – Uscite (indice)
     |--------------------------------------------------------------------------
     |

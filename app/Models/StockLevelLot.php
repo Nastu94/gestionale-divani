@@ -7,6 +7,8 @@ use App\Models\Concerns\GeneratesLot;
 use Spatie\Activitylog\Traits\LogsActivity;
 use Spatie\Activitylog\LogOptions;
 use App\Models\stockLevel;
+use App\Models\LotNumber;
+use App\Models\Order;
 
 /**
  * @property string  $internal_lot_code
@@ -68,5 +70,16 @@ class StockLevelLot extends Model
     public function lotNumber()
     {
         return $this->belongsTo(LotNumber::class);
+    }
+
+    /* relazione con l'ordine fornitore (passando per la tabella pivot order_stock_level) ------------------------------------ */
+    public function orders()
+    {
+        return $this->belongsToMany(
+            Order::class,
+            'order_stock_level',
+            'stock_level_lot_id',
+            'order_id'
+        );
     }
 }
