@@ -848,7 +848,7 @@
                                 body : JSON.stringify({ lots : lotsChanged })
                             });
                             const j = await r.json();
-                            console.log(j.blocked);
+
                             if (!r.ok) {
                                 if (j.blocked === 'alreadyShortfall' || j.blocked === 'shortfall') {
                                     alert(j.message); 
@@ -889,8 +889,8 @@
                             } else {
                                 alert('Lotti aggiornati con successo!');
                             }
-                            this.resetRow();  // reset riga corrente
-                            this.clearComponent(); // reset componente selezionato
+
+                            location.reload();  // ricarica la pagina per aggiornare la cache
 
                         } catch (e) {
                             alert('Errore aggiornamento: ' + e.message);

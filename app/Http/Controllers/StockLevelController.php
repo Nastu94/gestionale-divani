@@ -298,8 +298,6 @@ class StockLevelController extends Controller
             'lots.*.lot_supplier'   => ['nullable','string','max:50'],
         ]);
 
-        Log::debug('⏩ updateEntry START', ['lots' => $payload['lots']]);
-
         $updated          = [];
         $shortfallCreated = false;
         $followUpId       = null;
@@ -313,7 +311,6 @@ class StockLevelController extends Controller
             ) {
 
                 foreach ($payload['lots'] as $lotData) {
-                    Log::debug('🔍 Processing lot', $lotData);
 
                     /** @var StockLevelLot $lot */
                     $lot = StockLevelLot::with(['stockLevel','stockLevel.component'])
@@ -333,14 +330,6 @@ class StockLevelController extends Controller
                     $stockLevel = $lot->stockLevel;
                     $delta      = $lotData['qty'] - $lot->quantity;
 
-                    Log::debug('ℹ️  Delta calcolato', [
-                        'lot_id'    => $lot->id,
-                        'old_qty'   => $lot->quantity,
-                        'new_qty'   => $lotData['qty'],
-                        'delta'     => $delta,
-                        'stock_qty' => $stockLevel->quantity,
-                    ]);
-
                     /* 3-a ‧ BLOCCA se la riga è già in uno short-fall -------- */
                     $alreadySf = $order && OrderItemShortfall::whereRelation('orderItem',
                                     'order_id',     $order->id)
@@ -349,13 +338,11 @@ class StockLevelController extends Controller
                                 ->exists();
 
                     if ($alreadySf) {
-                        Log::info('🚫 alreadyShortfall', ['lot_id' => $lot->id]);
                         throw new \App\Exceptions\BusinessRuleException('alreadyShortfall');
                     }
 
                     /* 3-b ‧ BLOCCA se manca giacenza ------------------------- */
                     if ($delta < 0 && ($stockLevel->quantity + $delta) < 0) {
-                        Log::info('🚫 insufficient_stock', ['lot_id' => $lot->id]);
                         throw new \App\Exceptions\BusinessRuleException('insufficient_stock');
                     }
 
@@ -375,8 +362,6 @@ class StockLevelController extends Controller
                             'quantity'       => abs($delta),
                             'note'           => 'Modifica lotto ' . $lot->internal_lot_code,
                         ]);
-
-                        Log::debug('✅ Lotto aggiornato', ['lot_id' => $lot->id]);
 
                         $updated[] = [
                             'id'           => $lot->id,
@@ -405,11 +390,6 @@ class StockLevelController extends Controller
                     : 'Non c’è abbastanza giacenza per ridurre questa quantità.',
             ], 422);
         }
-        
-        Log::debug('⏹ updateEntry END', [
-            'updated_count' => count($updated),
-            'shortfall'     => $shortfallCreated,
-        ]);
 
         /* 6‧ RISPOSTA --------------------------------------------------------- */
         return response()->json([

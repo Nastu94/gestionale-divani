@@ -371,6 +371,7 @@
             
             <fieldset :disabled="$store.entryModal.isNew && !$store.entryModal.orderSaved">
                 <button type="submit"
+                        x-show="!$store.entryModal.editMode"
                         class="inline-flex items-center px-3 py-1.5 bg-emerald-600 rounded-md text-xs font-semibold
                             text-white uppercase hover:bg-emerald-500 focus:outline-none focus:ring-2
                             focus:ring-emerald-300 transition"

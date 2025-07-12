@@ -19,37 +19,41 @@ class ShortfallService
      */
     public function capture(Order $order): ?Order
     {
-        /* 1. Carica righe + lotti + stockLevel -------------------- */
+        /* 1. Lazy load relazioni utili ------------------------------- */
         $order->load([
             'items.component',
             'stockLevelLots.stockLevel',
         ]);
 
-        /* 2. Qty ricevute per componente -------------------------- */
+        /* 2. Qty ricevute per componente ----------------------------- */
         $receivedByComp = $order->stockLevelLots
             ->groupBy(fn ($lot) => $lot->stockLevel->component_id)
             ->map(fn ($g) => $g->sum('quantity'));
 
-        /* 3. Determina mancanze ----------------------------------- */
+        /* 3. Calcola mancanze e SCARTA quelle già in short-fall ------ */
         $gaps = collect();
         foreach ($order->items as $item) {
-            $gap = $item->quantity - $receivedByComp->get($item->component_id, 0);
-            if ($gap > 0) {
-                $gaps->push(['item' => $item, 'gap' => $gap]);
-            }
+
+            $missing = $item->quantity - $receivedByComp->get($item->component_id, 0);
+            if ($missing <= 0) continue;   // nessuna mancanza
+
+            $alreadySF = OrderItemShortfall::where('order_item_id', $item->id)->exists();
+            if ($alreadySF) continue;      // ⬅️  salta: ha già short-fall
+
+            $gaps->push(['item' => $item, 'gap' => $missing]);
         }
 
         if ($gaps->isEmpty()) {
-            return null;    // tutto consegnato
+            return null;   // tutto consegnato o già coperto
         }
 
-        /* 4. Transazione: crea ordine figlio + righe + totale ------ */
+        /* 4. Transazione: crea ordine figlio + righe + pivot --------- */
         return DB::transaction(function () use ($order, $gaps) {
 
-            /* 4-a Prenota progressivo */
+            /* 4-a numero progressivo */
             $num = OrderNumber::reserve('supplier');
 
-            /* 4-b Header ordine figlio */
+            /* 4-b header figlio */
             $child = Order::create([
                 'order_number_id' => $num->id,
                 'supplier_id'     => $order->supplier_id,
@@ -57,15 +61,16 @@ class ShortfallService
                 'delivery_date'   => now()->addDays(7),
             ]);
 
-            $total = 0;   // accumula valore economico
+            $total = 0;
 
-            /* 4-c Righe + pivot short-fall */
+            /* 4-c righe + pivot short-fall */
             foreach ($gaps as $row) {
-                $orig  = $row['item'];      // OrderItem originale
-                $qty   = $row['gap'];
-                $price = $orig->unit_price; // stesso prezzo origine
 
-                /* nuova riga sul figlio */
+                $orig   = $row['item'];          // OrderItem originale
+                $qty    = $row['gap'];
+                $price  = $orig->unit_price;
+
+                /* riga sul figlio */
                 $newItem = OrderItem::create([
                     'order_id'     => $child->id,
                     'component_id' => $orig->component_id,
@@ -73,18 +78,20 @@ class ShortfallService
                     'unit_price'   => $price,
                 ]);
 
-                /* pivot delle mancanze */
-                OrderItemShortfall::create([
-                    'order_item_id'     => $orig->id,
-                    'quantity'          => $qty,
-                    'follow_up_item_id' => $newItem->id, // rimuovi se la colonna non esiste
-                ]);
+                /* pivot short-fall (idempotente) */
+                OrderItemShortfall::firstOrCreate(
+                    ['order_item_id' => $orig->id],
+                    [
+                        'quantity'          => $qty,
+                        'follow_up_item_id' => $newItem->id,   // se esiste la colonna
+                    ]
+                );
 
                 $total += $qty * $price;
             }
 
-            /* 4-d Salva totale ordine figlio */
-            $child->total = $total;   // ↙ cambia nome colonna se diverso
+            /* 4-d totale figlio */
+            $child->total = $total;
             $child->save();
 
             return $child;
