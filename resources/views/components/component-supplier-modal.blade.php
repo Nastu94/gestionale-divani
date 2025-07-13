@@ -50,7 +50,33 @@
                 alert('Impossibile recuperare il listino.')
                 this.reset()
             }
-        }
+        },
+        supplierSearch  : '',
+        supplierOptions : [],
+
+        async searchSuppliers() {
+            if (this.supplierSearch.trim().length < 2) { this.supplierOptions=[]; return; }
+            try {
+                const r = await fetch(`/suppliers/search?q=${encodeURIComponent(this.supplierSearch.trim())}`,
+                                    { headers:{Accept:'application/json'} })
+                if (!r.ok) throw new Error(r.status)
+                this.supplierOptions = await r.json()
+            } catch { this.supplierOptions = [] }
+        },
+        selectSupplier(opt) {
+            this.localForm.supplier_id = opt.id
+            this.localForm.name        = opt.name
+            this.localForm.email       = opt.email
+            this.supplierSearch        = ''
+            this.supplierOptions       = []
+            this.loadExisting()            // carica price/lead-time già presenti
+        },
+        clearSupplier() {
+            this.localForm.supplier_id = ''
+            this.localForm.name        = ''
+            this.localForm.email       = ''
+            this.reset()
+        },
     }"
     @click.away="showSupplierModal = false"
 
@@ -82,23 +108,51 @@
         @csrf
         <input type="hidden" name="component_id" x-model="localForm.component_id">
 
-        {{-- Fornitore --}}
-        <div class="mb-4">
-            <label for="supplier_id" class="block text-xs font-medium text-gray-700 dark:text-gray-300">Fornitore</label>
-            <select
-                x-model="localForm.supplier_id"
-                @change="loadExisting()"
-                name="supplier_id"
-                id="supplier_id"
-                required
-                class="mt-1 block w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-700 text-sm"
+        {{-- FORNITORE ------------------------------------------------------- --}}
+        <div class="mb-4" x-data>
+            <label class="block text-xs font-medium">Cerca fornitore</label>
+
+            <!-- input ricerca -->
+            <input
+                x-show="!localForm.supplier_id"
+                x-cloak
+                x-model="supplierSearch"
+                @input.debounce.500="searchSuppliers"
+                type="text"
+                placeholder="Nome, P.IVA o C.F…"
+                class="w-full mt-1 border rounded p-1 text-sm"
             >
-                <option value="">-- Seleziona fornitore --</option>
-                @foreach($suppliers as $s)
-                    <option value="{{ $s->id }}">{{ $s->name }}</option>
-                @endforeach
-            </select>
+            <p x-show="!localForm.supplier_id" x-cloak class="text-[10px] text-gray-500 mt-0.5">
+                Usa % per jolly (es. <code>CUS%01</code>)
+            </p>
+            <!-- suggerimenti -->
+            <div x-show="supplierOptions.length" x-cloak
+                class="absolute z-50 w-full bg-white border rounded shadow max-h-40 overflow-y-auto mt-1">
+                <template x-for="opt in supplierOptions" :key="opt.id">
+                    <div class="px-2 py-1 hover:bg-gray-200 cursor-pointer text-xs"
+                        @click="selectSupplier(opt)">
+                        <strong x-text="opt.name"></strong>
+                        <template x-if="opt.vat_number">
+                            <span x-text="' – ' + opt.vat_number"></span>
+                        </template>
+                    </div>
+                </template>
+            </div>
+
+            <!-- riepilogo scelto -->
+            <template x-if="localForm.supplier_id">
+                <div class="mt-2 p-2 border rounded bg-gray-50 text-xs">
+                    <p><strong x-text="localForm.name"></strong></p>
+                    <p x-text="localForm.email"></p>
+                    <button type="button" @click="clearSupplier"
+                            class="text-red-600 mt-1">Cambia</button>
+                </div>
+            </template>
+
+            <!-- hidden id per il POST -->
+            <input type="hidden" name="supplier_id" x-model="localForm.supplier_id">
         </div>
+
 
         {{-- Prezzo --}}
         <div class="mb-4">

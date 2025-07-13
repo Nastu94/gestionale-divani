@@ -204,16 +204,6 @@
                                                 </button>
                                             @endif
 
-                                            @can('price_lists.create')
-                                                <button
-                                                    type="button"
-                                                    @click='openSupplierModal(@json($component))'
-                                                    class="inline-flex items-center hover:text-blue-600"
-                                                >
-                                                    <i class="fas fa-handshake mr-1"></i> Fornitori
-                                                </button>
-                                            @endcan
-
                                             @can('price_lists.view')
                                                 <button
                                                     type="button"
@@ -221,6 +211,16 @@
                                                     class="inline-flex items-center hover:text-purple-600"
                                                 >
                                                     <i class="fas fa-list mr-1"></i> Listini
+                                                </button>
+                                            @endcan
+
+                                            @can('price_lists.create')
+                                                <button
+                                                    type="button"
+                                                    @click='openSupplierModal(@json($component))'
+                                                    class="inline-flex items-center hover:text-blue-600"
+                                                >
+                                                    <i class="fas fa-handshake mr-1"></i> Fornitori
                                                 </button>
                                             @endcan
 

@@ -87,7 +87,7 @@
                 {{-- Modale Aggiungi Componenti --}}
                 <div x-show="showAddComponentModal" x-cloak
                     class="fixed inset-0 z-50 flex items-center justify-center">
-                    <div class="absolute inset-0 bg-black opacity-75" @click="showAddComponentModal=false"></div>
+                    <div class="absolute inset-0 bg-black opacity-75"></div>
                     <div class="relative z-10">
                         <x-supplier-add-components-modal :components="$components"/>
                     </div>
@@ -214,7 +214,7 @@
                                                     type="button"
                                                     @click="openComponentListModal({{ $supplier->id }})"
                                                     class="inline-flex items-center hover:text-blue-600">
-                                                    <i class="fas fa-list mr-1"></i> Listini
+                                                    <i class="fas fa-list mr-1"></i> Listino
                                                 </button>
                                             @endcan
 

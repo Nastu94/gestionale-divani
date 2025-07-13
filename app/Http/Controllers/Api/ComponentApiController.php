@@ -46,6 +46,9 @@ class ComponentApiController extends Controller
 
             /* filtro testuale case-insensitive --------------------------- */
             ->when($term !== '', function ($q) use ($term) {
+                $raw = strtolower(trim($term));
+                $raw = str_replace(['*'], '%', $raw);             // *  → %
+                $raw = preg_replace('/\s+/', '%', $raw);   // " " → %
                 $needle = '%'.strtolower($term).'%';
 
                 $q->where(function ($sub) use ($needle) {
@@ -55,7 +58,7 @@ class ComponentApiController extends Controller
             })
 
             ->orderBy('components.code')
-            ->limit(20)
+            ->limit(30)
             ->get($columns);
 
         return response()->json($components);

@@ -16,18 +16,23 @@ class SupplierApiController extends Controller
      */
     public function search(Request $request)
     {
-        $q = trim($request->get('q', ''));
+        $q = trim(strtolower($request->get('q', '')));
+
+        /* spazi o * in → %  – consente “SUPP*SPA” o “SUPP SPA” */
+        $q = str_replace(['*'], '%', $q);
+        $q = preg_replace('/\s+/', '%', $q);
+        $needle = "%{$q}%";
 
         $suppliers = Supplier::query()
             ->where('is_active', true)
-            ->when($q, fn ($qry) => $qry->where(function ($sq) use ($q) {
-                $sq->where('name',       'like', "%{$q}%")
-                   ->orWhere('vat_number','like', "%{$q}%")
-                   ->orWhere('tax_code',  'like', "%{$q}%");
-            }))
+            ->where(function ($sq) use ($needle) {
+                $sq->whereRaw('LOWER(name)       LIKE ?', [$needle])
+                ->orWhereRaw('LOWER(vat_number) LIKE ?', [$needle])
+                ->orWhereRaw('LOWER(tax_code)   LIKE ?', [$needle]);
+            })
             ->orderBy('name')
-            ->limit(10)
-            ->get(['id', 'name', 'email','vat_number','address']);
+            ->limit(20)
+            ->get(['id','name','email','vat_number','address']);
 
         return response()->json($suppliers);
     }
