@@ -52,7 +52,7 @@ class StockLevelController extends Controller
 
         /*────────── QUERY BASE ───────────────*/
         $supplierOrders = Order::query()
-            ->with(['supplier:id,name', 'orderNumber:id,number,order_type'])
+            ->with(['supplier:id,name,email,vat_number,address', 'orderNumber:id,number,order_type'])
             ->whereHas('orderNumber', fn ($q) =>
                 $q->where('order_type', 'supplier')
             )        // sono già ricevimenti
@@ -302,7 +302,7 @@ class StockLevelController extends Controller
                 c.unit_of_measure          AS uom,
                 w.code                     AS warehouse_code,
                 sll.internal_lot_code      AS internal_lot,
-                sll.quantity               AS qty
+                sll.quantity                AS qty
             ')
             ->join('components  AS c',  'c.id',  '=', 'stock_levels.component_id')   // ⬅️ join mancante
             ->join('warehouses  AS w',  'w.id',  '=', 'stock_levels.warehouse_id')

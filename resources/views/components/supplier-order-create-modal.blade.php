@@ -32,7 +32,8 @@
                     {{-- Numero ordine --}}
                     <div>
                         <label class="block text-sm font-medium">N. ordine</label>
-                        <input type="text" x-model="order_number" class="w-full mt-1 input bg-gray-100" readonly>
+                        <input type="text" x-model="order_number" class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
+                               text-sm text-gray-900 dark:text-gray-100" readonly>
                     </div>
 
                     {{-- Selezione fornitore --}}
@@ -46,7 +47,8 @@
                             x-model="supplierSearch"
                             @input.debounce.500="searchSuppliers"
                             placeholder="Cerca fornitore..."
-                            class="w-full mt-1 input"
+                            class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
+                                   text-sm text-gray-900 dark:text-gray-100"
                         >
 
                         {{-- Dropdown risultati – assoluto sopra gli altri --}}
@@ -86,12 +88,14 @@
                 <div class="space-y-4">
                     <div>
                         <label class="block text-sm font-medium">Data consegna richiesta</label>
-                        <input type="date" x-model="delivery_date" class="w-full mt-1 input" required>
+                        <input type="date" x-model="delivery_date" class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
+                               text-sm text-gray-900 dark:text-gray-100" required>
                     </div>
 
                     <div>
                         <label class="block text-sm font-medium">Valore ordine (€)</label>
-                        <input type="text" :value="formatCurrency(total)" class="w-full mt-1 input bg-gray-100" readonly>
+                        <input type="text" :value="formatCurrency(total)" class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
+                               text-sm text-gray-900 dark:text-gray-100" readonly>
                     </div>
                 </div>
             </div>
@@ -160,7 +164,8 @@
                                x-model="componentSearch"
                                @input.debounce.500="searchComponents"
                                placeholder="Cerca componente..."
-                               class="w-full mt-1 input"
+                               class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
+                               text-sm text-gray-900 dark:text-gray-100"
                                x-show="!selectedComponent"
                                x-cloak
                                :disabled="!canAddLines">
@@ -199,14 +204,16 @@
                     <div>
                         <label class="block text-sm font-medium">Quantità</label>
                         <input type="number" min="1" x-model.number="quantity"
-                               class="w-full mt-1 input" :disabled="!canAddLines">
+                               class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
+                               text-sm text-gray-900 dark:text-gray-100" :disabled="!canAddLines">
                         <p class="text-xs mt-1" x-text="unit_of_measure ? 'Unità: ' + unit_of_measure : ''"></p>
                     </div>
 
                     {{-- Prezzo + pulsante --}}
                     <div class="flex flex-col">
                         <label class="block text-sm font-medium">Prezzo (€)</label>
-                        <input type="text" x-model="last_cost" class="w-full mt-1 input bg-gray-100" readonly>
+                        <input type="text" x-model="last_cost" class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
+                               text-sm text-gray-900 dark:text-gray-100" readonly>
 
                         <button type="button"
                                 class="mt-3 inline-flex items-center justify-center

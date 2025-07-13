@@ -22,9 +22,11 @@ use App\Http\Controllers\SearchController;
 use App\Http\Controllers\WarehouseController;
 use App\Http\Controllers\LotsController;
 use App\Http\Controllers\ComponentCategoryController;
+use App\Http\Controllers\OccasionalCustomerController;
 use App\Http\Controllers\Api\SupplierApiController;
 use App\Http\Controllers\Api\ComponentApiController;
 use App\Http\Controllers\Api\OrderNumberApiController;
+use App\Http\Controllers\Api\CustomersApiController;
 
 /*
 |--------------------------------------------------------------------------
@@ -81,6 +83,18 @@ Route::middleware([
     Route::get('/components/search', [ComponentApiController::class, 'search'])
         ->name('components.search')
         ->middleware(['permission:components.view']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Gestione Clienti – Autocomplete per ricerca clienti
+    |--------------------------------------------------------------------------
+    |
+    | Fornisce un'API per la ricerca rapida dei clienti.
+    |
+    */
+    Route::get('/customers/search', [CustomersApiController::class, 'search'])
+        ->name('customers.search')
+        ->middleware('permission:customers.view');
 
     /*
     |--------------------------------------------------------------------------
@@ -625,6 +639,20 @@ Route::middleware([
             'destroy' => 'orders.customer.destroy',
         ])
         ->middleware('permission:orders.customer.delete');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Gestione Ordini Cliente – create cliente occasionale
+    |--------------------------------------------------------------------------
+    |
+    | Questa rotta permette di creare un cliente occasionale durante la creazione di un ordine.
+    | Protetta dal permesso orders.customer.create.
+    |
+    */
+    Route::post('/occasional-customers', [OccasionalCustomerController::class, 'store'])
+        ->name('occasional-customers.store')
+        ->middleware('permission:orders.customer.create');
+
 
     /*
 |--------------------------------------------------------------------------

@@ -62,7 +62,7 @@ class CustomerController extends Controller
         // CREO IL VALIDATOR manuale per poter loggare gli errori
         $validator = Validator::make($request->all(), [
             'company'                 => ['required','string','max:255'],
-            'vat_number'              => ['nullable','string','max:50','unique:suppliers,vat_number'],
+            'vat_number'              => ['nullable','string','max:50','unique:customers,vat_number'],
             'tax_code'                => ['nullable','string','max:50'],
             'email'                   => ['nullable','email','max:255'],
             'phone'                   => ['nullable','string','max:50'],

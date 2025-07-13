@@ -14,7 +14,7 @@ return new class extends Migration {
             $t->timestamps();
 
             // nessun ‘unique’ sul singolo campo: la combinazione è unica
-            $t->unique(['number']);
+            $t->unique(['number', 'order_type']);
         });
     }
 
