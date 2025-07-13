@@ -25,6 +25,12 @@
             @endif
         @endforeach
     </x-slot>
+    {{-- STILE per la tabella --}}
+    <style>
+        .group-start td {
+            border-top: 1px solid #e5e7eb;   /* gray-200 */
+        }
+    </style>
 
     <div class="py-6">
         <div  x-data="entryCrud()"
@@ -287,19 +293,41 @@
                             <th class="px-2 py-1 text-right w-14">Ric.</th>
                             <th class="px-2 py-1">Lotto&nbsp;forn.</th>
                             <th class="px-2 py-1">Lotto&nbsp;int.</th>
-                            <th class="px-2 py-1 w-10">U. M.</th>
+                            <th class="px-2 py-1 w-10 whitespace-nowrap">U. M.</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <template x-for="l in $store.orderSidebar.lines" :key="l.id">
-                            <tr>
-                                <td class="px-2 py-1" x-text="l.code"></td>
-                                <td class="px-2 py-1" x-text="l.desc"></td>
-                                <td class="px-2 py-1 text-right" x-text="l.qty"></td>
+                        <template x-for="(l, index) in $store.orderSidebar.lines" :key="index">
+                            <tr :class="index === 0 || $store.orderSidebar.lines[index-1].code !== l.code
+                                ? 'group-start' : ''">
+                                <!-- codice -->
+                                <td class="px-2 py-1"
+                                    x-text="index === 0 || $store.orderSidebar.lines[index-1].code !== l.code ? l.code : ''">
+                                </td>
+
+                                <!-- descrizione -->
+                                <td class="px-2 py-1"
+                                    x-text="index === 0 || $store.orderSidebar.lines[index-1].code !== l.code ? l.desc : ''">
+                                </td>
+
+                                <!-- Q. ordinata -->
+                                <td class="px-2 py-1 text-right"
+                                    x-text="index === 0 || $store.orderSidebar.lines[index-1].code !== l.code ? l.qty : ''">
+                                </td>
+
+                                <!-- Q. ricevuta (per quel lotto) -->
                                 <td class="px-2 py-1 text-right" x-text="l.qty_received"></td>
+
+                                <!-- lotto fornitore -->
                                 <td class="px-2 py-1" x-text="l.lot_supplier ?? '—'"></td>
+
+                                <!-- lotto interno -->
                                 <td class="px-2 py-1" x-text="l.internal_lot ?? '—'"></td>
-                                <td class="px-2 py-1 uppercase" x-text="l.unit"></td>
+
+                                <!-- U.M. -->
+                                <td class="px-2 py-1 uppercase"
+                                    x-text="index === 0 || $store.orderSidebar.lines[index-1].code !== l.code ? l.unit : ''">
+                                </td>
                             </tr>
                         </template>
                     </tbody>

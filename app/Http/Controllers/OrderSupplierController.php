@@ -86,37 +86,56 @@ class OrderSupplierController extends Controller
             403, 'Non è un ordine fornitore'
         );
 
-        /* ──────────── lookup registrazioni già caricate ─────────── */
-        //  creiamo una mappa component_id → stock_level
-        $received = $order->stockLevelLots        // eager-load della relazione
-            ->keyBy('component_id');           // es.: [45] => StockLevel …
+        /* 1‧ eager load componenti e lotti --------------------------- */
+        $order->load([
+            'items.component:id,code,description,unit_of_measure',
+            'stockLevelLots.stockLevel',      // lotti già registrati
+        ]);
 
-        /* ──────────── righe dell’ordine con extra info ─────────── */
-        $rows = $order->items()
-            ->with('component:id,code,description,unit_of_measure')
-            ->orderBy('id')
-            ->get()
-            ->map(function ($it) use ($received) {
+        /* 2‧ bucket lotti per componente ----------------------------- */
+        $lotsByComp = $order->stockLevelLots
+            ->groupBy(fn ($lot) => $lot->stockLevel->component_id);
 
-                $sl = $received->get($it->component_id);   // può essere null
+        /* 3‧ genera righe (una per lotto) ---------------------------- */
+        $rows = collect();
 
-                return [
-                    'id'              => $it->id,  
-                    'code'            => $it->component->code,
-                    'desc'            => $it->component->description,
-                    'unit'            => $it->component->unit_of_measure,
-                    'qty'             => $it->quantity,
-                    'price'           => (float) $it->unit_price,
-                    'subtot'          => $it->quantity * $it->unit_price,
+        foreach ($order->items as $item) {
 
-                    // ── campi aggiunti ────────────────────────────────
-                    'qty_received'    => $sl ? $sl->quantity : 0,
-                    'lot_supplier'    => $sl ? $sl->supplier_lot_code : null,
-                    'internal_lot'    => $sl ? $sl->internal_lot_code : null,
-                ];
-            });
+            $lots = $lotsByComp->get($item->component_id) ?? collect();
 
-        return response()->json($rows);
+            // se nessun lotto: riga “vuota” per componente
+            if ($lots->isEmpty()) {
+                $rows->push([
+                    'id'            => $item->id,
+                    'code'          => $item->component->code,
+                    'desc'          => $item->component->description,
+                    'unit'          => $item->component->unit_of_measure,
+                    'qty'           => $item->quantity,
+                    'qty_received'  => 0,
+                    'lot_supplier'  => null,
+                    'internal_lot'  => null,
+                    'price'           => (float) $item->unit_price,
+                    'subtot'          => $item->quantity * $item->unit_price,
+                ]);
+            }
+
+            foreach ($lots as $lot) {
+                $rows->push([
+                    'id'            => $item->id,
+                    'code'          => $item->component->code,
+                    'desc'          => $item->component->description,
+                    'unit'          => $item->component->unit_of_measure,
+                    'qty'           => $item->quantity,
+                    'qty_received'  => $lot->quantity,
+                    'lot_supplier'  => $lot->supplier_lot_code,
+                    'internal_lot'  => $lot->internal_lot_code,
+                    'price'         => (float) $lot->unit_price,
+                    'subtot'        => $lot->quantity * $lot->unit_price,
+                ]);
+            }
+        }
+
+        return response()->json($rows->values());
     }
 
     /**
