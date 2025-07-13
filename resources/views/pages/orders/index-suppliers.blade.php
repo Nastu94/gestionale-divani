@@ -194,7 +194,7 @@
                                             @endcan
 
                                             {{-- Modifica --}}
-                                            @if($canEdit)
+                                            @if($canEdit && !isset($order->bill_number))
                                                 <button
                                                     type="button"
                                                     @click.stop="openEdit({{ $order->id }})"

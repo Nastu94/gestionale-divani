@@ -94,6 +94,14 @@
                     </div>
                 </div>
 
+                {{-- Modale Giacenze --}}
+                <div x-show="showStockModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center">
+                    <div class="absolute inset-0 bg-black opacity-75" @click="showStockModal = false"></div>
+                    <div class="relative z-10 w-full max-w-2xl">
+                        <x-stock-levels-modal/>
+                    </div>
+                </div>
+
                 {{-- Tabella espandibile --}}
                 <div class="overflow-x-auto p-4">
                     <table class="table-auto min-w-full text-sm divide-y divide-gray-200 dark:divide-gray-700">
@@ -223,6 +231,21 @@
                                                     <i class="fas fa-handshake mr-1"></i> Fornitori
                                                 </button>
                                             @endcan
+
+                                            @php
+                                                /* esiste almeno una giacenza positiva? */
+                                                $hasPositiveStock = $component->stockLevels->isNotEmpty();
+                                            @endphp
+
+                                            @if($hasPositiveStock && auth()->user()->can('stock.view'))
+                                                <button
+                                                    type="button"
+                                                    @click="openStockModal({{ $component->id }})"
+                                                    class="inline-flex items-center hover:text-teal-600"
+                                                >
+                                                    <i class="fas fa-warehouse mr-1"></i> Giacenza
+                                                </button>
+                                            @endif
 
                                             @if($canDelete)
                                                 @unless($component->trashed())
@@ -507,6 +530,49 @@
                             alert('Errore imprevisto, riprovare.');
                         })
                         .catch(() => alert('Errore di rete, controlla la connessione.'));
+                    },
+
+                    /* ----------  SEZIONE GIACENZE  -------------------- */
+                    showStockModal : false,
+                    stockRows      : [],
+                    stockModalTitle: '',
+
+                    openStockModal(componentId) {
+                        this.stockRows       = []
+                        this.stockModalTitle = ''
+
+                        fetch(`/components/${componentId}/stock`, {
+                            headers: {
+                                'Accept'             : 'application/json',
+                                'X-Requested-With'   : 'XMLHttpRequest',   // opzionale, ma aiuta
+                            }
+                        })
+                        .then(async res => {
+                            // se non è JSON evito di chiamare res.json()
+                            const isJson = res.headers.get('content-type')?.includes('application/json')
+
+                            if (!isJson) {
+                                const text = await res.text()   // HTML o altro
+                                console.error('Risposta non JSON:', text)
+                                alert('Risposta non valida dal server.')
+                                return
+                            }
+
+                            const data = await res.json()
+
+                            if (!res.ok) {                    // 4xx / 5xx
+                                alert(data.message ?? 'Errore sul server.')
+                                return
+                            }
+
+                            // ok 2xx
+                            this.stockRows       = data.rows
+                            this.stockModalTitle = data.rows[0]?.component_code ?? ''
+                            this.showStockModal  = true
+                        })
+                        .catch(() => {
+                            alert('Errore di rete, riprovare.')
+                        })
                     },
 
                 }));

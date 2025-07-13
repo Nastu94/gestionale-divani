@@ -297,8 +297,21 @@ Route::middleware([
     |
     */    
     Route::get('components/generate-code', [ComponentController::class, 'generateCode'])
-     ->name('components.generate-code')
-     ->middleware('permission:components.create');
+        ->name('components.generate-code')
+        ->middleware('permission:components.create');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Gestione Componenti – visualizzazione giacenze
+    |--------------------------------------------------------------------------
+    |
+    | Questa rotta permette di visualizzare il livello di stock di un componente.
+    | Protetta dal permesso stock.view.
+    |
+    */
+    Route::get('components/{component}/stock', [StockLevelController::class, 'showStock'])
+        ->name('components.stock.show')
+        ->middleware('permission:stock.view');
 
     /*
     | Gestione Categorie Componenti – solo index  (visualizzazione)

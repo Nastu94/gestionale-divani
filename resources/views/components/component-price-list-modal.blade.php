@@ -1,4 +1,4 @@
-<!-- component-price-list-modal.blade.php -->
+{{-- resources/views/components/component-price-list-modal.blade.php --}}
 <div
     x-data="priceListModal()"
     @click.away="

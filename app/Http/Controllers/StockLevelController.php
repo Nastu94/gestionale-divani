@@ -290,6 +290,40 @@ class StockLevelController extends Controller
     }
 
     /**
+     * Mostra i livelli di stock per un componente specifico.
+     */
+    public function showStock(Component $component)
+    {
+        $stockRows = StockLevel::query()
+            ->selectRaw('
+                stock_levels.id,
+                c.code                     AS component_code,
+                c.description              AS component_desc,
+                c.unit_of_measure          AS uom,
+                w.code                     AS warehouse_code,
+                sll.internal_lot_code      AS internal_lot,
+                sll.quantity               AS qty
+            ')
+            ->join('components  AS c',  'c.id',  '=', 'stock_levels.component_id')   // ⬅️ join mancante
+            ->join('warehouses  AS w',  'w.id',  '=', 'stock_levels.warehouse_id')
+            ->leftJoin(
+                'stock_level_lots AS sll',
+                'sll.stock_level_id',
+                '=',
+                'stock_levels.id'
+            )
+            ->where('stock_levels.component_id', $component->id)
+            ->where('stock_levels.quantity', '>', 0)
+            ->orderBy('w.code')
+            ->orderBy('sll.internal_lot_code')
+            ->get();
+
+        return response()->json([
+            'rows' => $stockRows,
+        ], 200);
+    }
+
+    /**
      * Show the form for editing the specified resource.
      */
     public function edit(StockLevel $stockLevel)

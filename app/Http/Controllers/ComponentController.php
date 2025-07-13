@@ -42,7 +42,9 @@ class ComponentController extends Controller
 
         /* Query base ---------------------------------------------------- */
         $components = Component::query()
-            ->with('category')                                         // eager-load
+            ->with(['category',
+                    'stockLevels' => fn ($q) => $q->where('quantity', '>', 0)
+                ])                                         // eager-load
             ->with('componentSuppliers')                               // eager-load
             /* ---- filtri colonna -------------------------------------- */
             ->when($filters['category']   ?? null,
