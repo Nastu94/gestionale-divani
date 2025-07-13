@@ -69,11 +69,33 @@
                         <thead class="bg-gray-300 dark:bg-gray-700 uppercase tracking-wider">
                             <tr>
                                 <th class="px-6 py-2 text-left">#</th>
-                                <th class="px-6 py-2 text-center">N. Ordine</th>
-                                <th class="px-6 py-2 text-left">Fornitore</th>
+                                <x-th-menu 
+                                    field="order_number"            
+                                    label="Nr. Ordine"
+                                    :sort="$sort" 
+                                    :dir="$dir" 
+                                    :filters="$filters" 
+                                    reset-route="stock-movements-entry.index" 
+                                    align="left" 
+                                />
+                                <x-th-menu 
+                                    field="supplier_id"            
+                                    label="Fornitore"
+                                    :sort="$sort" 
+                                    :dir="$dir" 
+                                    :filters="$filters" 
+                                    reset-route="stock-movements-entry.index" 
+                                />
                                 {{-- Colonne nascoste in view compatta --}}
                                 <th x-show="extended" x-cloak class="px-6 py-2 text-left">Data ordine</th>
-                                <th class="px-6 py-2 text-left">Data consegna</th>
+                                <x-th-menu 
+                                    field="delivery_date"
+                                    label="Data consegna"
+                                    :sort="$sort" 
+                                    :dir="$dir" 
+                                    :filters="$filters" 
+                                    reset-route="stock-movements-entry.index" 
+                                />
                                 <th x-show="extended" x-cloak class="px-6 py-2 text-left">Data registrazione</th>
                                 <th class="px-6 py-2 text-left">N. Bolla</th>
                             </tr>
@@ -97,7 +119,7 @@
                                     @endif
                                 >
                                     <td class="px-6 py-2">{{ $loop->iteration + ($supplierOrders->currentPage()-1)*$supplierOrders->perPage() }}</td>
-                                    <td class="px-6 py-2 text-center">{{ $order->number ?? $order->id }}</td>
+                                    <td class="px-6 py-2">{{ $order->number ?? $order->id }}</td>
                                     <td class="px-6 py-2">{{ $order->supplier->name }}</td>
 
                                     {{-- Colonne condizionali --}}

@@ -37,19 +37,54 @@ class StockLevelController extends Controller
      *
      * @return \Illuminate\View\View
      */
-    public function indexEntry()
+    public function indexEntry(Request $request)
     {
-        $supplierOrders = Order::with([
-                'supplier',
-                'orderNumber',
-                'items.component',
-                'stockLevelLots',
-            ])
-            ->whereNotNull('supplier_id')        // ordine di acquisto
-            ->orderBy('delivery_date', 'asc')
-            ->paginate(15);
+        /*────────── PARAMETRI QUERY ──────────*/
+        $sort    = $request->input('sort', 'order_number');    // default ↑
+        $dir     = $request->input('dir',  'desc') === 'asc' ? 'asc' : 'desc';
+        $filters = $request->input('filter', []);
 
-        return view('pages.warehouse.entry', compact('supplierOrders'));
+        /*────────── WHITELIST ORDINABILI ─────*/
+        $allowedSorts = ['order_number', 'supplier', 'delivery_date'];
+        if (! in_array($sort, $allowedSorts, true)) {
+            $sort = 'delivery_date';
+        }
+
+        /*────────── QUERY BASE ───────────────*/
+        $supplierOrders = Order::query()
+            ->with(['supplier:id,name', 'orderNumber:id,number,order_type'])
+            ->whereHas('orderNumber', fn ($q) =>
+                $q->where('order_type', 'supplier')
+            )        // sono già ricevimenti
+            /*───── FILTRI ─────────────────────*/
+            ->when($filters['order_number'] ?? null,
+                fn ($q, $v) => $q->whereHas('orderNumber',
+                                    fn ($q) => $q->where('number', 'like', "%$v%")))
+            ->when($filters['supplier'] ?? null,
+                fn ($q, $v) => $q->whereHas('supplier',
+                                    fn ($q) => $q->where('name', 'like', "%$v%")))
+            ->when($filters['delivery_date'] ?? null,
+                fn ($q, $v) => $q->whereDate('delivery_date', 'like', "%$v%"))
+            /*───── ORDINAMENTO ───────────────*/
+            ->when($sort === 'supplier', function ($q) use ($dir) {
+                $q->join('suppliers as s', 'orders.supplier_id', '=', 's.id')
+                ->orderBy('s.name', $dir)
+                ->select('orders.*');
+            })
+            ->when($sort === 'order_number', function ($q) use ($dir) {
+                $q->join('order_numbers as on', 'orders.order_number_id', '=', 'on.id')
+                ->orderBy('on.number', $dir)
+                ->select('orders.*');
+            }, function ($q) use ($sort, $dir) {
+                $q->orderBy($sort, $dir);
+            })
+            ->paginate(15)
+            ->appends($request->query());
+
+        return view(
+            'pages.warehouse.entry',
+            compact('supplierOrders', 'sort', 'dir', 'filters')
+        );
     }
 
     /**
