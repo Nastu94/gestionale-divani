@@ -226,13 +226,13 @@
 
                                             @if($canDelete)
                                                 @unless($component->trashed())
-                                                    {{-- Elimina (solo se non soft-deleted) --}}
+                                                    {{-- Disattiva (solo se non soft-deleted) --}}
                                                     <button
                                                         type="button"
                                                         @click="deleteComponent({{ $component->id }})"
                                                         class="inline-flex items-center hover:text-red-600"
                                                     >
-                                                        <i class="fas fa-trash-alt mr-1"></i> Elimina
+                                                        <i class="fas fa-trash-alt mr-1"></i> Disattiva
                                                     </button>
                                                 @endunless
                                             @endif
@@ -480,7 +480,7 @@
                      * @returns {void}
                      */
                     deleteComponent(id) {
-                        if (! confirm('Eliminare questo componente?')) return;
+                        if (! confirm('Disattivare questo componente?')) return;
 
                         fetch(`/components/${id}`, {
                             method : 'DELETE',

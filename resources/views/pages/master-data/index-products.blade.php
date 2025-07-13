@@ -193,12 +193,12 @@
                                                     <form
                                                         action="{{ route('products.destroy', $product) }}"
                                                         method="POST"
-                                                        onsubmit="return confirm('Sei sicuro di voler eliminare questo prodotto?');"
+                                                        onsubmit="return confirm('Sei sicuro di voler disattivare questo prodotto?');"
                                                     >
                                                         @csrf
                                                         @method('DELETE')
                                                         <button type="submit" class="inline-flex items-center hover:text-red-600">
-                                                            <i class="fas fa-trash-alt mr-1"></i> Elimina
+                                                            <i class="fas fa-trash-alt mr-1"></i> Disattiva
                                                         </button>
                                                     </form>
                                                 @endunless

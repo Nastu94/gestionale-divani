@@ -62,7 +62,7 @@ class CustomerController extends Controller
         // CREO IL VALIDATOR manuale per poter loggare gli errori
         $validator = Validator::make($request->all(), [
             'company'                 => ['required','string','max:255'],
-            'vat_number'              => ['nullable','string','max:50'],
+            'vat_number'              => ['nullable','string','max:50','unique:suppliers,vat_number'],
             'tax_code'                => ['nullable','string','max:50'],
             'email'                   => ['nullable','email','max:255'],
             'phone'                   => ['nullable','string','max:50'],
@@ -71,9 +71,23 @@ class CustomerController extends Controller
             'addresses.*.type'        => ['required_with:addresses','in:billing,shipping,other'],
             'addresses.*.address'     => ['required_with:addresses','string','max:255'],
             'addresses.*.city'        => ['required_with:addresses','string','max:100'],
-            'addresses.*.postal_code' => ['required_with:addresses','string','max:20'],
+            'addresses.*.postal_code' => ['required_with:addresses','string','max:5'],
             'addresses.*.country'     => ['required_with:addresses','string','max:100'],
-        ]);
+        ],
+            [
+                'addresses.*.type.required_with' => 'Il tipo di indirizzo è obbligatorio quando si forniscono indirizzi.',
+                'addresses.*.address.required_with' => 'L\'indirizzo è obbligatorio quando si forniscono indirizzi.',
+                'addresses.*.city.required_with' => 'La città è obbligatoria quando si forniscono indirizzi.',
+                'addresses.*.postal_code.required_with' => 'Il codice postale è obbligatorio quando si forniscono indirizzi.',
+                'addresses.*.postal_code.max' => 'Il codice postale non può superare i 5 caratteri.',
+                'addresses.*.country.required_with' => 'Il paese è obbligatorio quando si forniscono indirizzi.',
+                'company.required' => 'Il nome della compagnia è obbligatorio.',
+                'company.string' => 'Il nome della compagnia deve essere una stringa.',
+                'company.max' => 'Il nome della compagnia non può superare i 255 caratteri.',
+                'email.email' => 'L\'email deve essere un indirizzo email valido.',
+                'vat_number.unique' => 'Il numero di partita IVA deve essere unico.',
+            ]
+        );
 
         // SE FALLISCE, loggo e torno indietro con gli errori
         if ($validator->fails()) {

@@ -3,6 +3,7 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Aggiunge il campo 'code' alla tabella 'warehouses'.
@@ -27,6 +28,16 @@ return new class extends Migration
                   ->comment('Codice univoco magazzino (es. MG-STOCK, MG-IMP)');            
             $table->softDeletes();
         });
+
+        // Aggiunta di un record predefinito per il magazzino principale
+        DB::table('warehouses')->insert([
+            'name' => 'Magazzino Stoccaggio',
+            'code' => 'MG-STOCK',
+            'type' => 'stock',
+            'is_active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
     }
 
     /**

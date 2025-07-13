@@ -90,7 +90,9 @@ class SupplierController extends Controller
             'address.via.required_with'         => 'Devi inserire la via dell’indirizzo.',
             'address.city.required_with'        => 'Devi inserire la città.',
             'address.postal_code.required_with' => 'Devi inserire il CAP.',
+            'address.postal_code.max'           => 'Il CAP non può superare i 5 caratteri.',
             'address.country.required_with'     => 'Devi inserire il paese.',
+            'email.email'          => 'Devi inserire un indirizzo email valido.',
         ];
 
         // Validator manuale per intercettare e loggare errori di validazione
@@ -105,7 +107,7 @@ class SupplierController extends Controller
             'address'        => ['nullable','array'],
             'address.via'    => ['required_with:address','string','max:255'],
             'address.city'   => ['required_with:address','string','max:100'],
-            'address.postal_code'=> ['required_with:address','string','max:20'],
+            'address.postal_code'=> ['required_with:address','string','max:5'],
             'address.country'=> ['required_with:address','string','max:100'],
             'is_active'      => ['nullable', 'in:on,0,1'],
         ]   , $messages);
