@@ -81,7 +81,7 @@
                             <button type="button"
                                     class="text-xs text-emerald-700 hover:underline"
                                     @click.stop="window.dispatchEvent(new CustomEvent('open-occasional-customer-modal'))"
-                                    x-show="showGuestButton"
+                                    x-show="showGuestButton && !selectedCustomer"
                                     x-cloak>
                                 + Nuovo cliente occasionale
                             </button>
@@ -360,15 +360,24 @@ function customerOrderModal() {
         selectCustomer(o){ this.selectedCustomer=o; this.customerOptions=[]; },
 
         /* ==== Ricerca prodotti ==== */
-        async searchProducts(){
-            if (this.productSearch.trim().length < 2) { this.productOptions=[]; return; }
-            try{
-                const r = await fetch(`/products/search?q=${encodeURIComponent(this.productSearch.trim())}`,
-                                      { headers:{Accept:'application/json'}, credentials:'same-origin' });
-                if(!r.ok) throw new Error(r.status);
-                this.productOptions = await r.json();
-            }catch{ this.productOptions=[]; }
+        async searchProducts() {
+            if (this.productSearch.trim().length < 2) {          // evita hit con 1 carattere
+                this.productOptions = [];
+                return;
+            }
+
+            try {
+                const r = await fetch(
+                    `/products/search?q=${encodeURIComponent(this.productSearch.trim())}`,
+                    { headers:{Accept:'application/json'}, credentials:'same-origin' }
+                );
+                if (!r.ok) throw new Error(r.status);
+                this.productOptions = await r.json();            // [{id, sku, name, price}, ...]
+            } catch {
+                this.productOptions = [];
+            }
         },
+
         selectProduct(p){ this.selectedProduct=p; this.productOptions=[]; this.price=p.price ?? 0; },
 
         /* ==== Gestione righe ==== */

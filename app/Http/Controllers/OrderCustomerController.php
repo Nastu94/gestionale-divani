@@ -3,7 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\Order;
+use App\Models\OrderItem;
+use App\Models\OrderNumber;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
 
 class OrderCustomerController extends Controller
 {
@@ -74,11 +80,101 @@ class OrderCustomerController extends Controller
     }
 
     /**
-     * Store a newly created resource in storage.
+     * Memorizza un nuovo ordine cliente.
+     *
+     * @param  Request  $request
+     * @return JsonResponse
      */
-    public function store(Request $request)
+    public function store(Request $request): JsonResponse
     {
-        //
+        Log::info('OrderCustomer@store – richiesta ricevuta', [
+            'user_id' => $request->user() ? $request->user()->id : null,
+            'payload' => $request->all(),
+        ]);
+
+        /*─────────── VALIDAZIONE ───────────*/
+        $data = $request->validate([
+            'order_number_id'        => ['required', 'integer', Rule::exists('order_numbers', 'id')],
+            'customer_id'            => ['nullable', 'integer', Rule::exists('customers', 'id')],
+            'occasional_customer_id' => ['nullable', 'integer', Rule::exists('occasional_customers', 'id')],
+            'delivery_date'          => ['required', 'date'],
+            'lines'                  => ['required', 'array', 'min:1'],
+            'lines.*.product_id'     => ['required', 'integer', Rule::exists('products', 'id')],
+            'lines.*.quantity'       => ['required', 'numeric', 'min:0.01'],
+            'lines.*.price'          => ['required', 'numeric', 'min:0'],
+        ]);
+
+        /* esclusività customer_id / occasional_customer_id */
+        if (! ($data['customer_id'] xor $data['occasional_customer_id'] ?? null)) {
+            Log::warning('OrderCustomer@store – violazione esclusività customer vs occasional', $data);
+            return response()->json([
+                'message' => 'Indicare solo customer_id oppure occasional_customer_id.'
+            ], 422);
+        }
+
+        try {
+            /*────── TRANSAZIONE ATOMICA ──────*/
+            $order = DB::transaction(function () use ($data) {
+
+                /* 1. verifica & blocca OrderNumber */
+                $orderNumber = OrderNumber::where('id', $data['order_number_id'])
+                    ->where('order_type', 'customer')
+                    ->with('order')
+                    ->lockForUpdate()
+                    ->firstOrFail();
+
+                if ($orderNumber->order) {
+                    Log::warning('OrderCustomer@store – OrderNumber già usato', [
+                        'order_number_id' => $orderNumber->id,
+                    ]);
+                    abort(409, 'OrderNumber già assegnato.');
+                }
+
+                /* 2. calcolo totale */
+                $total = collect($data['lines'])->reduce(
+                    fn (float $s, $l) => $s + ($l['quantity'] * $l['price']),
+                    0.0
+                );
+
+                /* 3. inserimento ordine */
+                $order = Order::create([
+                    'order_number_id'        => $orderNumber->id,
+                    'customer_id'            => $data['customer_id']            ?? null,
+                    'occasional_customer_id' => $data['occasional_customer_id'] ?? null,
+                    'total'                  => $total,
+                    'ordered_at'             => now(),
+                    'delivery_date'          => $data['delivery_date'],
+                ]);
+
+                /* 4. inserimento righe */
+                foreach ($data['lines'] as $line) {
+                    $order->items()->create([
+                        'product_id' => $line['product_id'],
+                        'quantity'   => $line['quantity'],
+                        'unit_price' => $line['price'],
+                    ]);
+                }
+
+                Log::info('OrderCustomer@store – ordine e righe salvati', [
+                    'order_id' => $order->id,
+                    'lines'    => count($data['lines']),
+                ]);
+
+                return $order->load(['items.product', 'orderNumber']);
+            });
+
+            return response()->json($order, 201);
+
+        } catch (\Throwable $e) {
+            Log::error('OrderCustomer@store – eccezione', [
+                'error' => $e->getMessage(),
+                'trace' => substr($e->getTraceAsString(), 0, 1024),
+            ]);
+
+            return response()->json([
+                'message' => 'Errore interno durante il salvataggio dell’ordine.',
+            ], 500);
+        }
     }
 
     /**

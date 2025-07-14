@@ -27,6 +27,7 @@ use App\Http\Controllers\Api\SupplierApiController;
 use App\Http\Controllers\Api\ComponentApiController;
 use App\Http\Controllers\Api\OrderNumberApiController;
 use App\Http\Controllers\Api\CustomersApiController;
+use App\Http\Controllers\Api\ProductsApiController;
 
 /*
 |--------------------------------------------------------------------------
@@ -96,6 +97,19 @@ Route::middleware([
         ->name('customers.search')
         ->middleware('permission:customers.view');
 
+    /*
+    |--------------------------------------------------------------------------
+    | Ricerca prodotti (autocomplete)
+    |--------------------------------------------------------------------------
+    |
+    | Fornisce un'API per la ricerca di prodotti (modelli).
+    | Utilizza il controller ProductsApiController.
+    |
+    */
+
+    Route::get('/products/search', [ProductsApiController::class, 'search'])
+        ->name('products.search')
+        ->middleware('permission:products.view'); 
     /*
     |--------------------------------------------------------------------------
     | Gestione Ordini Fornitore – Autocomplete numero ordine
