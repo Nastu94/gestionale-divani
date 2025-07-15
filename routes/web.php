@@ -28,6 +28,7 @@ use App\Http\Controllers\Api\ComponentApiController;
 use App\Http\Controllers\Api\OrderNumberApiController;
 use App\Http\Controllers\Api\CustomersApiController;
 use App\Http\Controllers\Api\ProductsApiController;
+use App\Http\Controllers\Api\OrderComponentCheckController;
 
 /*
 |--------------------------------------------------------------------------
@@ -75,7 +76,7 @@ Route::middleware([
 
     /*
     |--------------------------------------------------------------------------
-    | Gestione Componenti – Autocomplete per ricerca componenti
+    | Ricerca Componenti – Autocomplete per ricerca componenti
     |--------------------------------------------------------------------------
     |
     | Fornisce un'API per la ricerca di componenti.
@@ -87,7 +88,7 @@ Route::middleware([
 
     /*
     |--------------------------------------------------------------------------
-    | Gestione Clienti – Autocomplete per ricerca clienti
+    | Ricerca Clienti – Autocomplete per ricerca clienti
     |--------------------------------------------------------------------------
     |
     | Fornisce un'API per la ricerca rapida dei clienti.
@@ -110,6 +111,7 @@ Route::middleware([
     Route::get('/products/search', [ProductsApiController::class, 'search'])
         ->name('products.search')
         ->middleware('permission:products.view'); 
+
     /*
     |--------------------------------------------------------------------------
     | Gestione Ordini Fornitore – Autocomplete numero ordine
@@ -156,6 +158,19 @@ Route::middleware([
     */
     Route::post('/lots/reserve', [LotsController::class, 'reserve'])
       ->middleware('permission:stock.entry');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Verifica disponibilità / Auto-PO
+    |--------------------------------------------------------------------------
+    |
+    | Questa rotta permette di verificare la disponibilità dei componenti
+    | in base alle righe di un ordine cliente e genera un Auto-PO se necessario.
+    */
+
+    Route::post('/orders/check-components', [OrderComponentCheckController::class, 'check'])
+        ->name('orders.check-components')
+        ->middleware('permission:orders.customer.create');
 
     /*
 |--------------------------------------------------------------------------

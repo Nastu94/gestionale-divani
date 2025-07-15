@@ -24,6 +24,7 @@ class OrderItem extends Model
         'component_id', // ID del componente associato, se presente ordine fornitore
         'quantity',   // Quantità ordinata
         'unit_price', // Prezzo unitario
+        'generated_by_order_customer_id', // ID dell'ordine cliente che ha generato questa riga, se applicabile
     ];
 
     /**
@@ -57,5 +58,13 @@ class OrderItem extends Model
     public function shortfall()
     {
         return $this->hasOne(OrderItemShortfall::class);
+    }
+
+    /**
+     * OC che ha originato questa riga PO (nullable)
+     */
+    public function generatedByOc(): BelongsTo
+    {
+        return $this->belongsTo(Order::class, 'generated_by_order_customer_id');
     }
 }

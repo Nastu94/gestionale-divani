@@ -155,10 +155,44 @@
                                 <td class="px-2 py-1 text-right" x-text="l.qty"></td>
                                 <td class="px-2 py-1 text-right" x-text="formatCurrency(l.price)"></td>
                                 <td class="px-2 py-1 text-right" x-text="formatCurrency(l.subtotal)"></td>
-                                <td class="px-2 py-1 text-center">
+                                <td class="px-2 py-1 text-center flex space-x-1">
                                     <button type="button" @click="editLine(idx)" class="text-indigo-600"><i class="fas fa-pen"></i></button>
                                     <button type="button" @click="removeLine(idx)" class="ml-1 text-red-600"><i class="fas fa-trash"></i></button>
                                 </td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+
+            {{-- CARRENZE COMPONENTI --}}
+            <div x-show="availabilityOk === false"
+                x-cloak
+                class="border-t pt-4 mt-4">
+                <h4 class="font-semibold text-red-700 text-sm mb-2">
+                    Componenti mancanti
+                </h4>
+
+                <table class="w-full text-xs border">
+                    <thead class="bg-red-100">
+                        <tr>
+                            <th class="px-2 py-1 text-left">Codice</th>
+                            <th class="px-2 py-1 text-left">Descrizione</th>
+                            <th class="px-2 py-1 text-right">Necessari</th>
+                            <th class="px-2 py-1 text-right">Disponibili</th>
+                            <th class="px-2 py-1 text-right">In arrivo</th>
+                            <th class="px-2 py-1 text-right">Mancano</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="row in shortage" :key="row.component_id">
+                            <tr class="border-t">
+                                <td class="px-2 py-1" x-text="row.code"></td>
+                                <td class="px-2 py-1" x-text="row.description"></td>
+                                <td class="px-2 py-1 text-right" x-text="row.needed"></td>
+                                <td class="px-2 py-1 text-right" x-text="row.available"></td>
+                                <td class="px-2 py-1 text-right" x-text="row.incoming"></td>
+                                <td class="px-2 py-1 text-right font-semibold text-red-700" x-text="row.shortage"></td>
                             </tr>
                         </template>
                     </tbody>
@@ -242,6 +276,18 @@
                             text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600">
                     Annulla
                 </button>
+
+                {{-- Verifica disponibilità --}}
+                <button type="button"
+                        class="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-semibold
+                            text-white uppercase bg-blue-600 hover:bg-blue-500
+                            disabled:opacity-50"
+                        :disabled="checking"
+                        @click="checkAvailability">
+                    <i class="fas fa-circle-notch fa-spin mr-2" x-show="checking"></i>
+                    Verifica disponibilità
+                </button>
+
                 <button type="submit"
                         class="inline-flex items-center px-4 py-2 bg-purple-600
                             rounded-md text-sm font-semibold text-white uppercase
@@ -284,6 +330,11 @@ function customerOrderModal() {
         selectedProduct  : null,
         price            : 0,
         quantity         : 1,
+
+        availabilityOk : null,     // null = non ancora verificato
+        shortage       : [],       // array componenti mancanti
+        poLinks        : [],       // ordini fornitore creati
+        checking       : false,    // spinner Verifica
 
         /* --- nuovo metodo --- */
         handleGuest(guest) {
@@ -330,6 +381,11 @@ function customerOrderModal() {
             this.price            = 0;
             this.quantity         = 1;
             this.order_number_id  = null;
+            this.order_number   = '—';
+            this.availabilityOk = null;
+            this.shortage       = [];
+            this.poLinks        = [];
+            this.checking       = false;
         },
 
         /* ==== Prenota progressivo ==== */
@@ -484,6 +540,55 @@ function customerOrderModal() {
                 if(!r.ok) throw new Error(await r.text());
                 this.close(); window.location.reload();
             }catch(e){ console.error('Errore update',e); alert('Errore durante la modifica.'); }
+        },
+
+        async checkAvailability() {
+            this.checking = true;
+            this.availabilityOk = null;
+
+            try {
+                const payload = {
+                    delivery_date : this.delivery_date,
+                    lines         : this.lines.map(l => ({
+                        product_id : l.product.id,
+                        quantity   : l.qty
+                    }))
+                };
+
+                const r = await fetch('/orders/check-components', {
+                    method : 'POST',
+                    headers: {
+                        Accept: 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+                    },
+                    credentials : 'same-origin',
+                    body : JSON.stringify(payload)
+                });
+
+                const j = await r.json();
+
+                this.availabilityOk = j.ok;
+                this.shortage       = j.shortage ?? [];
+                this.poLinks        = j.po_ids  ?? [];
+
+                /* TOAST */
+                if (j.ok) {
+                    window.toast && toast.success('Tutti i componenti sono disponibili ✅');
+                } else if (this.poLinks.length) {
+                    window.toast && toast.info(
+                        'Creati ordini fornitore: ' + this.poLinks.map(id => '#'+id).join(', ')
+                    );
+                } else {
+                    window.toast && toast.error('Componenti insufficienti: verifica la tabella sotto.');
+                }
+
+            } catch (e) {
+                console.error(e);
+                window.toast && toast.error('Errore nella verifica disponibilità');
+            } finally {
+                this.checking = false;
+            }
         },
     };
 }

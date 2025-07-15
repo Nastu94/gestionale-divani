@@ -247,7 +247,8 @@
                                                 </button>
                                             @endif
 
-                                            @if($canDelete)
+                                            @if($canDelete && $component->is_active)
+                                                {{-- Elimina (solo se attivo) --}}
                                                 @unless($component->trashed())
                                                     {{-- Disattiva (solo se non soft-deleted) --}}
                                                     <button
@@ -261,7 +262,8 @@
                                             @endif
                                         
                                             {{-- Ripristina (solo se soft-deleted) --}}
-                                            @if($component->trashed() && auth()->user()->can('components.update'))
+                                            @if($component->trashed() && auth()->user()->can('components.update') && $component->is_active === false)
+                                                {{-- Form per ripristino --}}
                                                 <form
                                                     action="{{ route('components.restore', $component->id) }}"
                                                     method="POST"

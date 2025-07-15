@@ -130,6 +130,17 @@ class Order extends Model
     }
 
     /**
+     * Righe PO nate da questo ordine cliente
+     */
+    public function generatedSupplierItems(): HasMany
+    {
+        return $this->hasMany(
+            OrderItem::class,
+            'generated_by_order_customer_id'
+        );
+    }
+
+    /**
      * Ottiene il numero dell'ordine associato.
      *
      * @return int|null
