@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\OrderNumber;
+use App\Services\InventoryService;
+use App\Services\ProcurementService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
@@ -88,7 +90,7 @@ class OrderCustomerController extends Controller
     public function store(Request $request): JsonResponse
     {
         Log::info('OrderCustomer@store – richiesta ricevuta', [
-            'user_id' => $request->user() ? $request->user()->id : null,
+            'user_id' => optional($request->user())->id,
             'payload' => $request->all(),
         ]);
 
@@ -107,36 +109,40 @@ class OrderCustomerController extends Controller
         /* esclusività customer_id / occasional_customer_id */
         if (! ($data['customer_id'] xor $data['occasional_customer_id'] ?? null)) {
             Log::warning('OrderCustomer@store – violazione esclusività customer vs occasional', $data);
-            return response()->json([
-                'message' => 'Indicare solo customer_id oppure occasional_customer_id.'
-            ], 422);
+            return response()->json(['message' => 'Indicare solo customer_id oppure occasional_customer_id.'], 422);
+        }
+
+        /*─────────── VERIFICA DISPONIBILITÀ (obbligatoria) ───────────*/
+        $inv = InventoryService::forDelivery($data['delivery_date'])
+                ->check(collect($data['lines'])->map(fn($l)=>[
+                    'product_id'=>$l['product_id'],
+                    'quantity'  =>$l['quantity']
+                ])->values()->all());
+
+        if ($inv === null) {
+            return response()->json(['message'=>'Esegui prima la verifica disponibilità.'], 409);
         }
 
         try {
-            /*────── TRANSAZIONE ATOMICA ──────*/
+            /*────── TRANSAZIONE: salva ordine + righe ──────*/
             $order = DB::transaction(function () use ($data) {
 
-                /* 1. verifica & blocca OrderNumber */
+                /* 1. blocca OrderNumber customer */
                 $orderNumber = OrderNumber::where('id', $data['order_number_id'])
                     ->where('order_type', 'customer')
                     ->with('order')
                     ->lockForUpdate()
                     ->firstOrFail();
 
-                if ($orderNumber->order) {
-                    Log::warning('OrderCustomer@store – OrderNumber già usato', [
-                        'order_number_id' => $orderNumber->id,
-                    ]);
-                    abort(409, 'OrderNumber già assegnato.');
-                }
+                if ($orderNumber->order) abort(409, 'OrderNumber già assegnato.');
 
-                /* 2. calcolo totale */
+                /* 2. totale */
                 $total = collect($data['lines'])->reduce(
                     fn (float $s, $l) => $s + ($l['quantity'] * $l['price']),
                     0.0
                 );
 
-                /* 3. inserimento ordine */
+                /* 3. header */
                 $order = Order::create([
                     'order_number_id'        => $orderNumber->id,
                     'customer_id'            => $data['customer_id']            ?? null,
@@ -146,7 +152,7 @@ class OrderCustomerController extends Controller
                     'delivery_date'          => $data['delivery_date'],
                 ]);
 
-                /* 4. inserimento righe */
+                /* 4. righe */
                 foreach ($data['lines'] as $line) {
                     $order->items()->create([
                         'product_id' => $line['product_id'],
@@ -160,10 +166,24 @@ class OrderCustomerController extends Controller
                     'lines'    => count($data['lines']),
                 ]);
 
-                return $order->load(['items.product', 'orderNumber']);
+                return $order;
             });
 
-            return response()->json($order, 201);
+            /*─────────── CREA / MERGE PO DOPO SALVATAGGIO ───────────*/
+            $poIds = [];
+            if (! $inv->ok && $request->user()->can('orders.supplier.create')) {
+
+                /* arricchisce la collection shortage con supplier & lead_time */
+                $shortCol = ProcurementService::buildShortageCollection($inv->shortage);
+
+                $pos = ProcurementService::fromShortage($shortCol, $order->id);
+                $poIds = $pos->pluck('id')->all();
+            }
+
+            return response()->json([
+                'order_id' => $order->id,
+                'po_ids'   => $poIds,
+            ], 201);
 
         } catch (\Throwable $e) {
             Log::error('OrderCustomer@store – eccezione', [
@@ -171,9 +191,7 @@ class OrderCustomerController extends Controller
                 'trace' => substr($e->getTraceAsString(), 0, 1024),
             ]);
 
-            return response()->json([
-                'message' => 'Errore interno durante il salvataggio dell’ordine.',
-            ], 500);
+            return response()->json(['message' => 'Errore interno durante il salvataggio dell’ordine.'], 500);
         }
     }
 

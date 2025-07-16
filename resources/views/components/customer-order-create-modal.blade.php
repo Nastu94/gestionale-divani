@@ -291,7 +291,8 @@
                 <button type="submit"
                         class="inline-flex items-center px-4 py-2 bg-purple-600
                             rounded-md text-sm font-semibold text-white uppercase
-                            hover:bg-purple-500">
+                            hover:bg-purple-500"
+                        :disabled="availabilityOk === null || checking">
                     <i class="fas fa-save mr-2"></i>
                     <span x-text="editMode ? 'Modifica Ordine' : 'Salva Ordine'"></span>
                 </button>
@@ -445,48 +446,76 @@ function customerOrderModal() {
                 price    : this.price,
                 subtotal : this.price * this.quantity
             });
+            this.availabilityOk = null; 
             // reset input riga
             this.selectedProduct=null; this.productSearch=''; this.price=0; this.quantity=1;
         },
         editLine(i){
             const l = this.lines.splice(i,1)[0];
             this.selectedProduct=l.product; this.price=l.price; this.quantity=l.qty; this.productSearch='';
+            this.availabilityOk = null; 
         },
-        removeLine(i){ this.lines.splice(i,1); },
+        removeLine(i){ this.lines.splice(i,1); this.availabilityOk = null; },
 
         /* ==== Helpers ==== */
         formatCurrency(v){ return Intl.NumberFormat('it-IT',{minimumFractionDigits:2}).format(v||0); },
 
         /* ==== Salva ==== */
-        async save(){
-            if(!this.selectedCustomer || !this.delivery_date || !this.lines.length){
+        async save () {
+
+            if (!this.selectedCustomer || !this.delivery_date || !this.lines.length) {
                 alert('Compila data consegna, cliente e almeno una riga.');
                 return;
             }
-            // payload minimal (back-end to-do)
+
+            if (this.availabilityOk === null) {
+                alert('Devi prima verificare la disponibilità dei componenti.');
+                return;
+            }
+
             const payload = {
                 order_number_id : this.order_number_id,
                 customer_id     : this.selectedCustomer.id,
                 delivery_date   : this.delivery_date,
-                lines           : this.lines.map(l=>({
+                lines : this.lines.map(l => ({
                     product_id : l.product.id,
                     quantity   : l.qty,
                     price      : l.price
                 }))
             };
-            try{
+
+            this.saving = true;
+
+            try {
                 const r = await fetch('/orders/customer', {
-                    method:'POST',
-                    headers:{
-                        'Accept':'application/json','Content-Type':'application/json',
-                        'X-CSRF-TOKEN':document.querySelector('meta[name=\"csrf-token\"]').content
+                    method  : 'POST',
+                    headers : {
+                        Accept         : 'application/json',
+                        'Content-Type' : 'application/json',
+                        'X-CSRF-TOKEN' : document.querySelector('meta[name="csrf-token"]').content
                     },
-                    credentials:'same-origin',
-                    body: JSON.stringify(payload)
+                    credentials : 'same-origin',
+                    body        : JSON.stringify(payload)
                 });
-                if(!r.ok) throw new Error(await r.text());
-                this.close(); window.location.reload();
-            }catch(e){ console.error('Errore salvataggio',e); alert('Errore nel salvataggio.'); }
+
+                if (!r.ok) throw new Error(await r.text());
+                const j = await r.json();
+
+                if (j.po_ids && j.po_ids.length) {
+                    alert('Ordine cliente salvato.\nCreati ordini fornitore: ' + j.po_ids.join(', '));
+                } else {
+                    alert('Ordine cliente salvato con successo.');
+                }
+
+                this.close();
+                window.location.reload();
+
+            } catch (e) {
+                console.error('Errore salvataggio', e);
+                alert('Errore nel salvataggio.');
+            } finally {
+                this.saving = false;
+            }
         },
 
         /* ==== Fetch ordine esistente (edit) ==== */
@@ -542,54 +571,50 @@ function customerOrderModal() {
             }catch(e){ console.error('Errore update',e); alert('Errore durante la modifica.'); }
         },
 
-        async checkAvailability() {
-            this.checking = true;
+        async checkAvailability () {
+            this.checking       = true;
             this.availabilityOk = null;
 
             try {
                 const payload = {
                     delivery_date : this.delivery_date,
-                    lines         : this.lines.map(l => ({
+                    lines : this.lines.map(l => ({
                         product_id : l.product.id,
                         quantity   : l.qty
                     }))
                 };
 
                 const r = await fetch('/orders/check-components', {
-                    method : 'POST',
-                    headers: {
-                        Accept: 'application/json',
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+                    method  : 'POST',
+                    headers : {
+                        Accept         : 'application/json',
+                        'Content-Type' : 'application/json',
+                        'X-CSRF-TOKEN' : document.querySelector('meta[name="csrf-token"]').content
                     },
                     credentials : 'same-origin',
-                    body : JSON.stringify(payload)
+                    body        : JSON.stringify(payload)
                 });
 
                 const j = await r.json();
 
                 this.availabilityOk = j.ok;
                 this.shortage       = j.shortage ?? [];
-                this.poLinks        = j.po_ids  ?? [];
 
-                /* TOAST */
+                /* ALERT */
                 if (j.ok) {
-                    window.toast && toast.success('Tutti i componenti sono disponibili ✅');
-                } else if (this.poLinks.length) {
-                    window.toast && toast.info(
-                        'Creati ordini fornitore: ' + this.poLinks.map(id => '#'+id).join(', ')
-                    );
+                    alert('Tutti i componenti sono disponibili.');
                 } else {
-                    window.toast && toast.error('Componenti insufficienti: verifica la tabella sotto.');
+                    alert('Componenti insufficienti: controlla la tabella sotto.');
                 }
 
             } catch (e) {
                 console.error(e);
-                window.toast && toast.error('Errore nella verifica disponibilità');
+                alert('Errore nella verifica disponibilità');
             } finally {
                 this.checking = false;
             }
         },
+
     };
 }
 </script>

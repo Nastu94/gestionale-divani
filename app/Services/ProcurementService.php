@@ -20,7 +20,7 @@ use Illuminate\Support\Facades\Log;
  *    delivery_date e supplier, lo riutilizza.
  *  • Le righe (order_items) sono univoche per component_id:
  *    se la riga c’è, incrementa quantity; altrimenti la crea.
- *  • unit_cost pesca da ComponentSupplier::last_cost (può essere 0).
+ *  • unit_price pesca da ComponentSupplier::last_cost (può essere 0).
  *  • generated_by_order_customer_id permette la tracciabilità.
  *
  * Uso:
@@ -38,103 +38,99 @@ class ProcurementService
      * @param  int|null  $originOcId
      * @return Collection<Order>  Collezione di PO creati o aggiornati
      */
-    public static function fromShortage(Collection $shortage, $deliveryDate, ?int $originOcId = null): Collection
+    public static function fromShortage(Collection $shortage, int $originOcId): Collection
     {
-        return DB::transaction(function () use ($shortage, $deliveryDate, $originOcId) {
+        return DB::transaction(function () use ($shortage, $originOcId) {
 
-            /* 1️⃣ group shortage by best supplier */
-            $bySupplier = [];
+            /* 1️⃣ Raggruppa per supplier + lead_time */
+            $byKey = [];
             foreach ($shortage as $row) {
-                $best = ComponentSupplier::where('component_id', $row['component_id'])
-                        ->orderBy('lead_time_days')
-                        ->orderBy('last_cost')
-                        ->first();
-
-                if (! $best) {
-                    Log::warning('ProcurementService → supplier mancante', $row);
-                    continue;
-                }
-
-                $bySupplier[$best->supplier_id][] = [
-                    'component_id' => $row['component_id'],
-                    'quantity'     => $row['shortage'],
-                    'unit_cost'    => $best->last_cost ?? 0,
-                ];
-
-                Log::info('selected_supplier', [
-                    'component_id' => $row['component_id'],
-                    'supplier_id'  => $best->supplier_id,
-                    'lead_time'    => $best->lead_time_days,
-                    'price'        => $best->last_cost,
-                ]);
+                $key = "{$row['supplier_id']}|{$row['lead_time_days']}";
+                $byKey[$key]['supplier_id']       = $row['supplier_id'];
+                $byKey[$key]['lead_time_days']    = $row['lead_time_days'];
+                $byKey[$key]['items'][]           = $row;
             }
 
-            /* 2️⃣ crea / merge PO per supplier */
             $poCollection = collect();
 
-            foreach ($bySupplier as $supplierId => $items) {
+            /* 2️⃣ Loop gruppi */
+            foreach ($byKey as $grp) {
 
-                /* 2.1 cerca ordine esistente (join su order_number) */
-                $po = Order::where('supplier_id', $supplierId)
+                $deliveryDate = now()->startOfDay()->addDays($grp['lead_time_days'])->toDateString();
+
+                /* 2.1 cerca PO esistente */
+                $po = Order::where('supplier_id', $grp['supplier_id'])
                     ->where('delivery_date', $deliveryDate)
-                    ->whereHas('orderNumber', fn ($q) => $q->where('order_type', 'supplier'))
+                    ->whereHas('orderNumber', fn($q)=>$q->where('order_type','supplier'))
                     ->first();
 
-                /* 2.2 se non esiste, crea OrderNumber + testata PO */
-                if (! $po) {
-                    $orderNumber = OrderNumber::reserve('supplier');
-
+                /* 2.2 se non c'è ➜ crea OrderNumber + PO */
+                if (!$po) {
+                    $on = OrderNumber::reserve('supplier');
                     $po = Order::create([
-                        'order_number_id' => $orderNumber->id,
-                        'supplier_id'     => $supplierId,
-                        'delivery_date'   => $deliveryDate,
-                        'ordered_at'      => now(),
-                        'total'           => 0,
+                        'order_number_id'=> $on->id,
+                        'supplier_id'    => $grp['supplier_id'],
+                        'delivery_date'  => $deliveryDate,
+                        'ordered_at'     => now(),
+                        'total'          => 0,
                     ]);
                 }
 
+                /* 2.3 righe */
                 $totalDelta = 0;
-
-                /* 2.3 righe uniche per component_id */
-                foreach ($items as $it) {
-                    $orderItem = OrderItem::firstOrCreate(
+                foreach ($grp['items'] as $it) {
+                    $row = OrderItem::firstOrCreate(
                         [
                             'order_id'     => $po->id,
                             'component_id' => $it['component_id'],
                         ],
                         [
                             'quantity'     => 0,
-                            'unit_price'    => $it['unit_cost'],
+                            'unit_price'    => $it['unit_price'],
                             'generated_by_order_customer_id' => $originOcId,
                         ]
                     );
 
-                    /* aggiorna unit_cost se era 0 */
-                    if ($orderItem->unit_cost == 0 && $it['unit_cost'] > 0) {
-                        $orderItem->unit_cost = $it['unit_cost'];
+                    if ($row->unit_price == 0 && $it['unit_price'] > 0) {
+                        $row->unit_price = $it['unit_price']; $row->save();
                     }
 
-                    $orderItem->increment('quantity', $it['quantity']);
-                    $totalDelta += $it['quantity'] * $orderItem->unit_cost;
+                    $row->increment('quantity', $it['shortage']);
+                    $totalDelta += $it['shortage'] * $row->unit_price;
                 }
 
-                /* 2.4 total ordine */
-                if ($totalDelta > 0) {
-                    $po->increment('total', $totalDelta);
-                }
+                if ($totalDelta > 0) $po->increment('total', $totalDelta);
 
                 $poCollection->push($po);
-
                 Log::info('auto_po_created', [
                     'po_id'      => $po->id,
-                    'supplier_id'=> $supplierId,
-                    'items_cnt'  => count($items),
+                    'supplier_id'=> $grp['supplier_id'],
+                    'lead_time'  => $grp['lead_time_days'],
                     'delta_val'  => $totalDelta,
                     'oc_id'      => $originOcId,
                 ]);
             }
 
             return $poCollection;
+        });
+    }
+
+    /** Helper per costruire la collezione shortage dall’InventoryResult */
+    public static function buildShortageCollection(Collection $shortageRaw): Collection
+    {
+        /* arricchisce ogni riga con supplier e lead_time */
+        return $shortageRaw->map(function ($row) {
+            $cs = ComponentSupplier::where('component_id', $row['component_id'])
+                    ->orderBy('lead_time_days')
+                    ->orderBy('last_cost')
+                    ->first();
+            return [
+                'component_id'   => $row['component_id'],
+                'shortage'       => $row['shortage'],
+                'supplier_id'    => $cs->supplier_id,
+                'lead_time_days' => $cs->lead_time_days,
+                'unit_price'      => $cs->last_cost ?? 0,
+            ];
         });
     }
 }

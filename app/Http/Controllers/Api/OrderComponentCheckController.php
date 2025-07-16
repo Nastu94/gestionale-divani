@@ -32,22 +32,10 @@ class OrderComponentCheckController extends Controller
         $inventory = InventoryService::forDelivery($data['delivery_date'])
                         ->check($data['lines']);
 
-        /* 2. Se mancano componenti e l’utente può creare OF → genera PO */
-        $poIds = [];
-        if (! $inventory->ok && Auth::user()->can('orders.supplier.create')) {
-            $pos   = ProcurementService::fromShortage(
-                $inventory->shortage,
-                $data['delivery_date'],
-                null           // nessun OC ancora: sarà null
-            );
-            $poIds = $pos->pluck('id')->all();
-        }
-
         /* 3. Risposta */
         return response()->json([
             'ok'       => $inventory->ok,
             'shortage' => $inventory->shortage,
-            'po_ids'   => $poIds,             // [] se nessun PO generato
         ]);
     }
 }

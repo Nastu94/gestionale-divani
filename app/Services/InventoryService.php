@@ -142,10 +142,11 @@ class InventoryService
      */
     protected function incomingPurchase(Collection $componentIds): Collection
     {
-        return DB::table('orders')
+        return \DB::table('orders')
             ->join('order_items', 'orders.id', '=', 'order_items.order_id')
             ->join('order_numbers', 'orders.order_number_id', '=', 'order_numbers.id')
             ->where('order_numbers.order_type', 'supplier')
+            ->whereNull('order_items.generated_by_order_customer_id')
             ->whereIn('order_items.component_id', $componentIds)
             ->whereBetween('orders.delivery_date', [now()->startOfDay(), $this->deliveryDate])
             ->selectRaw('order_items.component_id, SUM(order_items.quantity) as qty')
