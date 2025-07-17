@@ -142,15 +142,22 @@ class InventoryService
      */
     protected function incomingPurchase(Collection $componentIds): Collection
     {
-        return \DB::table('orders')
-            ->join('order_items', 'orders.id', '=', 'order_items.order_id')
-            ->join('order_numbers', 'orders.order_number_id', '=', 'order_numbers.id')
-            ->where('order_numbers.order_type', 'supplier')
-            ->whereNull('order_items.generated_by_order_customer_id')
-            ->whereIn('order_items.component_id', $componentIds)
-            ->whereBetween('orders.delivery_date', [now()->startOfDay(), $this->deliveryDate])
-            ->selectRaw('order_items.component_id, SUM(order_items.quantity) as qty')
-            ->groupBy('order_items.component_id')
-            ->pluck('qty', 'order_items.component_id');
+        return \DB::table('orders AS o')
+            /* PO testata → deve avere order_type = 'supplier' nella join */
+            ->join('order_numbers AS on',   'o.order_number_id', '=', 'on.id')
+            ->join('order_items  AS oi',    'o.id',              '=', 'oi.order_id')
+            /* prenotazioni già assegnate ad altri OC */
+            ->leftJoin('po_reservations AS pr', 'pr.order_item_id', '=', 'oi.id')
+            ->where('on.order_type', 'supplier')
+            /* esclude righe PO già generate automaticamente da un OC precedente */
+            ->whereNull('oi.generated_by_order_customer_id')
+            ->whereIn('oi.component_id', $componentIds)
+            ->whereBetween('o.delivery_date', [now()->startOfDay(), $this->deliveryDate])
+            ->selectRaw(
+                'oi.component_id,
+                SUM(oi.quantity - COALESCE(pr.quantity,0)) AS qty'
+            )
+            ->groupBy('oi.component_id')
+            ->pluck('qty', 'oi.component_id');
     }
 }

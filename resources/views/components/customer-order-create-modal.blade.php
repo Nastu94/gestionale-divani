@@ -501,11 +501,12 @@ function customerOrderModal() {
                 if (!r.ok) throw new Error(await r.text());
                 const j = await r.json();
 
-                if (j.po_ids && j.po_ids.length) {
-                    alert('Ordine cliente salvato.\nCreati ordini fornitore: ' + j.po_ids.join(', '));
+                if (j.po_numbers && j.po_numbers.length) {
+                    alert('Ordine cliente salvato.\nSono stati creati i seguenti ordini fornitore: ' + j.po_numbers.join(', '));
                 } else {
                     alert('Ordine cliente salvato con successo.');
                 }
+
 
                 this.close();
                 window.location.reload();

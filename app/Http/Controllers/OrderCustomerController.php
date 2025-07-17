@@ -169,20 +169,20 @@ class OrderCustomerController extends Controller
                 return $order;
             });
 
-            /*─────────── CREA / MERGE PO DOPO SALVATAGGIO ───────────*/
-            $poIds = [];
+            /*─────────── CREA / MERGE PO + prenotazioni ───────────*/
+            $poNumbers = [];
             if (! $inv->ok && $request->user()->can('orders.supplier.create')) {
 
-                /* arricchisce la collection shortage con supplier & lead_time */
                 $shortCol = ProcurementService::buildShortageCollection($inv->shortage);
 
-                $pos = ProcurementService::fromShortage($shortCol, $order->id);
-                $poIds = $pos->pluck('id')->all();
+                /* ⬇️  adesso il servizio restituisce un array */
+                $proc       = ProcurementService::fromShortage($shortCol, $order->id);
+                $poNumbers  = $proc['po_numbers']->all();   // collection → array
             }
 
             return response()->json([
                 'order_id' => $order->id,
-                'po_ids'   => $poIds,
+                'po_numbers'   => $poNumbers,
             ], 201);
 
         } catch (\Throwable $e) {

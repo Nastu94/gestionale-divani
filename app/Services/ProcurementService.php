@@ -6,6 +6,7 @@ use App\Models\ComponentSupplier;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\OrderNumber;
+use App\Models\PoReservation;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -13,22 +14,14 @@ use Illuminate\Support\Facades\Log;
 /**
  * ProcurementService
  * ---------------------------------------------------------------------
- * Converte la lista di componenti mancanti (shortage) in ordini
- * fornitore raggruppati per supplier.
+ * Dato lo shortage (componenti mancanti) crea o aggiorna gli
+ * ordini fornitore necessari, suddivisi per supplier e lead-time.
+ * Prenota contestualmente la quantità in arrivo su po_reservations.
  *
- *  • Se esiste già un PO (order_type='supplier') con stessa
- *    delivery_date e supplier, lo riutilizza.
- *  • Le righe (order_items) sono univoche per component_id:
- *    se la riga c’è, incrementa quantity; altrimenti la crea.
- *  • unit_price pesca da ComponentSupplier::last_cost (può essere 0).
- *  • generated_by_order_customer_id permette la tracciabilità.
- *
- * Uso:
- *   $poCollection = ProcurementService::fromShortage(
- *                      $shortage,       // Collection([{component_id, shortage}])
- *                      '2025-08-15',    // data consegna OC
- *                      $ocId            // id ordine cliente origine
- *                  );
+ *  • delivery_date = today + lead_time_days
+ *  • chiave riga unica (order_id, component_id)
+ *  • unit_price da ComponentSupplier::last_cost
+ *  • generated_by_order_customer_id per tracing
  */
 class ProcurementService
 {
@@ -36,9 +29,12 @@ class ProcurementService
      * @param  Collection<int, array{component_id:int, shortage:float}>  $shortage
      * @param  \Carbon\CarbonInterface|string  $deliveryDate
      * @param  int|null  $originOcId
-     * @return Collection<Order>  Collezione di PO creati o aggiornati
+     * @return array{
+     *     pos:         Illuminate\Support\Collection<Order>,
+     *     po_numbers:  Illuminate\Support\Collection<string>
+     * }
      */
-    public static function fromShortage(Collection $shortage, int $originOcId): Collection
+    public static function fromShortage(Collection $shortage, int $originOcId): array
     {
         return DB::transaction(function () use ($shortage, $originOcId) {
 
@@ -97,13 +93,25 @@ class ProcurementService
 
                     $row->increment('quantity', $it['shortage']);
                     $totalDelta += $it['shortage'] * $row->unit_price;
+
+                    /* prenotazione merce in arrivo */
+                    PoReservation::updateOrCreate(
+                        [
+                            'order_item_id'      => $row->id,
+                            'order_customer_id'  => $originOcId,
+                        ],
+                        ['quantity' => $it['shortage']]
+                    );
+
                 }
 
                 if ($totalDelta > 0) $po->increment('total', $totalDelta);
 
-                $poCollection->push($po);
+                $poCollection->push($po->load('orderNumber'));
+
                 Log::info('auto_po_created', [
                     'po_id'      => $po->id,
+                    'po_number'  => $po->orderNumber->number,
                     'supplier_id'=> $grp['supplier_id'],
                     'lead_time'  => $grp['lead_time_days'],
                     'delta_val'  => $totalDelta,
@@ -111,7 +119,12 @@ class ProcurementService
                 ]);
             }
 
-            return $poCollection;
+            /* restituisce sia i PO sia i numeri formattati */
+            return [
+                'pos'        => $poCollection,
+                'po_numbers' => $poCollection->pluck('orderNumber.number')
+                                             ->map(fn ($n) => $n),
+            ];
         });
     }
 
@@ -124,6 +137,12 @@ class ProcurementService
                     ->orderBy('lead_time_days')
                     ->orderBy('last_cost')
                     ->first();
+
+            if (! $cs) {
+                Log::warning('Component senza supplier', ['component_id' => $row['component_id']]);
+                return null;  // sarà filtrato da ->filter()
+            }
+
             return [
                 'component_id'   => $row['component_id'],
                 'shortage'       => $row['shortage'],
@@ -131,6 +150,6 @@ class ProcurementService
                 'lead_time_days' => $cs->lead_time_days,
                 'unit_price'      => $cs->last_cost ?? 0,
             ];
-        });
+        })->filter(); // rimuove i nulli
     }
 }
