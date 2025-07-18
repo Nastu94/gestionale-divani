@@ -129,7 +129,10 @@
                                      @endif
                                 >
                                     <td class="px-6 py-2 text-center">{{ $order->orderNumber->number }}</td>
-                                    <td class="px-6 py-2">{{ $order->customer?->company }}</td>
+                                    <td class="px-6 py-2">
+                                        {{ $order->customer      ? $order->customer->company
+                                        : ($order->occasionalCustomer->company ?? '—') }}
+                                    </td>
                                     <td class="px-6 py-2">{{ $order->ordered_at?->format('d/m/Y') }}</td>
                                     <td class="px-6 py-2">{{ $order->delivery_date?->format('d/m/Y') }}</td>
                                     <td class="px-6 py-2 text-center">{{ number_format($order->total, 2, ',', '.') }}</td>

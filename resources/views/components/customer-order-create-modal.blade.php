@@ -323,6 +323,7 @@ function customerOrderModal() {
         customerSearch   : '',
         customerOptions  : [],
         selectedCustomer : null,
+        occasional_customer_id : null,
 
         /* ==== Righe ==== */
         lines            : [],
@@ -375,6 +376,7 @@ function customerOrderModal() {
         resetForm(){
             this.delivery_date    = '';
             this.selectedCustomer = null;
+            this.occasional_customer_id  = null; 
             this.customerSearch   = '';
             this.lines            = [];
             this.selectedProduct  = null;
@@ -414,7 +416,11 @@ function customerOrderModal() {
                 this.customerOptions = await r.json();
             }catch{ this.customerOptions=[]; }
         },
-        selectCustomer(o){ this.selectedCustomer=o; this.customerOptions=[]; },
+        selectCustomer(o){ 
+            this.selectedCustomer=o; 
+            this.customerOptions=[];
+            this.occasional_customer_id = null; 
+        },
 
         /* ==== Ricerca prodotti ==== */
         async searchProducts() {
@@ -475,7 +481,8 @@ function customerOrderModal() {
 
             const payload = {
                 order_number_id : this.order_number_id,
-                customer_id     : this.selectedCustomer.id,
+                customer_id     : this.occasional_customer_id ? null : this.selectedCustomer.id,
+                occasional_customer_id : this.occasional_customer_id ?? null,
                 delivery_date   : this.delivery_date,
                 lines : this.lines.map(l => ({
                     product_id : l.product.id,

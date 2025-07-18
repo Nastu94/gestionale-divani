@@ -25,52 +25,61 @@ class OrderCustomerController extends Controller
      */
     public function index(Request $request)
     {
-        /*──────────────── PARAMETRI DI QUERY ────────────────*/
-        $sort    = $request->input('sort', 'ordered_at');           // campo di ordinamento di default
+        /*──── Parametri ───*/
+        $sort    = $request->input('sort', 'ordered_at');
         $dir     = $request->input('dir',  'desc') === 'asc' ? 'asc' : 'desc';
-        $filters = $request->input('filter', []);                   // eventuali filtri colonna
+        $filters = $request->input('filter', []);
 
-        /*──────────────── WHITELIST ORDINABILE ───────────────*/
+        /*──── Whitelist ordinabile ───*/
         $allowedSorts = ['id', 'customer', 'ordered_at', 'delivery_date', 'total'];
-        if (! in_array($sort, $allowedSorts, true)) {
-            $sort = 'ordered_at';
-        }
+        if (! in_array($sort, $allowedSorts, true)) $sort = 'ordered_at';
 
-        /*──────────────── QUERY PRINCIPALE ───────────────────*/
+        /*──── Query ───*/
         $orders = Order::query()
-            ->with(['customer:id,company', 'orderNumber:id,number,order_type'])  // eager-load relazioni
-            ->whereHas('orderNumber', fn ($q) =>
-                $q->where('order_type', 'customer')                              // solo ordini *cliente*
-            )
-            /*────────────── FILTRI SINGOLE COLONNE ───────────*/
-            ->when($filters['id']           ?? null,
-                   fn ($q,$v) => $q->where('id', $v))
-            ->when($filters['customer']     ?? null,
-                   fn ($q,$v) => $q->whereHas('customer',
-                                   fn ($q) => $q->where('company','like',"%$v%")))
-            ->when($filters['ordered_at']   ?? null,
-                   fn ($q,$v) => $q->whereDate('ordered_at', $v))
-            ->when($filters['delivery_date']?? null,
-                   fn ($q,$v) => $q->whereDate('delivery_date', $v))
-            ->when($filters['total']        ?? null,
-                   fn ($q,$v) => $q->where('total','like',"%$v%"))
-            /*────────────── ORDINAMENTO DINAMICO ─────────────*/
+            ->with([
+                'customer:id,company',
+                'occasionalCustomer:id,company',
+                'orderNumber:id,number,order_type'
+            ])
+            ->whereHas('orderNumber', fn ($q) => $q->where('order_type', 'customer'))
+
+            /*─── Filtri ───*/
+            ->when($filters['id'] ?? null,
+                fn ($q,$v) => $q->where('id', $v))
+
+            ->when($filters['customer'] ?? null, function ($q,$v) {
+                $q->where(function ($q) use ($v) {
+                    $q->whereHas('customer',
+                            fn ($q) => $q->where('company','like',"%$v%"))
+                    ->orWhereHas('occasionalCustomer',
+                            fn ($q) => $q->where('company','like',"%$v%"));
+                });
+            })
+
+            ->when($filters['ordered_at'] ?? null,
+                fn ($q,$v) => $q->whereDate('ordered_at', $v))
+
+            ->when($filters['delivery_date'] ?? null,
+                fn ($q,$v) => $q->whereDate('delivery_date', $v))
+
+            ->when($filters['total'] ?? null,
+                fn ($q,$v) => $q->where('total', 'like', "%$v%"))
+
+            /*─── Ordinamento ───*/
             ->when($sort === 'customer', function ($q) use ($dir) {
-                /* join per ordinare sulla ragione sociale */
-                $q->join('customers as c','orders.customer_id','=','c.id')
-                  ->orderBy('c.company', $dir)
-                  ->select('orders.*');
+                $q->leftJoin('customers as c',          'orders.customer_id',            '=', 'c.id')
+                ->leftJoin('occasional_customers as oc','orders.occasional_customer_id','=','oc.id')
+                ->orderByRaw("COALESCE(c.company, oc.company) {$dir}")
+                ->select('orders.*');
             }, function ($q) use ($sort, $dir) {
                 $q->orderBy($sort, $dir);
             })
-            ->paginate(15)
-            ->appends($request->query());                                    // preserva query-string
 
-        /*──────────────── VIEW ───────────────────────────────*/
-        return view(
-            'pages.orders.index-customers',
-            compact('orders','sort','dir','filters')
-        );
+            ->paginate(15)
+            ->appends($request->query());
+
+        return view('pages.orders.index-customers',
+            compact('orders', 'sort', 'dir', 'filters'));
     }
 
     /**
@@ -97,8 +106,8 @@ class OrderCustomerController extends Controller
         /*─────────── VALIDAZIONE ───────────*/
         $data = $request->validate([
             'order_number_id'        => ['required', 'integer', Rule::exists('order_numbers', 'id')],
-            'customer_id'            => ['nullable', 'integer', Rule::exists('customers', 'id')],
             'occasional_customer_id' => ['nullable', 'integer', Rule::exists('occasional_customers', 'id')],
+            'customer_id'            => ['nullable', 'integer', Rule::exists('customers', 'id')],
             'delivery_date'          => ['required', 'date'],
             'lines'                  => ['required', 'array', 'min:1'],
             'lines.*.product_id'     => ['required', 'integer', Rule::exists('products', 'id')],

@@ -29,6 +29,7 @@ class Order extends Model
         'parent_order_id', // ID dell'ordine padre, se presente
         'supplier_id',  // ID del fornitore associato, se ordine fornitore
         'customer_id',  // ID del cliente associato, se ordine cliente
+        'occasional_customer_id', // ID del cliente occasionale, se presente
         'order_number_id',  // ID del numero d'ordine associato
         'total',      // Valore totale
         'ordered_at', // Data ordine
@@ -60,6 +61,7 @@ class Order extends Model
         'parent_order_id',
         'supplier_id',
         'customer_id',
+        'occasional_customer_id', // ID del cliente occasionale, se presente
         'order_number_id',  // ID del numero d'ordine associato
         'total',      // Valore totale
         'ordered_at', // Data ordine
@@ -91,6 +93,14 @@ class Order extends Model
     public function customer()
     {
         return $this->belongsTo(Customer::class);
+    }
+
+    /**
+     * Cliente occasionale associato all'ordine (se presente).
+     */
+    public function occasionalCustomer()
+    {
+        return $this->belongsTo(OccasionalCustomer::class);
     }
 
     /**
