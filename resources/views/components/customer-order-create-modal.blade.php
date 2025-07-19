@@ -191,7 +191,7 @@
                                 <td class="px-2 py-1" x-text="row.description"></td>
                                 <td class="px-2 py-1 text-right" x-text="row.needed"></td>
                                 <td class="px-2 py-1 text-right" x-text="row.available"></td>
-                                <td class="px-2 py-1 text-right" x-text="row.incoming"></td>
+                                <td class="px-2 py-1 text-right" x-text="row.incoming + row.my_incoming"></td>
                                 <td class="px-2 py-1 text-right font-semibold text-red-700" x-text="row.shortage"></td>
                             </tr>
                         </template>

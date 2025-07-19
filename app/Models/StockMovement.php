@@ -24,10 +24,8 @@ class StockMovement extends Model
      */
     protected static $logAttributes = [
         'stock_level_id', // ID della giacenza di riferimento
-        'type',           // Tipo movimento (in, out, transfer_in, ...)
+        'type',           // Tipo movimento (in, out, reserve)
         'quantity',       // Quantità movimentata
-        'reference_type', // Tipo di riferimento (es. order, production)
-        'reference_id',   // ID del riferimento (es. ID ordine)
         'note',           // Note aggiuntive
         'moved_at',       // Data del movimento
     ];
@@ -55,10 +53,8 @@ class StockMovement extends Model
      */
     protected $fillable = [
         'stock_level_id',
-        'type',        // Tipo movimento (in, out, transfer_in, ...)
+        'type',        // Tipo movimento (in, out, reserve)
         'quantity',    // Quantità movimentata
-        'reference_type', // Tipo di riferimento
-        'reference_id',   // ID del riferimento
         'note',        // Note aggiuntive
         'moved_at',    // Data del movimento
     ];

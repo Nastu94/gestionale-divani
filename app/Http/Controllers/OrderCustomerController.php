@@ -5,6 +5,9 @@ namespace App\Http\Controllers;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\OrderNumber;
+use App\Models\StockLevel;
+use App\Models\StockReservation;
+use App\Models\StockMovement;
 use App\Services\InventoryService;
 use App\Services\ProcurementService;
 use Illuminate\Http\Request;
@@ -170,6 +173,46 @@ class OrderCustomerController extends Controller
                     ]);
                 }
 
+                // 5.1 Calcolo della disponibilità fisica usata (available)  
+                $usedLines = collect($data['lines'])->map(fn ($l) => [
+                    'product_id' => $l['product_id'],     // chiave corretta
+                    'quantity'   => $l['quantity'],
+                ])->all();
+
+                $invResult = InventoryService::forDelivery(
+                    $data['delivery_date'],
+                    $order->id
+                )->check($usedLines);
+
+                // 5.2 Per ogni componente, prenota in stock_reservations  
+                foreach ($invResult->shortage as $row) {
+                    $needed    = $row['needed'];
+                    $have      = $row['available'] + $row['incoming'] + $row['my_incoming'];
+                    $fromStock = min($row['available'], $needed);  // quanto effettivamente prelevato
+
+                    if ($fromStock > 0) {
+                        // prendo uno StockLevel qualsiasi
+                        $sl = StockLevel::where('component_id', $row['component_id'])
+                                ->orderBy('quantity')
+                                ->first();
+
+                        // 5.2.1 crea prenotazione
+                        StockReservation::create([
+                            'stock_level_id' => $sl->id,
+                            'order_id'       => $order->id,
+                            'quantity'       => $fromStock,
+                        ]);
+
+                        // 5.2.2 registra movimento magazzino
+                        StockMovement::create([
+                            'stock_level_id' => $sl->id,
+                            'type'           => 'reserve',
+                            'quantity'       => $fromStock,
+                            'note'           => "Prenotazione stock per OC #{$order->id}",
+                        ]);
+                    }
+                }
+
                 Log::info('OrderCustomer@store – ordine e righe salvati', [
                     'order_id' => $order->id,
                     'lines'    => count($data['lines']),
@@ -181,10 +224,10 @@ class OrderCustomerController extends Controller
             /*─────────── CREA / MERGE PO + prenotazioni ───────────*/
             $poNumbers = [];
             if (! $inv->ok && $request->user()->can('orders.supplier.create')) {
-
+                // 6.0 Costruisce la collezione di carenza
                 $shortCol = ProcurementService::buildShortageCollection($inv->shortage);
 
-                /* ⬇️  adesso il servizio restituisce un array */
+                // 6.1 crea PO e prenotazioni
                 $proc       = ProcurementService::fromShortage($shortCol, $order->id);
                 $poNumbers  = $proc['po_numbers']->all();   // collection → array
             }

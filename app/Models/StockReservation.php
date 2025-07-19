@@ -51,9 +51,9 @@ class StockReservation extends Model
      * @var array<string>
      */
     protected $fillable = [
-        'stock_level_id',
-        'order_id',
-        'quantity', // Quantità riservata
+        'stock_level_id',   // ID della giacenza
+        'order_id',         // ID dell'ordine cliente associato
+        'quantity',         // Quantità riservata
     ];
 
     /**
