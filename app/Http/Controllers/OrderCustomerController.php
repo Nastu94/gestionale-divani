@@ -11,6 +11,7 @@ use App\Models\StockMovement;
 use App\Services\InventoryService;
 use App\Services\ProcurementService;
 use App\Services\OrderUpdateService;
+use App\Services\OrderDeleteService;
 use App\Services\Traits\InventoryServiceExtensions;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -280,7 +281,6 @@ class OrderCustomerController extends Controller
      */
     public function lines(Order $order): JsonResponse
     {
-
         // carica i dati necessari in un solo round-trip
         $order->load([
             'items.product.components.componentSuppliers',  // per last_cost
@@ -428,10 +428,39 @@ class OrderCustomerController extends Controller
     }
 
     /**
-     * Remove the specified resource from storage.
+     * Elimina un ordine cliente e restituisce i numeri dei PO generati.
      */
     public function destroy(Order $order)
     {
-        //
+        // già protetto dal middleware permission:orders.customer.delete
+
+        /* ❗ eventuale business-rule: non eliminare se spedito / fatturato
+        if ($order->shipped_at || $order->invoiced_at) {
+            return back()->with('error',
+                "Impossibile eliminare: l’ordine è già evaso / fatturato.");
+        }
+        */
+
+        try {
+            $poNumbers = app(OrderDeleteService::class)->handle($order);
+
+            $msg = "Ordine #{$order->orderNumber->number} eliminato con successo.";
+            if ($poNumbers->isNotEmpty()) {
+                $msg .= ' Restano aperti gli ordini fornitore generati con la creazione dell\'ordine: '.
+                        $poNumbers->implode(', ');
+            }
+
+            return back()->with('success', $msg);
+
+        } catch (\Throwable $e) {
+            Log::error('OC delete failed', [
+                'order_id' => $order->id,
+                'error'    => $e->getMessage()
+            ]);
+
+            return back()->with('error',
+                'Errore interno: ordine non eliminato.');
+        }
     }
+
 }
