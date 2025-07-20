@@ -112,7 +112,6 @@
                 <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">Data consegna</label>
                 <input  type="date" name="delivery_date"
                         x-model="$store.entryModal.formData.delivery_date"
-                        :disabled="$store.entryModal.orderSaved"
                         class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
                                text-sm text-gray-900 dark:text-gray-100">
                 <div class="flex justify-center mt-8">

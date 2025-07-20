@@ -13,6 +13,7 @@ use App\Models\StockMovement;
 use App\Models\StockReservation;
 use App\Models\LotNumber;
 use App\Services\ShortfallService;
+use App\Services\ReservationService;   
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
@@ -154,6 +155,7 @@ class StockLevelController extends Controller
             /* 2 ‧ CONFERMA LOTTO PRENOTATO --------------------------------- */
             $lotNumber = LotNumber::where('code', $data['internal_lot_code'])
                 ->where('status', 'reserved')
+                ->lockForUpdate()
                 ->first();
 
             if (! $lotNumber) {
@@ -206,9 +208,10 @@ class StockLevelController extends Controller
             if ($data['order_id']) {
                 /** @var Order $order */
                 $order = Order::with('stockLevelLots')
+                    ->lockForUpdate()
                     ->whereKey($data['order_id'])
                     ->whereHas('orderNumber', fn ($q) => $q->where('order_type', 'supplier'))
-                    ->first();
+                    ->firstOrFail();
 
                 if (! $order) {
                     throw new \RuntimeException('Ordine fornitore non trovato o non valido.');
@@ -253,6 +256,9 @@ class StockLevelController extends Controller
                 'note'           => 'Carico lotto interno ' . $lot->internal_lot_code,
             ]);
 
+            /* 2-i  Prenotazioni cliente (RESERVE) ------------------------ */
+            app(ReservationService::class)->attach($lot);
+            
             DB::commit();
 
             /* 10 ‧ VERIFICA PIVOT (debug) ---------------------------------- */
@@ -265,7 +271,15 @@ class StockLevelController extends Controller
                 'success' => true,
                 'lot'     => $lot->only(['internal_lot_code', 'supplier_lot_code', 'quantity']),
             ]);
-        } catch (QueryException $e) {
+        } catch (BusinessRuleException $e) {
+            DB::rollBack();
+            Log::error('Errore di business storeEntry', ['msg' => $e->getMessage(), 'data' => $data]);
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+
+        }catch (QueryException $e) {
             DB::rollBack();
             Log::error('Errore SQL storeEntry', ['msg' => $e->getMessage(), 'data' => $data]);
             return response()->json([

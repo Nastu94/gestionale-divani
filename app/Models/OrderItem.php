@@ -61,6 +61,15 @@ class OrderItem extends Model
     }
 
     /**
+     * Relazione con la riga riservata per l'ordine cliente.
+     * Ritorna la riga riservata se esiste, altrimenti null.
+     */
+    public function poReservations()
+    {
+        return $this->hasMany(PoReservation::class);
+    }
+
+    /**
      * OC che ha originato questa riga PO (nullable)
      */
     public function generatedByOc(): BelongsTo

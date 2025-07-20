@@ -72,6 +72,12 @@ class StockLevelLot extends Model
         return $this->belongsTo(LotNumber::class);
     }
 
+    /* relazione con le prenotazioni cliente (via pivot order → items) ---- */
+    public function reservations()
+    {
+        return $this->hasMany(StockReservation::class);
+    }
+
     /* relazione con l'ordine fornitore (passando per la tabella pivot order_stock_level) ------------------------------------ */
     public function orders()
     {
