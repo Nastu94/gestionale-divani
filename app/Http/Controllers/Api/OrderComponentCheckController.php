@@ -4,38 +4,49 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Services\InventoryService;
-use App\Services\ProcurementService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 
 class OrderComponentCheckController extends Controller
 {
     /**
-     * Valida le righe ordine, controlla la disponibilità e – se
-     * l’utente ha permesso orders.supplier.create – genera/merge
-     * gli ordini fornitore necessari.
+     * Verifica la copertura componenti di un OC (nuovo o in modifica).
+     * NON crea prenotazioni né ordini fornitore: restituisce solo il risultato.
      *
      * POST /orders/check-components
      *
-     * @return \Illuminate\Http\JsonResponse
+     * @bodyParam order_id        int   ID dell’OC in modifica (facoltativo)
+     * @bodyParam delivery_date   date  Data consegna richiesta (Y-m-d)
+     * @bodyParam lines           array [{product_id, quantity}]
      */
     public function check(Request $request)
     {
         $data = $request->validate([
-            'delivery_date'          => ['required', 'date'],
-            'lines'                  => ['required', 'array', 'min:1'],
-            'lines.*.product_id'     => ['required', 'integer', 'exists:products,id'],
-            'lines.*.quantity'       => ['required', 'numeric', 'min:0.01'],
+            'order_id'               => ['nullable','integer','exists:orders,id'],
+            'delivery_date'          => ['required','date'],
+            'lines'                  => ['required','array','min:1'],
+            'lines.*.product_id'     => ['required','integer','exists:products,id'],
+            'lines.*.quantity'       => ['required','numeric','min:0.01'],
         ]);
 
-        /* 1. Verifica disponibilità */
-        $inventory = InventoryService::forDelivery($data['delivery_date'])
-                        ->check($data['lines']);
+        /* 1️⃣ Costruisce le righe per InventoryService */
+        $lines = collect($data['lines'])
+                    ->map(fn ($l) => [
+                        'product_id' => $l['product_id'],
+                        'quantity'   => $l['quantity'],
+                    ])
+                    ->values()      // indice 0-based
+                    ->all();
 
-        /* 3. Risposta */
+        /* 2️⃣ Verifica disponibilità (solo read) */
+        $inv = InventoryService::forDelivery(
+                    $data['delivery_date'],
+                    $data['order_id'] ?? null       // esclude le prenotazioni dell’OC se in edit
+               )->check($lines);
+
+        /* 3️⃣ Risposta */
         return response()->json([
-            'ok'       => $inventory->ok,
-            'shortage' => $inventory->shortage,
+            'ok'       => $inv->ok,
+            'shortage' => $inv->shortage,          // dettagli per la tabella frontend
         ]);
     }
 }

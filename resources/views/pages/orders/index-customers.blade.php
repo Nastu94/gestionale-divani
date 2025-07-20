@@ -155,11 +155,11 @@
 
                                                 {{-- Modifica --}}
                                                 @if ($canEdit)
-                                                    <a  href="{{ route('orders.customer.edit', $order) }}"
-                                                        class="inline-flex items-center hover:text-green-600"
-                                                        @click.stop>
+                                                    <button  type="button"
+                                                            @click.stop="openEdit({{ $order->id }})"
+                                                            class="inline-flex items-center hover:text-green-600">
                                                         <i class="fas fa-pen mr-1"></i> Modifica
-                                                    </a>
+                                                    </button>
                                                 @endif
 
                                                 {{-- Cancella --}}
@@ -202,7 +202,7 @@
                 <div class="flex-1 bg-black/50" @click="sidebarOpen = false"></div>
 
                 {{-- pannello --}}
-                <div  class="w-full max-w-lg bg-white dark:bg-gray-900 shadow-xl overflow-y-auto"
+                <div  class="w-full max-w-2xl bg-white dark:bg-gray-900 shadow-xl overflow-y-auto"
                       x-transition:enter="transition transform duration-300"
                       x-transition:enter-start="translate-x-full"
                       x-transition:leave="transition transform duration-300"
@@ -240,13 +240,25 @@
                             </thead>
                             <tbody>
                                 <template x-for="row in sidebarLines" :key="row.code">
-                                    <tr>
-                                        <td class="px-2 py-1" x-text="row.code"></td>
+                                    <tr
+                                        :class="{
+                                            'font-semibold bg-purple-50' : row.type === 'product',
+                                            'text-gray-600 italic'       : row.type === 'component'
+                                        }"
+                                    >
+                                        <td class="px-2 py-1"
+                                            :class="row.type === 'component' ? 'pl-6' : ''"
+                                            x-text="row.code">
+                                        </td>
                                         <td class="px-2 py-1" x-text="row.desc"></td>
                                         <td class="px-2 py-1 text-right" x-text="row.qty"></td>
-                                        <td class="px-2 py-1 uppercase" x-text="row.unit"></td>
-                                        <td class="px-2 py-1 text-right" x-text="formatCurrency(row.price)"></td>
-                                        <td class="px-2 py-1 text-right" x-text="formatCurrency(row.subtot)"></td>
+                                        <td class="px-2 py-1 uppercase"   x-text="row.unit"></td>
+                                        <td class="px-2 py-1 text-right"
+                                            x-text="formatCurrency(row.price)">
+                                        </td>
+                                        <td class="px-2 py-1 text-right"
+                                            x-text="formatCurrency(row.subtot)">
+                                        </td>
                                     </tr>
                                 </template>
                             </tbody>

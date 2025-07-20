@@ -10,6 +10,9 @@ use App\Models\StockReservation;
 use App\Models\StockMovement;
 use App\Services\InventoryService;
 use App\Services\ProcurementService;
+use App\Services\OrderUpdateService;
+use App\Services\Traits\InventoryServiceExtensions;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
@@ -184,7 +187,21 @@ class OrderCustomerController extends Controller
                     $order->id
                 )->check($usedLines);
 
-                // 5.2 Per ogni componente, prenota in stock_reservations  
+                // 🆕 5.2   prenota le quantità libere sui PO esistenti
+                InventoryServiceExtensions::reserveFreeIncoming(
+                    $order,
+                    $invResult->shortage    // o, meglio, explodeBom($lines) per avere tutto il fabbisogno
+                        ->pluck('needed', 'component_id')
+                        ->toArray(),
+                    Carbon::parse($data['delivery_date'])
+                );
+
+                // 5.3   ricalcola la situazione ***dopo*** la prenotazione appena fatta
+                $invResult = InventoryService::forDelivery(
+                    $data['delivery_date'], $order->id
+                )->check($usedLines);
+
+                // 5.4 Per ogni componente, prenota in stock_reservations  
                 foreach ($invResult->shortage as $row) {
                     $needed    = $row['needed'];
                     $have      = $row['available'] + $row['incoming'] + $row['my_incoming'];
@@ -196,14 +213,14 @@ class OrderCustomerController extends Controller
                                 ->orderBy('quantity')
                                 ->first();
 
-                        // 5.2.1 crea prenotazione
+                        // 5.4.1 crea prenotazione
                         StockReservation::create([
                             'stock_level_id' => $sl->id,
                             'order_id'       => $order->id,
                             'quantity'       => $fromStock,
                         ]);
 
-                        // 5.2.2 registra movimento magazzino
+                        // 5.4.2 registra movimento magazzino
                         StockMovement::create([
                             'stock_level_id' => $sl->id,
                             'type'           => 'reserve',
@@ -256,19 +273,158 @@ class OrderCustomerController extends Controller
     }
 
     /**
-     * Show the form for editing the specified resource.
+     * Restituisce in JSON le righe dell’ordine + esploso componenti.
+     *
+     * @param  Order  $order           Istanza iniettata tramite Route Model Binding
+     * @return \Illuminate\Http\JsonResponse
      */
-    public function edit(Order $order)
+    public function lines(Order $order): JsonResponse
     {
-        //
+
+        // carica i dati necessari in un solo round-trip
+        $order->load([
+            'items.product.components.componentSuppliers',  // per last_cost
+        ]);
+
+        $rows = collect();
+
+        foreach ($order->items as $item) {
+            $product    = $item->product;
+            $qtyOrdered = $item->quantity;
+            $priceUnit  = $item->unit_price;
+            $subtotal   = $qtyOrdered * $priceUnit;
+
+            /* ──────────────── 1) riga PRODOTTO ──────────────── */
+            $rows->push([
+                'code'   => $product->sku,
+                'desc'   => $product->name,
+                'qty'    => $qtyOrdered,
+                'unit'   => 'pz',
+                'price'  => $priceUnit,
+                'subtot' => $subtotal,
+                'type'   => 'product',
+            ]);
+
+            /* ─────────────── 2) righe COMPONENTI ────────────── */
+            foreach ($product->components as $component) {
+                // costo: pick del supplier con last_cost più basso o 0 se assente
+                $priceComp = optional(
+                    $component->componentSuppliers
+                            ->sortBy('last_cost')
+                            ->first()
+                )->last_cost ?? 0;
+
+                $rows->push([
+                    'code'   => $component->code,
+                    'desc'   => $component->description,
+                    'qty'    => $qtyOrdered * $component->pivot->quantity,
+                    'unit'   => $component->unit_of_measure ?? 'pz',
+                    'price'  => $priceComp,
+                    'subtot' => $priceComp * $qtyOrdered * $component->pivot->quantity,
+                    'type'   => 'component',
+                ]);
+            }
+        }
+
+        // 🛈 NON ordiniamo: la sequenza è già «prodotto → componenti»
+        return response()->json($rows->values());
     }
 
     /**
-     * Update the specified resource in storage.
+     * GET /orders/customer/{order}/edit
+     * Restituisce i dati ordine in JSON per il modal “Modifica”.
+     *
+     * @param  Order  $order
+     * @return \Illuminate\Http\JsonResponse
      */
-    public function update(Request $request, Order $order)
+    public function edit(Order $order): JsonResponse
     {
-        //
+        /* ── Eager-load con i campi che servono alla UI ── */
+        $order->load([
+            'items.product:id,sku,name,price',
+            'customer:id,company,email,vat_number,tax_code',
+            'customer.shippingAddress:id,customer_id,address,city,postal_code,country',
+            'occasionalCustomer:id,company,email,vat_number,tax_code,address,postal_code,city,province,country',
+        ]);
+
+        /* 2️⃣ helper per formattare l’indirizzo */
+        $fmt = function ($addr = null) {
+            if (!$addr) return null;
+
+            return collect([
+                $addr->address,
+                $addr->postal_code && $addr->city ? "{$addr->postal_code} {$addr->city}" : $addr->city,
+                $addr->province,
+                $addr->country,
+            ])->filter()->join(', ');
+        };
+
+        /* 3️⃣ serializza cliente “standard” */
+        $cust = $order->customer ? [
+            'id'              => $order->customer->id,
+            'company'         => $order->customer->company,
+            'email'           => $order->customer->email,
+            'vat_number'      => $order->customer->vat_number,
+            'tax_code'        => $order->customer->tax_code,
+            'shipping_address'=> $fmt($order->customer->shippingAddress),
+        ] : null;
+
+        /* 4️⃣ serializza cliente occasionale */
+        $occ  = $order->occasionalCustomer ? [
+            'id'              => $order->occasionalCustomer->id,
+            'company'         => $order->occasionalCustomer->company,
+            'email'           => $order->occasionalCustomer->email,
+            'vat_number'      => $order->occasionalCustomer->vat_number,
+            'tax_code'        => $order->occasionalCustomer->tax_code,
+            'shipping_address'=> $fmt($order->occasionalCustomer),   // stesso record
+        ] : null;
+
+        return response()->json([
+            'id'              => $order->id,
+            'number'          => $order->number,
+            'order_number_id' => $order->order_number_id,
+            'delivery_date'   => $order->delivery_date->format('Y-m-d'),
+            'customer'        => $cust,
+            'occ_customer'    => $occ,
+            'lines'           => $order->items->map(fn ($it) => [
+                'product_id' => $it->product_id,
+                'sku'        => $it->product->sku,
+                'name'       => $it->product->name,
+                'quantity'   => $it->quantity,
+                'price'      => $it->unit_price,
+            ]),
+        ]);
+    }
+
+    /**
+     * Aggiorna un ordine cliente + righe.
+     * 
+     * @param  Request  $request
+     * @param  Order  $order           Istanza iniettata tramite Route Model Binding
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function update(Request $request, Order $order): JsonResponse
+    {
+        /*──────── VALIDAZIONE ────────*/
+        $data = $request->validate([
+            'delivery_date'      => ['required','date'],
+            'lines'              => ['required','array','min:1'],
+            'lines.*.product_id' => ['required','integer','distinct', Rule::exists('products','id')],
+            'lines.*.quantity'   => ['required','numeric','min:0.01'],
+            'lines.*.price'      => ['required','numeric','min:0'],
+        ]);
+
+        /*──────── BUSINESS LOGIC ────────*/
+        $svc    = app(OrderUpdateService::class);
+
+        $result = $svc->handle(
+            $order,                         // ordine da modificare
+            collect($data['lines']),        // righe in arrivo dal front-end
+            $data['delivery_date']          // nuova data di consegna (o la stessa)
+        );
+
+        /*──────── RESPONSE ────────*/
+        return response()->json($result);
     }
 
     /**

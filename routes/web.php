@@ -150,6 +150,30 @@ Route::middleware([
 
     /*
     |--------------------------------------------------------------------------
+    | Gestione Ordini Cliente – Recupero righe ordine cliente
+    |--------------------------------------------------------------------------
+    |
+    | Fornisce un'API per recuperare le righe di un ordine cliente specifico.
+    |
+    */
+    Route::get('/orders/customer/{order}/lines', [OrderCustomerController::class, 'lines'])
+        ->name('orders.customer.lines')
+        ->middleware(['permission:orders.customer.view']);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Gestione Ordini Cliente – Recupero dati ordine cliente per modifica
+    |--------------------------------------------------------------------------
+    |
+    | Fornisce un'API per recuperare i dati di un ordine cliente specifico.
+    |
+    */
+    Route::get('/orders/customer/{order}/edit',  [OrderCustomerController::class, 'edit'])
+        ->name('orders.customer.edit')
+        ->middleware('permission:orders.customer.update');
+
+    /*
+    |--------------------------------------------------------------------------
     | Gestione Lotti – Recupero prossimo lotto
     |--------------------------------------------------------------------------
     |
@@ -636,7 +660,7 @@ Route::middleware([
 
     /*
     |--------------------------------------------------------------------------
-    | Gestione Ordini Cliente – solo edit & update (modifica)
+    | Gestione Ordini Cliente – solo update (modifica)
     |--------------------------------------------------------------------------
     |
     | Visualizza il form per modificare un ordine cliente esistente e gestisce l'aggiornamento.
@@ -645,9 +669,8 @@ Route::middleware([
     */
     Route::resource('orders/customer', OrderCustomerController::class)
         ->parameters(['customer' => 'order'])
-        ->only(['edit', 'update'])
+        ->only(['update'])
         ->names([
-            'edit'   => 'orders.customer.edit',
             'update' => 'orders.customer.update',
         ])
         ->middleware('permission:orders.customer.update');
@@ -681,7 +704,6 @@ Route::middleware([
     Route::post('/occasional-customers', [OccasionalCustomerController::class, 'store'])
         ->name('occasional-customers.store')
         ->middleware('permission:orders.customer.create');
-
 
     /*
 |--------------------------------------------------------------------------

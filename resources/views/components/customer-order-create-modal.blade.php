@@ -191,7 +191,7 @@
                                 <td class="px-2 py-1" x-text="row.description"></td>
                                 <td class="px-2 py-1 text-right" x-text="row.needed"></td>
                                 <td class="px-2 py-1 text-right" x-text="row.available"></td>
-                                <td class="px-2 py-1 text-right" x-text="row.incoming + row.my_incoming"></td>
+                                <td class="px-2 py-1 text-right" x-text="Number(row.incoming) + Number(row.my_incoming)"></td>
                                 <td class="px-2 py-1 text-right font-semibold text-red-700" x-text="row.shortage"></td>
                             </tr>
                         </template>
@@ -466,36 +466,41 @@ function customerOrderModal() {
         /* ==== Helpers ==== */
         formatCurrency(v){ return Intl.NumberFormat('it-IT',{minimumFractionDigits:2}).format(v||0); },
 
-        /* ==== Salva ==== */
-        async save () {
-
+        /* ══════════ Submit unico (create / update) ══════════ */
+        async submit() {
+            /* 1️⃣  validazioni front-end rapide */
             if (!this.selectedCustomer || !this.delivery_date || !this.lines.length) {
-                alert('Compila data consegna, cliente e almeno una riga.');
-                return;
+                alert('Compila data consegna, cliente e almeno una riga.'); return
             }
-
             if (this.availabilityOk === null) {
-                alert('Devi prima verificare la disponibilità dei componenti.');
-                return;
+                alert('Esegui prima la verifica disponibilità.'); return
             }
 
+            /* 2️⃣  payload comune */
             const payload = {
+                /* header */
                 order_number_id : this.order_number_id,
                 customer_id     : this.occasional_customer_id ? null : this.selectedCustomer.id,
                 occasional_customer_id : this.occasional_customer_id ?? null,
                 delivery_date   : this.delivery_date,
+                /* righe */
                 lines : this.lines.map(l => ({
                     product_id : l.product.id,
                     quantity   : l.qty,
                     price      : l.price
                 }))
-            };
+            }
 
-            this.saving = true;
+            /* 3️⃣  metodo + url in base alla modalità */
+            const url    = this.editMode
+                         ? `/orders/customer/${this.orderId}`
+                         : '/orders/customer'
+            const method = this.editMode ? 'PUT' : 'POST'
 
+            /* 4️⃣  invio */
             try {
-                const r = await fetch('/orders/customer', {
-                    method  : 'POST',
+                const r = await fetch(url, {
+                    method,
                     headers : {
                         Accept         : 'application/json',
                         'Content-Type' : 'application/json',
@@ -503,80 +508,71 @@ function customerOrderModal() {
                     },
                     credentials : 'same-origin',
                     body        : JSON.stringify(payload)
-                });
+                })
+                if (!r.ok) throw new Error(await r.text())
 
-                if (!r.ok) throw new Error(await r.text());
-                const j = await r.json();
-
-                if (j.po_numbers && j.po_numbers.length) {
+                /* messaggio di conferma */
+                const j = await r.json()
+                if (j.po_numbers?.length) {
                     alert('Ordine cliente salvato.\nSono stati creati i seguenti ordini fornitore: ' + j.po_numbers.join(', '));
                 } else {
-                    alert('Ordine cliente salvato con successo.');
+                    alert('Ordine salvato con successo.')
                 }
 
-
-                this.close();
-                window.location.reload();
+                this.close()
+                window.location.reload()          // rinfresca la lista
 
             } catch (e) {
-                console.error('Errore salvataggio', e);
-                alert('Errore nel salvataggio.');
-            } finally {
-                this.saving = false;
+                console.error('Errore salvataggio', e)
+                alert('Errore nel salvataggio.')
             }
         },
-
-        /* ==== Fetch ordine esistente (edit) ==== */
-        async fetchOrder(id){
-            try{
-                const r = await fetch(`/orders/customer/${id}/api`,
-                                      { headers:{Accept:'application/json'}, credentials:'same-origin' });
-                if(!r.ok) throw new Error(r.status);
-                const o = await r.json();
-                /* header */
-                this.orderId        = o.id;
-                this.order_number   = o.order_number;
-                this.order_number_id= o.order_number_id;
-                this.selectedCustomer = o.customer;
-                this.delivery_date  = o.delivery_date;
-                /* righe */
-                this.lines = o.lines.map(l=>({
-                    id       : l.id,
-                    product  : l.product,
-                    qty      : l.qty,
-                    price    : Number(l.price),
-                    subtotal : l.subtotal
-                }));
-                /* reset campi “nuova riga” */
-                this.selectedProduct=null; this.productSearch=''; this.price=0; this.quantity=1;
-            }catch(e){ console.error('Impossibile caricare ordine',e); alert('Errore caricamento.'); this.close(); }
+        
+        save() {
+            this.submit();
         },
 
-        /* ==== Aggiorna ordine esistente ==== */
-        async update(){
-            if(!this.lines.length){ alert('Serve almeno una riga'); return; }
-            const payload = {
-                delivery_date : this.delivery_date,
-                lines         : this.lines.map(l=>({
-                    id         : l.id ?? null,
-                    product_id : l.product.id,
-                    quantity   : l.qty,
-                    price      : l.price
+        update() {
+            this.submit();
+        },
+        
+        /* ==== Fetch ordine esistente (edit) ==== */
+        async fetchOrder(id) {
+            try {
+                /* 1️⃣  nuovo endpoint RESTful  */
+                const r = await fetch(`/orders/customer/${id}/edit`, {
+                    headers     : { 'Accept':'application/json' }, // forza JSON
+                    credentials : 'same-origin'
+                })
+                if (!r.ok) throw new Error(r.status)
+                const o = await r.json()
+
+                /* 2️⃣  popola form  */
+                this.orderId        = o.id
+                this.order_number   = o.number      // restituito dal controller edit()
+                this.order_number_id= o.order_number_id
+                this.delivery_date  = o.delivery_date
+                this.selectedCustomer = o.customer ?? o.occ_customer      // oggetto completo
+                this.customerSearch   = this.selectedCustomer?.company ?? ''   // → input popolato
+
+                this.lines = o.lines.map(l => ({
+                    product  : { id:l.product_id, sku:l.sku, name:l.name },
+                    qty      : l.quantity,
+                    price    : Number(l.price),
+                    subtotal : l.quantity * l.price
                 }))
-            };
-            try{
-                const r = await fetch(`/orders/customer/${this.orderId}`, {
-                    method:'PUT',
-                    headers:{
-                        'Accept':'application/json','Content-Type':'application/json',
-                        'X-CSRF-TOKEN':document.querySelector('meta[name=\"csrf-token\"]').content
-                    },
-                    credentials:'same-origin',
-                    body: JSON.stringify(payload)
-                });
-                if(!r.ok) throw new Error(await r.text());
-                this.close(); window.location.reload();
-            }catch(e){ console.error('Errore update',e); alert('Errore durante la modifica.'); }
+
+                /* reset campi “nuova riga” */
+                this.selectedProduct = null
+                this.productSearch   = ''
+                this.price           = 0
+                this.quantity        = 1
+
+            } catch (e) {
+                console.error('Impossibile caricare ordine', e)
+                alert('Errore nel caricamento dei dati ordine.')
+                this.close()
+            }
         },
 
         async checkAvailability () {
@@ -585,8 +581,9 @@ function customerOrderModal() {
 
             try {
                 const payload = {
+                    order_id      : this.editMode ? this.orderId : null,
                     delivery_date : this.delivery_date,
-                    lines : this.lines.map(l => ({
+                    lines         : this.lines.map(l => ({
                         product_id : l.product.id,
                         quantity   : l.qty
                     }))

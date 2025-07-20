@@ -71,6 +71,17 @@ class Customer extends Model
     }
 
     /**
+     * Indirizzo di spedizione principale.
+     *
+     * @return \Illuminate\Database\Eloquent\Relations\HasOne
+     */
+    public function shippingAddress()
+    {
+        return $this->hasOne(CustomerAddress::class)
+                    ->where('type', 'shipping');
+    }
+
+    /**
      * Ordini associati al cliente.
      */
     public function orders()
