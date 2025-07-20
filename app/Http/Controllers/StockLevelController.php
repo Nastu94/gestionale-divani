@@ -10,6 +10,7 @@ use App\Models\StockLevel;
 use App\Models\StockLevelLot;
 use App\Models\Warehouse;
 use App\Models\StockMovement;
+use App\Models\StockReservation;
 use App\Models\LotNumber;
 use App\Services\ShortfallService;
 use Illuminate\Http\Request;
@@ -292,35 +293,85 @@ class StockLevelController extends Controller
     /**
      * Mostra i livelli di stock per un componente specifico.
      */
-    public function showStock(Component $component)
+    public function showStock(int $componentId): JsonResponse
     {
-        $stockRows = StockLevel::query()
-            ->selectRaw('
-                stock_levels.id,
-                c.code                     AS component_code,
-                c.description              AS component_desc,
-                c.unit_of_measure          AS uom,
-                w.code                     AS warehouse_code,
-                sll.internal_lot_code      AS internal_lot,
-                sll.quantity                AS qty
-            ')
-            ->join('components  AS c',  'c.id',  '=', 'stock_levels.component_id')   // ⬅️ join mancante
-            ->join('warehouses  AS w',  'w.id',  '=', 'stock_levels.warehouse_id')
-            ->leftJoin(
-                'stock_level_lots AS sll',
-                'sll.stock_level_id',
-                '=',
-                'stock_levels.id'
-            )
-            ->where('stock_levels.component_id', $component->id)
-            ->where('stock_levels.quantity', '>', 0)
+        /* -------------------------------------------------------------
+        * 2) Giacenze attuali (lotto per lotto)
+        *    - qty > 0
+        * ----------------------------------------------------------- */
+        $levels = StockLevel::query()
+            ->select([
+                'stock_levels.id',
+                'stock_levels.component_id',
+                'stock_levels.warehouse_id',
+                'stock_levels.quantity',
+                'c.code       as component_code',
+                'c.description as component_desc',
+                'c.unit_of_measure as uom',
+                'w.code       as warehouse_code',
+                'sll.internal_lot_code as internal_lot',
+            ])
+            ->join('components as c',  'c.id',  '=', 'stock_levels.component_id')
+            ->join('warehouses as w',  'w.id',  '=', 'stock_levels.warehouse_id')
+            ->leftJoin('stock_level_lots as sll', 'sll.stock_level_id', '=', 'stock_levels.id')
+            ->where('stock_levels.component_id', $componentId)
+            ->where('stock_levels.quantity',    '>', 0)
             ->orderBy('w.code')
             ->orderBy('sll.internal_lot_code')
             ->get();
 
+        /* -----------------------------------------------------------------
+        * RISERVATO  –  somma per ogni singolo stock_level_id
+        * ---------------------------------------------------------------- */
+        $reservedByLevel = StockReservation::query()
+            ->selectRaw('stock_level_id, SUM(quantity) as qty')
+            ->whereIn('stock_level_id', $levels->pluck('id'))   // <-- filtro sui lotti del componente
+            ->groupBy('stock_level_id')
+            ->pluck('qty', 'stock_level_id');                   // [stock_level_id => qty]
+
+        /* -----------------------------------------------------------------
+        * Costruzione righe tabella
+        * ---------------------------------------------------------------- */
+        $rows = collect();
+
+        foreach ($levels as $row) {
+
+            $reserved = $reservedByLevel[$row->id] ?? 0;      // riservata su quel lotto
+            $free     = $row->quantity - $reserved;           // disponibile reale
+
+            /* -------- riga MAGAZZINO (solo se >0) ------------------------- */
+            if ($free > 0) {
+                $rows->push([
+                    'id'             => $row->id,
+                    'component_code' => $row->component_code,
+                    'component_desc' => $row->component_desc,
+                    'uom'            => $row->uom,
+                    'warehouse_code' => $row->warehouse_code, // es. MG-STOCK
+                    'internal_lot'   => $row->internal_lot,
+                    'qty'            => number_format($free, 3, '.', ''),
+                ]);
+            }
+
+            /* -------- riga RISERVATO (solo se >0) ------------------------- */
+            if ($reserved > 0) {
+                $rows->push([
+                    'id'             => 'R-'.$row->id,        // chiave unica
+                    'component_code' => $row->component_code,
+                    'component_desc' => $row->component_desc,
+                    'uom'            => $row->uom,
+                    'warehouse_code' => 'Riservato',
+                    'internal_lot'   => $row->internal_lot,
+                    'qty'            => number_format($reserved, 3, '.', ''),
+                ]);
+            }
+        }
+
+        /* -----------------------------------------------------------------
+        * Risposta JSON
+        * ---------------------------------------------------------------- */
         return response()->json([
-            'rows' => $stockRows,
-        ], 200);
+            'rows' => $rows->values(),
+        ]);
     }
 
     /**

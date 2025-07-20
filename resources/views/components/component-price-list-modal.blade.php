@@ -9,7 +9,7 @@
         componentDescr = '';
     "
     x-on:load-price-list.window="init($event.detail.component_id)"
-    class="bg-white rounded-lg shadow-lg p-6 w-full">
+    class="bg-white rounded-lg shadow-lg p-6 w-full overflow-y-auto">
 
     <!-- header -->
     <div class="flex justify-between items-center mb-4">
@@ -148,12 +148,19 @@ function priceListModal () {
                     'Accept'      : 'application/json'
                 }
             })
-            .then(res => {
+            .then(async res => {
                 if (res.ok) {
                     this.rows = this.rows.filter(r => r.id !== supplierId)  // ← filtra su id
-                } else {
-                    throw new Error('HTTP ' + res.status)
                 }
+
+                /* --- errore: prova a leggere il JSON ------------------- */
+                let msg = 'Errore imprevisto (' + res.status + ')'
+                try {
+                    const data = await res.json()          // potrebbe fallire
+                    if (data?.message) msg = data.message  // messaggio dal backend
+                } catch { /* body non JSON: lascia msg di default */ }
+
+                throw new Error(msg)
             })
             .catch(err => alert('Errore: ' + err.message))
         }

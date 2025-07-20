@@ -129,8 +129,8 @@ class OrderSupplierController extends Controller
                     'qty_received'  => $lot->quantity,
                     'lot_supplier'  => $lot->supplier_lot_code,
                     'internal_lot'  => $lot->internal_lot_code,
-                    'price'         => (float) $lot->unit_price,
-                    'subtot'        => $lot->quantity * $lot->unit_price,
+                    'price'         => (float) $item->unit_price,
+                    'subtot'        => $item->quantity * $item->unit_price,
                 ]);
             }
         }

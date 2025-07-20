@@ -91,7 +91,6 @@ class Supplier extends Model
     {
         return $this->hasMany(Order::class);
     }
-
     
     /**
      * Attributi da convertire automaticamente.

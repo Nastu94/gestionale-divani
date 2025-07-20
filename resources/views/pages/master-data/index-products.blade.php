@@ -287,8 +287,14 @@
                         price:       product.price,
                         is_active:   product.is_active,
                         components:  (product.components ?? []).map(c => ({
-                            id:       c.id,
-                            quantity: c.pivot.quantity
+                            id       : c.id,
+                            quantity : c.pivot.quantity,
+                            /* campi UI */
+                            code     : c.code,
+                            description: c.description,
+                            unit     : c.unit,      // opzionale, se serve in futuro
+                            existing : true,        // ← già in DB ⇒ niente pulsante “Cambia”
+                            search   : '', options: []
                         }))
                     };
                     this.errors = {};
@@ -351,6 +357,53 @@
                     } catch (e) {
                         console.error('Errore generazione codice:', e);
                     }
+                },                
+
+                /* ricerca componenti */
+                async searchComponents(idx) {
+                    const term = this.form.components[idx].search?.trim() || '';
+                    if (term.length < 2) {           // evita hit a 1 carattere
+                        this.form.components[idx].options = [];
+                        return;
+                    }
+
+                    try {
+                        const r = await fetch(`/components/search?q=${encodeURIComponent(term)}`,
+                                            { headers:{Accept:'application/json'} });
+                        this.form.components[idx].options = await r.json();
+                    } catch {
+                        this.form.components[idx].options = [];
+                    }
+                },
+
+                /* seleziona un componente dalla lista */
+                selectComponent(idx, opt) {
+                    Object.assign(this.form.components[idx], {
+                        id         : opt.id,
+                        code       : opt.code,
+                        description: opt.description,
+                        unit       : opt.unit_of_measure,
+                        options    : [],
+                    });
+                },
+
+                /* rimuove la selezione di un componente */
+                removeSelection(idx) {
+                    Object.assign(this.form.components[idx], {
+                        id      : null,
+                        code    : '',
+                        description: '',
+                        search  : '',
+                    });
+                },
+
+                /* override add-row: marca come “nuovo” */
+                addComponentRow() {
+                    this.form.components.push({
+                        id: null, quantity: 1,          // back-end fields
+                        /* campi d’appoggio UI */
+                        search: '', options: [], existing: false
+                    });
                 },
 
             }));

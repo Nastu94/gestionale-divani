@@ -98,24 +98,56 @@ class PriceListController extends Controller
      */
     public function bulkStore(Request $req, Supplier $supplier): JsonResponse
     {
+        /* 1️⃣  VALIDAZIONE ------------------------------------------------- */
         $data = $req->validate([
-            'items'                => ['required','array','min:1'],
-            'items.*.component_id' => ['required','integer', Rule::exists('components','id')],
-            'items.*.price'        => ['required','numeric','min:0'],
-            'items.*.lead_time'    => ['required','integer','min:0'],
+            'items'                  => ['required', 'array'],
+            'items.*.component_id'   => ['required', 'integer', Rule::exists('components', 'id')],
+            'items.*.price'          => ['required', 'numeric', 'min:0'],
+            'items.*.lead_time'      => ['required', 'integer', 'min:0'],
         ]);
 
-        $pivot = collect($data['items'])
-            ->mapWithKeys(fn($r) => [
-                $r['component_id'] => [
-                    'last_cost'      => $r['price'],
-                    'lead_time_days' => $r['lead_time'],
+        /* 2️⃣  costruisci array pivot per INSERT/UPDATE ------------------- */
+        $syncData = collect($data['items'])
+            ->mapWithKeys(fn ($row) => [
+                $row['component_id'] => [
+                    'last_cost'      => $row['price'],
+                    'lead_time_days' => $row['lead_time'],
                 ],
-            ])->toArray();
+            ])
+            ->toArray();
 
-        $supplier->components()->syncWithoutDetaching($pivot);
+        /* 3️⃣  individua i componenti ATTUALI e quelli da DETACH ---------- */
+        $currentIds = $supplier->components()->pluck('components.id')->all();
+        $keepIds    = array_keys($syncData);
+        $toDetach   = array_diff($currentIds, $keepIds);           // candidati alla rimozione
 
-        return response()->json(['message'=>'Componenti salvati','count'=>count($pivot)]);
+        /* 4️⃣  blocca quelli presenti in ordini fornitore ----------------- */
+        if ($toDetach) {
+            // ottieni l'elenco component_id effettivamente bloccati
+            $blocked = $supplier->orders()                        // tabella orders
+                ->join('order_items as oi', 'orders.id', '=', 'oi.order_id')
+                ->whereIn('oi.component_id', $toDetach)
+                ->pluck('oi.component_id')                        // colonne della join
+                ->unique()
+                ->all();
+
+            if ($blocked) {
+                $codes = Component::whereIn('id', $blocked)->pluck('code')->all();
+
+                return response()->json([
+                    'message' => 'Impossibile rimuovere i seguenti componenti perché presenti in ordini del fornitore.',
+                    'codes'   => $codes,
+                ], 409);
+            }
+        }
+
+        /* 5️⃣  ESEGUI la sync (con detach sicuro) ------------------------- */
+        $supplier->components()->sync($syncData);   // rimuove solo quelli non bloccati
+
+        return response()->json([
+            'message' => 'Listino fornitore aggiornato correttamente.',
+            'count'   => count($syncData),
+        ]);
     }
 
     /**
@@ -220,7 +252,18 @@ class PriceListController extends Controller
      * Rimuove una relazione componente↔fornitore.
      */
     public function destroy(Component $component, Supplier $supplier)
-    {
+    {   
+        /* 1️⃣ – È usato in qualche ordine di questo fornitore? ---------------- */
+        $inOrders = $supplier->orders()                           // relazione hasMany già presente
+            ->whereHas('items', fn ($q) => $q->where('component_id', $component->id))
+            ->exists();
+
+        if ($inOrders) {
+            return response()->json([
+                'message' => 'Impossibile rimuovere il componente dal listino: è presente in ordini del fornitore.',
+            ], 409);
+        }
+
         ComponentSupplier::where([
             'component_id' => $component->id,
             'supplier_id'  => $supplier->id,

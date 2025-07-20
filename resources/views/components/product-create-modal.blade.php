@@ -121,7 +121,7 @@
                     <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-100">Componenti</h4>
                     <button
                     type="button"
-                    @click="form.components.push({ id: null, quantity: 1 })"
+                    @click="addComponentRow()"  
                     class="inline-flex items-center px-2 py-1 bg-green-600 rounded text-xs font-semibold text-white hover:bg-green-500 focus:outline-none"
                     >
                     <i class="fas fa-plus mr-1"></i> Aggiungi componente
@@ -139,48 +139,85 @@
                             <i class="fas fa-times-circle"></i>
                         </button>
 
-                        <div class="grid grid-cols-4 gap-2 items-end">
-                            {{-- Select componente --}}
-                            <div class="col-span-3">
-                                <label for="`components[${idx}][id]`" class="block text-xs font-medium text-gray-700 dark:text-gray-300">Componente</label>
-                                <select
-                                    :id="`components[${idx}][id]`"
-                                    :name="`components[${idx}][id]`"
-                                    x-model="item.id"
-                                    class="mt-1 block w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-600 text-sm text-gray-900 dark:text-gray-100"
-                                    required
+                        <div class="grid grid-cols-2 gap-2 items-end">
+                            {{-- ==================== COMPONENTE (autocomplete) ==================== --}}
+                            <div class="flex-1">
+                                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">
+                                    Componente
+                                </label>
+
+                                {{-- 🔍 input ricerca (visibile finché non c’è item.id) --}}
+                                <input type="text"
+                                    x-model="item.search"
+                                    x-show="!item.id"
+                                    x-cloak
+                                    @input.debounce.500="searchComponents(idx)"
+                                    placeholder="Cerca componente…"
+                                    class="mt-1 block w-full px-3 py-2 border rounded-md
+                                            bg-white dark:bg-gray-600 text-sm text-gray-900 dark:text-gray-100"
                                 >
-                                    <option value="" >-- Seleziona --</option>
-                                    @foreach ($components as $c)
-                                        <option value="{{ $c->id }}">
-                                            {{ $c->code }} – {{ $c->description }}
-                                        </option>
-                                    @endforeach
-                                </select>
-                                <p x-text="errors[`components.${idx}.id`] ? errors[`components.${idx}.id`][0] : ''"
-                                    class="text-red-600 text-xs mt-1"></p>
+
+                                {{-- dropdown risultati --}}
+                                <div x-show="item.options.length"
+                                    x-cloak
+                                    class="absolute z-50 w-full max-w-sm mt-1 bg-white border rounded shadow
+                                            max-h-40 overflow-y-auto">
+                                    <template x-for="opt in item.options" :key="opt.id">
+                                        <div class="px-2 py-1 hover:bg-gray-200 cursor-pointer"
+                                            @click="selectComponent(idx,opt)">
+                                            <span class="text-xs" x-text="opt.code + ' — '"></span>
+                                            <span class="text-xs" x-text="opt.description"></span>
+                                        </div>
+                                    </template>
+                                </div>
+
+                                {{-- riepilogo selezionato --}}
+                                <template x-if="item.id">
+                                    <div class="mt-1 p-2 border rounded bg-gray-50 dark:bg-gray-700 flex justify-between items-center">
+                                        <span class="text-xs">
+                                            <strong x-text="item.code"></strong> —
+                                            <span x-text="item.description"></span>
+                                        </span>
+
+                                        {{-- pulsante Cambia SOLO se !existing --}}
+                                        <button type="button"
+                                                x-show="!item.existing"
+                                                class="text-xs text-red-600 hover:underline ml-2"
+                                                @click="removeSelection(idx)">
+                                            Cambia
+                                        </button>
+                                    </div>
+                                </template>
+
+                                {{-- hidden field per mantenere il payload identico --}}
+                                <input type="hidden"
+                                    :name="`components[${idx}][id]`"
+                                    :value="item.id">
+
+                                {{-- messaggio errore (★ invariato) --}}
+                                <p x-text="errors[`components.${idx}.id`]?.[0]"
+                                class="text-red-600 text-xs mt-1"></p>
                             </div>
 
                             {{-- Quantità --}}
-                            <div>
-                            <label for="`components[${idx}][quantity]`" class="block text-xs font-medium text-gray-700 dark:text-gray-300">
-                                Quantità
-                                <span
-                                    x-text="item.id
-                                        ? ' (' + (componentsList.find(c => c.id == item.id)?.unit_of_measure ?? '') + ')'
-                                        : ''">
-                                </span>
-                            </label>
-                            <input
-                                :id="`components[${idx}][quantity]`"
-                                type="number"
-                                min="1"
-                                :name="`components[${idx}][quantity]`"
-                                x-model="item.quantity"
-                                class="mt-1 block w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-600 text-sm text-gray-900 dark:text-gray-100"
-                                required
-                            />
-                            <p x-text="errors[`components.${idx}.quantity`] ? errors[`components.${idx}.quantity`][0] : ''"
+                            <div class="w-28">  {{-- larghezza fissa; regola a piacere --}}
+                                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">
+                                    Quantità
+                                    <span
+                                        x-text="item.id
+                                            ? ' (' + (componentsList.find(c => c.id == item.id)?.unit_of_measure ?? '') + ')'
+                                            : ''">
+                                    </span>
+                                </label>
+
+                                <input  type="number" min="1"
+                                        :name="`components[${idx}][quantity]`"
+                                        x-model="item.quantity"
+                                        class="mt-1 block w-full px-3 py-2 border rounded-md
+                                            bg-white dark:bg-gray-600 text-sm text-gray-900 dark:text-gray-100"
+                                        required>
+
+                                <p x-text="errors[`components.${idx}.quantity`]?.[0]"
                                 class="text-red-600 text-xs mt-1"></p>
                             </div>
                         </div>

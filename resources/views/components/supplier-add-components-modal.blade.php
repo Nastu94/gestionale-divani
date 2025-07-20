@@ -81,7 +81,8 @@
                                     UM: <span class="uppercase" x-text="item.unit_of_measure"></span>
                                 </p>
                                 <button type="button" @click="clearRow(idx)"
-                                        class="text-red-600 mt-1">Cambia</button>
+                                        x-show="!item.code"
+                                        class="text-red-600 hover:text-red-800 mt-1">Cambia</button>
                             </div>
                         </template>
                     </div>
