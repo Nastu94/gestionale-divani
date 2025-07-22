@@ -3,9 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use App\Models\Order;
-use App\Models\Product;
-use App\Models\OrderItemShortfall;
+use App\Enums\ProductionPhase;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
@@ -25,6 +23,21 @@ class OrderItem extends Model
         'quantity',   // Quantità ordinata
         'unit_price', // Prezzo unitario
         'generated_by_order_customer_id', // ID dell'ordine cliente che ha generato questa riga, se applicabile
+        'current_phase', // Fase di produzione corrente
+        'qty_completed', // Quantità completata nella fase corrente
+        'phase_updated_at' // Timestamp dell'ultimo aggiornamento della fase
+    ];
+
+    /**
+     * Cast degli attributi.
+     * 
+     * @var array<string,string> 
+     *
+     */
+    protected $casts = [
+        'current_phase' => ProductionPhase::class,
+        'qty_completed' => 'float',
+        'phase_updated_at' => 'datetime',
     ];
 
     /**
@@ -70,10 +83,44 @@ class OrderItem extends Model
     }
 
     /**
+     * Eventi di fase associati a questo elemento dell'ordine.
+     */
+    public function phaseEvents(): HasMany
+    {
+        return $this->hasMany(OrderItemPhaseEvent::class);
+    }
+
+    /**
      * OC che ha originato questa riga PO (nullable)
      */
     public function generatedByOc(): BelongsTo
     {
         return $this->belongsTo(Order::class, 'generated_by_order_customer_id');
+    }
+    
+    /**
+     * Scope per filtrare le righe che hanno quantità > 0 in una determinata fase.
+     */
+    public function scopeWithQtyInPhase($query, ProductionPhase $phase)
+    {
+        return $query->whereHas('phaseEvents', function ($q) use ($phase) {
+            $q->selectRaw('SUM(CASE WHEN to_phase = ? THEN quantity END) - 
+                           SUM(CASE WHEN from_phase = ? THEN quantity END) > 0', 
+                           [$phase->value, $phase->value]);
+        });
+    }
+
+    /**
+     * Ritorna la quantità attualmente presente in una data fase.
+     */
+    public function quantityInPhase(ProductionPhase $phase): float
+    {
+        return (float) $this->phaseEvents()
+            ->selectRaw('
+                SUM(CASE WHEN to_phase = ? THEN quantity END) -
+                SUM(CASE WHEN from_phase = ? THEN quantity END) AS qty',
+                [$phase->value, $phase->value]
+            )
+            ->value('qty') ?? 0;
     }
 }

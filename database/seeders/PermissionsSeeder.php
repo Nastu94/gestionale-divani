@@ -30,6 +30,7 @@ class PermissionsSeeder extends Seeder
             ['name' => 'orders.customer.create',      'display_name' => 'Crea ordini cliente',              'description' => 'Crea ordini cliente.'],
             ['name' => 'orders.customer.update',      'display_name' => 'Modifica ordini cliente',          'description' => 'Modifica ordini cliente.'],
             ['name' => 'orders.customer.delete',      'display_name' => 'Elimina ordini cliente',           'description' => 'Elimina ordini cliente.'],
+            ['name' => 'orders.customer.rollback_item_phase', 'display_name' => 'Rollback fase articolo ordine cliente', 'description' => 'Rollback della fase di produzione di un articolo di un ordine cliente.'],
 
             ['name' => 'orders.supplier.view',        'display_name' => 'Visualizza ordini fornitore',      'description' => 'Visualizza ordini fornitore.'],
             ['name' => 'orders.supplier.create',      'display_name' => 'Crea ordini fornitore',            'description' => 'Crea ordini fornitore.'],

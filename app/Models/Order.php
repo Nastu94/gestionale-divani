@@ -35,7 +35,8 @@ class Order extends Model
         'ordered_at', // Data ordine
         'delivery_date', // Data prevista di consegna
         'registration_date', // Data registrazione magazzino
-        'bill_number' // Numero bolla di consegna
+        'bill_number', // Numero bolla di consegna
+        'min_phase', // Fase minima di produzione
     ];
 
     protected static $logName = 'order';
@@ -67,7 +68,8 @@ class Order extends Model
         'ordered_at', // Data ordine
         'delivery_date', // Data prevista di consegna
         'registration_date', // Data registrazione magazzino
-        'bill_number' // Numero bolla di consegna
+        'bill_number', // Numero bolla di consegna
+        'min_phase' // Fase minima di produzione
     ];
 
     /**

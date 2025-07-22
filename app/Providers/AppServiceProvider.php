@@ -8,6 +8,8 @@ use App\Models\StockLevelLot;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\Alert;
+use App\Models\OrderItemPhaseEvent;
+use App\Observers\OrderItemPhaseEventObserver;
 use App\Observers\StockLevelLotObserver;
 
 class AppServiceProvider extends ServiceProvider
@@ -27,7 +29,8 @@ class AppServiceProvider extends ServiceProvider
     {
         // Registrazione degli observer per i modelli        
         StockLevelLot::observe(StockLevelLotObserver::class);
-        
+        OrderItemPhaseEvent::observe(OrderItemPhaseEventObserver::class);
+
         // Componente dashboard-tiles: passaggio dei dati delle tiles
         // Questo composer si occupa di calcolare i badge_count in base alla chiave specificata
         // in ciascuna tile della configurazione.
