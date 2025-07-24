@@ -16,6 +16,10 @@ export default {
             fontFamily: {
                 sans: ['Figtree', ...defaultTheme.fontFamily.sans],
             },
+            overflow: {
+                // crea una shorthand "auto visible"
+                'x-auto-y-visible': 'auto visible',
+            },
         },
     },
 

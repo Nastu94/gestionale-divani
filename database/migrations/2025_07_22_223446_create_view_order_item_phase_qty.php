@@ -28,33 +28,30 @@ return new class extends Migration
         DB::statement('DROP VIEW IF EXISTS v_order_item_phase_qty');
 
         DB::statement(<<<SQL
-CREATE VIEW v_order_item_phase_qty AS
-SELECT
-    order_item_id,
-    phase,
-    SUM(CASE WHEN to_phase   = phase THEN quantity END) -
-    SUM(CASE WHEN from_phase = phase THEN quantity END) AS qty_in_phase
-FROM (
-    SELECT
-        order_item_id,
-        to_phase   AS phase,
-        from_phase,
-        to_phase,
-        quantity
-    FROM order_item_phase_events
+        /* ⬇︎ definizione view aggiornata */
+        CREATE OR REPLACE VIEW v_order_item_phase_qty AS
+        SELECT
+            oi.id                         AS order_item_id,
+            oi.current_phase              AS phase,
+            (oi.quantity - oi.qty_completed) AS qty_in_phase
+        FROM order_items oi
+        WHERE (oi.quantity - oi.qty_completed) > 0 AND oi.product_id IS NOT NULL
 
-    UNION ALL
-
-    SELECT
-        order_item_id,
-        from_phase AS phase,
-        from_phase,
-        to_phase,
-        -quantity          
-    FROM order_item_phase_events
-) t
-GROUP BY order_item_id, phase;
-SQL);
+        UNION ALL
+        SELECT
+            m.order_item_id,
+            m.phase,
+            SUM(m.net_qty)                AS qty_in_phase
+        FROM (
+                SELECT order_item_id, to_phase   AS phase,  quantity  AS net_qty
+                FROM   order_item_phase_events
+                UNION ALL
+                SELECT order_item_id, from_phase AS phase, -quantity  AS net_qty
+                FROM   order_item_phase_events
+        ) AS m
+        GROUP BY m.order_item_id, m.phase
+        HAVING qty_in_phase > 0;
+        SQL);
     }
 
     /** @inheritDoc */

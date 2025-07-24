@@ -90,6 +90,118 @@ class StockLevelController extends Controller
     }
 
     /**
+     * Elenco righe d’ordine CLIENTE ancora da evadere (uscite magazzino).
+     *
+     * • Usa la VIEW `v_order_item_phase_qty` per sapere quante unità
+     *   di ogni riga stazionano nella fase scelta (KPI).
+     * • Mostra solo le righe con qty_in_phase > 0.
+     * • Filtri & ordinamento passati via query-string ma
+     *   **senza** ricaricare pagina (gestiti da Livewire/Alpine).
+     *
+     * Route protetta dal permesso stock.exit.
+     *
+     * @return \Illuminate\View\View
+     */
+    public function indexExit(Request $request)
+    {
+        /* ───────────── parametri da query-string ───────────── */
+        $phase   = (int)   $request->input('phase', 0);
+        $sort    =         $request->input('sort',  'delivery_date');
+        $dir     =         $request->input('dir',   'asc') === 'desc' ? 'desc' : 'asc';
+        $filters = (array) $request->input('filter', []);
+        $perPage = (int)   $request->input('per_page', 100);
+        $perPage = in_array($perPage, [100,250,500], true) ? $perPage : 100;
+
+        /* KPI card – conteggio pezzi per fase */
+        $kpiCounts = DB::table('v_order_item_phase_qty')
+            ->selectRaw('phase, SUM(qty_in_phase) AS qty')
+            ->where('qty_in_phase', '>', 0)
+            ->groupBy('phase')
+            ->pluck('qty', 'phase');
+
+        /* whitelist ordinamenti                      */
+        $allowedSorts = [
+            'customer','order_number','product',
+            'order_date','delivery_date','value','qty_in_phase',
+        ];
+        if (! in_array($sort, $allowedSorts, true)) {
+            $sort = 'delivery_date';
+        }
+
+        /* query righe                                */
+        $exitRows = OrderItem::query()
+            ->join('v_order_item_phase_qty as pq', function ($j) use ($phase) {
+                $j->on('pq.order_item_id', '=', 'order_items.id')
+                ->where('pq.phase', $phase)
+                ->where('pq.qty_in_phase', '>', 0);
+            })
+            ->join('orders   as o',  'o.id',  '=', 'order_items.order_id')
+            ->leftJoin('customers as c', 'c.id', '=', 'o.customer_id')
+            ->leftJoin('order_numbers as on', 'on.id', '=', 'o.order_number_id')
+            ->leftJoin('products as p', 'p.id', '=', 'order_items.product_id')
+
+            ->addSelect([
+                'order_items.*',
+                'pq.qty_in_phase',
+                DB::raw('(order_items.quantity * order_items.unit_price) AS value'),
+
+                'c.company        as customer',
+                'on.number        as order_number',
+                'p.sku            as product',
+                'o.ordered_at     as order_date',
+                'o.delivery_date',
+            ])
+            ->whereNotNull('o.customer_id') // ordini con cliente
+            /* filtri dinamici ----------------------- */
+            ->when($filters['customer']      ?? null,
+                fn ($q, $v) => $q->where('c.company',   'like', "%$v%"))
+            ->when($filters['order_number']  ?? null,
+                fn ($q, $v) => $q->where('on.number',   'like', "%$v%"))
+            ->when($filters['product']       ?? null,
+                fn ($q, $v) => $q->where(function ($qq) use ($v) {
+                        $qq->where('p.sku',  'like', "%$v%")
+                        ->orWhere('p.name','like', "%$v%");
+                }))
+            ->when($filters['order_date']    ?? null,
+                fn ($q, $v) => $q->whereDate('o.ordered_at',    $v))
+            ->when($filters['delivery_date'] ?? null,
+                fn ($q, $v) => $q->whereDate('o.delivery_date', $v))
+            ->when($filters['value']         ?? null,
+                fn ($q, $v) => $q->whereRaw(
+                    '(order_items.quantity * order_items.unit_price) >= ?', [$v]
+                ))
+
+            /* ordinamento --------------------------- */
+            ->when($sort === 'customer',
+                fn ($q) => $q->orderBy('c.company',       $dir))
+            ->when($sort === 'order_number',
+                fn ($q) => $q->orderBy('on.number',       $dir))
+            ->when($sort === 'product',
+                fn ($q) => $q->orderBy('p.sku',           $dir))
+            ->when($sort === 'qty_in_phase',
+                fn ($q) => $q->orderBy('pq.qty_in_phase', $dir))
+            ->when(in_array($sort, ['order_date','delivery_date','value'], true),
+                fn ($q) => $q->orderBy(
+                    $sort === 'value' ? 'value' : $sort,
+                    $dir
+                ))
+
+            ->paginate($perPage)
+            ->appends($request->query());
+
+        /* view con Livewire <livewire:warehouse.exit-table /> */
+        return view('pages.warehouse.exit', [
+            'exitRows'  => $exitRows,    // usato per fallback / SEO
+            'kpiCounts' => $kpiCounts,
+            'phase'     => $phase,
+            'sort'      => $sort,
+            'dir'       => $dir,
+            'filters'   => $filters,
+            'perPage'   => $perPage,
+        ]);
+    }
+
+    /**
      * Show the form for creating a new resource.
      */
     public function create()
