@@ -22,6 +22,8 @@
         x-data="{ isOpen: false, openSection: null }"
         class="font-sans antialiased flex h-screen overflow-hidden"
     >
+        {{-- Portal target per dropdown filtri/ordinamento tabelle --}}
+        <div id="portal-target"></div>
 
         {{-- WRAPPER relativo per sidebar + toggle --}}
         <div class="relative flex-shrink-0 flex flex-col">

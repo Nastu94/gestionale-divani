@@ -35,8 +35,8 @@
     <div class="py-6" x-data="exitCrud()" @open-row.window="openId = ($event.detail === openId ? null : $event.detail)">
         <div class="max-w-full mx-auto sm:px-6 lg:px-8">
             <div class="bg-white dark:bg-gray-800 shadow sm:rounded-lg">
-                <div class="flex justify-center p-4">
-                    <table class="table-auto min-w-max text-sm divide-y divide-gray-200 dark:divide-gray-700">
+                <div class="p-4 overflow-x-auto">
+                    <table class="table-auto min-w-full text-sm divide-y divide-gray-200 dark:divide-gray-700">
                         {{-- HEAD --}}
                         <thead class="bg-gray-300 dark:bg-gray-700 uppercase tracking-wider">
                             <tr>
@@ -96,7 +96,6 @@
                                     :sort="$sort"
                                     :dir="$dir"
                                     :filters="$filters"
-                                    :align="'right'"
                                 />
 
                                 {{-- Q.TY FASE --}}
@@ -127,7 +126,7 @@
                                          :class="openId === {{ $row->id }} ? 'bg-gray-200 dark:bg-gray-700' : ''"
                                      @endif>
                                     {{-- Cliente --}}
-                                    <td class="px-6 py-2">
+                                    <td class="px-6 py-2 whitespace-nowrap">
                                         {{ $row->customer ?? '—' }}
                                     </td>
 
@@ -137,7 +136,7 @@
                                     </td>
 
                                     {{-- Prodotto (SKU - nome) --}}
-                                    <td class="px-6 py-2"
+                                    <td class="px-6 py-2 whitespace-nowrap"
                                         title="{{ $row->product_name }}">
                                         {{ $row->product_name ?? '—' }}
                                     </td>
