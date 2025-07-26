@@ -584,12 +584,12 @@ class StockLevelController extends Controller
                                 ->exists();
 
                     if ($alreadySf) {
-                        throw new \App\Exceptions\BusinessRuleException('alreadyShortfall');
+                        throw new BusinessRuleException('alreadyShortfall');
                     }
 
                     /* 3-b ‧ BLOCCA se manca giacenza ------------------------- */
                     if ($delta < 0 && ($stockLevel->quantity + $delta) < 0) {
-                        throw new \App\Exceptions\BusinessRuleException('insufficient_stock');
+                        throw new BusinessRuleException('insufficient_stock');
                     }
 
                     /* 4‧ APPLICA VARIAZIONE ---------------------------------- */

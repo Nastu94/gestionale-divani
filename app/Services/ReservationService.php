@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\StockLevelLot;
 use App\Models\StockReservation;
 use App\Models\StockMovement;
+use App\Models\PoReservation;
 use App\Exceptions\BusinessRuleException;
 use Illuminate\Support\Facades\DB;
 
@@ -85,6 +86,13 @@ class ReservationService
                 'quantity'       => $take,
                 'note'           => "Prenotazione automatica per OC #{$poRes->order_customer_id}",
             ]);
+
+            // 3-d scala (o elimina) la prenotazione in po_reservations
+            if ($take >= $poRes->quantity) {
+                $poRes->delete();                          // tutta coperta → riga rimossa
+            } else {
+                $poRes->decrement('quantity', $take);      // coperta parzialmente
+            }
 
             $freeQty -= $take;
             if ($freeQty === 0) {

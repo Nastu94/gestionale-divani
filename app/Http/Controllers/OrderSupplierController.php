@@ -221,7 +221,7 @@ class OrderSupplierController extends Controller
         $data = $req->validate([
             'order_number_id' => ['required','exists:order_numbers,id','unique:orders,order_number_id'],
             'supplier_id'     => ['required','exists:suppliers,id'],
-            'delivery_date'   => ['required','date'],
+            'delivery_date'   => ['required','date', 'before_or_equal:today'],
             'bill_number'     => ['required','string','max:50'],
         ],[
             'order_number_id.unique' => 'Questo numero ordine è già stato utilizzato.',
@@ -398,12 +398,14 @@ class OrderSupplierController extends Controller
         ────────────────────────────────────────────────────────────── */
         $data = $request->validate(
             [
-                'delivery_date' => 'required|date',
+                'delivery_date' => 'required|date|before_or_equal:today',
                 'bill_number'   => 'required|string|max:50',
                 'skip_shortfall' => ['sometimes','boolean'],
             ],
             [
                 'delivery_date.required' => 'La data di consegna è obbligatoria.',
+                'delivery_date.date'     => 'La data di consegna deve essere una data valida.',
+                'delivery_date.before_or_equal'    => 'La data di consegna non può essere successiva ad oggi.',
                 'bill_number.required'   => 'Il numero bolla è obbligatorio.',
             ]
         );
