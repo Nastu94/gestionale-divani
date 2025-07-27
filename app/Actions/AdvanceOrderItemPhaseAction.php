@@ -19,16 +19,21 @@ use App\Models\OrderItem;
 use App\Models\OrderItemPhaseEvent;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 final readonly class AdvanceOrderItemPhaseAction
 {
     public function __construct(
-        private OrderItem      $item,
-        private float          $quantity,               // pezzi da spostare
-        private Authenticatable $user,
-        private bool           $isRollback = false,
-        private ?string        $reason     = null,      // obbligatoria se rollback
+        private OrderItem        $item,
+        private float            $quantity,      // pezzi da spostare
+        private Authenticatable  $user,
+
+        /** Fase di partenza ricevuta dal front-end (KPI selezionata) */
+        private ProductionPhase  $fromPhase,
+
+        private bool             $isRollback = false,
+        private ?string          $reason     = null,
     ) {}
 
     /**
@@ -37,19 +42,40 @@ final readonly class AdvanceOrderItemPhaseAction
     public function execute(): OrderItem
     {
         return DB::transaction(function (): OrderItem {
+            Log::debug('[AdvanceOrderItemPhaseAction] start', [
+                'item'     => $this->item->id,
+                'qty'      => $this->quantity,
+                'rollback' => $this->isRollback,
+                'phase'    => $this->item->current_phase->value,
+            ]);
+
             // 1 ▸ blocco pessimista per evitare race-condition
-            $item = $this->item->lockForUpdate()->first();
+            $item = OrderItem::whereKey($this->item->id)   // = WHERE id = 342
+                ->lockForUpdate()
+                ->firstOrFail();
 
-            // 2 ▸ definisci fase origine/destinazione
-            $fromPhase = $this->isRollback
-                ? $item->current_phase->value          // es. 2
-                : $item->current_phase->value;         // es. 1
+            Log::debug('[AdvanceOrderItemPhaseAction] item locked', [
+                'item' => $item->id,
+                'phase' => $item->current_phase->value,
+            ]);
 
-            $toPhase   = $this->isRollback
-                ? $fromPhase - 1                      // rollback → fase precedente
-                : $fromPhase + 1;                     // avanzamento → fase successiva
+            // 2 ▸ definisci fase origine/destinazione (front-end = single source of truth)
+            $fromPhase = $this->fromPhase->value;                 // es. 1
+            $toPhase   = $this->isRollback ? $fromPhase - 1       // rollback ←
+                                           : $fromPhase + 1;      // avanzo   →
+
+            Log::debug('[AdvanceOrderItemPhaseAction] fasi', [
+                'from' => $fromPhase,
+                'to'   => $toPhase,
+            ]);
 
             // 3 ▸ validazioni di business
+            if(!$this->user->can('stock.exit')){
+                throw ValidationException::withMessages([
+                    'auth' => 'Non hai il permesso di avanzare l\'ordine.',
+                ]);
+            }
+
             if ($toPhase !== ($this->isRollback ? $fromPhase - 1 : $fromPhase + 1)) {
                 throw ValidationException::withMessages([
                     'phase' => 'Non è consentito saltare una fase.',
@@ -57,7 +83,7 @@ final readonly class AdvanceOrderItemPhaseAction
             }
 
             // quantità residua nella fase origine
-            $residue = $item->quantityInPhase(ProductionPhase::from($fromPhase));
+            $residue = $item->quantityInPhase($this->fromPhase);
 
             if ($this->quantity > $residue) {
                 throw ValidationException::withMessages([
@@ -72,6 +98,11 @@ final readonly class AdvanceOrderItemPhaseAction
             }
 
             // 4 ▸ scrivi l’evento storico
+            Log::debug('[AdvanceOrderItemPhaseAction] crea evento', [
+                'from' => $fromPhase,
+                'to'   => $toPhase,
+            ]);
+
             OrderItemPhaseEvent::create([
                 'order_item_id' => $item->id,
                 'from_phase'    => $fromPhase,
@@ -83,7 +114,14 @@ final readonly class AdvanceOrderItemPhaseAction
             ]);
 
             // 5 ▸ Observer aggiorna order_items / orders → refresh
-            return $item->refresh();   // contiene current_phase & qty_completed aggiornati
+            $refreshed = $item->refresh();
+
+            Log::info('[AdvanceOrderItemPhaseAction] commit OK', [
+                'current_phase' => $refreshed->current_phase,
+                'qty_completed' => $refreshed->qty_completed,
+            ]);
+
+            return $refreshed;
         });
     }
 }

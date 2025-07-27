@@ -16,7 +16,10 @@
 namespace App\Livewire\Warehouse;
 
 use App\Models\OrderItem;
+use App\Actions\AdvanceOrderItemPhaseAction;
+use App\Enums\ProductionPhase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Livewire\Component;
 use Livewire\WithPagination;
 
@@ -59,6 +62,19 @@ class ExitTable extends Component
         'perPage'  => ['except' => 100],
     ];
 
+    /* ───── modal Avanza ───── */
+    public ?int   $advItemId    = null;   // riga selezionata
+    public float  $advMaxQty    = 0;      // pezzi residui in fase
+    public float  $advQuantity  = 0;      // input utente
+
+    /* ───────────────────────────────────────────────────────────────*
+     |  Eventi Livewire: rispondono a click su pulsanti o input    |
+     *───────────────────────────────────────────────────────────────*/
+    protected $listeners = [
+        'open-advance'   => 'openAdvance',
+        'confirm-advance'=> 'confirmAdvance',
+    ];
+
     /**
      * Qualsiasi variazione diversa da `page` resetta la paginazione.
      */
@@ -66,6 +82,11 @@ class ExitTable extends Component
     {
         if ($prop !== 'page') {
             $this->resetPage();
+        }
+
+        // chiudi toolbar se l’utente cambia KPI fase
+        if ($prop === 'phase') {
+            $this->dispatch('close-row');   // evento JS → Alpine imposta openId = null
         }
     }
 
@@ -79,7 +100,7 @@ class ExitTable extends Component
             ->selectRaw('phase, SUM(qty_in_phase) AS qty')
             ->where('qty_in_phase', '>', 0)
             ->groupBy('phase')
-            ->pluck('qty', 'phase');     // array [ phase => qty ]
+            ->pluck('qty', 'phase');    // array [ phase => qty ]
 
         /*― White-list dei campi ordinabili ―*/
         $allowedSorts = [
@@ -91,31 +112,34 @@ class ExitTable extends Component
             $this->sort = ''; // fallback di sicurezza
         }
 
+        /* ---------- sub-query con qty aggregate ---------- */
+        $phase   = $this->phase;
+        $pqSub   = DB::table('v_order_item_phase_qty')
+            ->select(
+                'order_item_id',
+                DB::raw('SUM(qty_in_phase) AS qty_in_phase')
+            )
+            ->where('phase', $phase)
+            ->groupBy('order_item_id');
+
         /*――――――― Query principale ―――――――*/
         $rows = OrderItem::query()
-            /* Join alla view delle quantità per fase */
-            ->join('v_order_item_phase_qty as pq', function ($j) {
-                $j->on('pq.order_item_id', '=', 'order_items.id')
-                  ->where('pq.phase', $this->phase)
-                  ->where('pq.qty_in_phase', '>', 0);
-            })
-            /* Join tabelle correlate */
+            ->joinSub($pqSub, 'pq', 'pq.order_item_id', '=', 'order_items.id')
             ->join('orders   as o',  'o.id',  '=', 'order_items.order_id')
-            ->leftJoin('customers as c', 'c.id',  '=', 'o.customer_id')
+            ->leftJoin('customers as c',      'c.id',  '=', 'o.customer_id')
             ->leftJoin('order_numbers as on', 'on.id', '=', 'o.order_number_id')
-            ->leftJoin('products as p', 'p.id', '=', 'order_items.product_id')
+            ->leftJoin('products as p',       'p.id',  '=', 'order_items.product_id')
 
-            /* Selezione campi + alias calcolati */
             ->addSelect([
                 'order_items.*',
                 'pq.qty_in_phase',
                 DB::raw('(order_items.quantity * order_items.unit_price) AS value'),
 
-                'c.company    AS customer',
-                'on.number    AS order_number',
-                'p.sku        AS product',
-                'p.name       AS product_name',
-                'o.ordered_at AS order_date',
+                'c.company        as customer',
+                'on.number        as order_number',
+                'p.sku            as product',
+                'p.name           as product_name',
+                'o.ordered_at     as order_date',
                 'o.delivery_date',
             ])
 
@@ -168,5 +192,69 @@ class ExitTable extends Component
             'dir'       => $this->dir,
             'filters'   => $this->filters,
         ]);
+    }
+
+    /*──────────────────────────────────────────────────────────────*
+     |  Azioni per la gestione delle fasi di avanzamento           |
+     *──────────────────────────────────────────────────────────────*/
+    public function openAdvance(int $itemId, float $max): void
+    {
+        /* ①  memorizza nello stato */
+        $this->advItemId   = $itemId;
+        $this->advMaxQty   = $max;
+        $this->advQuantity = $max;     // default = 100 %
+
+        /* ②  mostra il modal */
+        $this->dispatch('show-adv-modal',             // evento browser
+            id: $itemId,
+            maxQty: $max,
+            defaultQty: $max
+        );
+    }
+
+    public function confirmAdvance(float $qty = null): void
+    {
+        /* ── DEBUG ───────────────────────────────────────────── */
+        Log::debug('[confirmAdvance] in', [
+            'advItemId'   => $this->advItemId,
+            'advMaxQty'   => $this->advMaxQty,
+            'advQuantity' => $this->advQuantity,
+            'param_qty'   => $qty,
+        ]);
+        /* ────────────────────────────────────────────────────── */
+
+        if ($qty !== null) {
+            $this->advQuantity = $qty;
+        }
+
+        $this->validate([
+            'advQuantity' => ['required','numeric','gt:0','lte:'.$this->advMaxQty],
+        ], [], ['advQuantity'=>'quantità']);
+
+        try {
+            Log::debug('[confirmAdvance] validated – dispatch action');
+
+            app(AdvanceOrderItemPhaseAction::class, [
+                'item'       => OrderItem::findOrFail($this->advItemId),
+                'quantity'   => $this->advQuantity,
+                'user'       => auth()->user(),
+                'fromPhase'  => ProductionPhase::from($this->phase),   // 👈 KPI selezionata
+                'isRollback' => false,
+            ])->execute();
+
+            Log::info('[confirmAdvance] OK', ['item' => $this->advItemId]);
+
+            session()->flash('success', 'Fase avanzata correttamente.');
+            $this->dispatch('close-row');  
+            $this->reset('advItemId','advMaxQty','advQuantity');
+            $this->resetPage();               // refresh KPI + righe
+        } catch (\Throwable $e) {
+            Log::error('[confirmAdvance] ERROR', [
+                'msg'   => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            session()->flash('error', $e->getMessage());
+        }
     }
 }

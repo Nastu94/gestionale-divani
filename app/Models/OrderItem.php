@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use App\Enums\ProductionPhase;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany; 
 
 /**
  * Modello per la tabella 'order_items'.
@@ -115,12 +116,21 @@ class OrderItem extends Model
      */
     public function quantityInPhase(ProductionPhase $phase): float
     {
-        return (float) $this->phaseEvents()
-            ->selectRaw('
-                SUM(CASE WHEN to_phase = ? THEN quantity END) -
-                SUM(CASE WHEN from_phase = ? THEN quantity END) AS qty',
-                [$phase->value, $phase->value]
-            )
-            ->value('qty') ?? 0;
+        // qty entrate in ♦to_phase
+        $in = $this->phaseEvents()
+            ->where('to_phase',   $phase->value)
+            ->sum('quantity');
+
+        // qty uscite da ♦from_phase
+        $out = $this->phaseEvents()
+            ->where('from_phase', $phase->value)
+            ->sum('quantity');
+
+        // base = qty iniziale solo per la fase INSERTED (0)
+        $base = $phase === ProductionPhase::INSERTED
+            ? (float) $this->quantity
+            : 0.0;
+
+        return $base + $in - $out;         // residuo effettivo
     }
 }

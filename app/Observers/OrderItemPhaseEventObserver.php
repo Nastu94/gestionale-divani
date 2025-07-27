@@ -1,64 +1,112 @@
 <?php
 /**
- * Observer che, alla creazione di un nuovo evento di fase,
- * ricalcola i campi denormalizzati sulla riga ordine e,
- * di conseguenza, sulla testata ordine.
+ * Aggiorna i campi denormalizzati di order_items e orders
+ * ogni volta che viene creato un OrderItemPhaseEvent.
  *
- * - Aggiorna: current_phase, qty_completed, phase_updated_at
- * - Mantiene: orders.min_phase coerente con le sue righe
+ *  • current_phase  = prima fase che ha ancora qty > 0
+ *  • qty_completed  = somma delle qty nelle fasi successive
+ *  • min_phase (order) = fase minima tra tutte le sue righe
  *
- * Tutte le operazioni avvengono in un’unica transazione
- * per evitare race-condition fra batch concorrenti.
+ * NB: l’Action è già dentro una transazione, quindi NON
+ *     ne apriamo un’altra qui: evitiamo dead-lock con
+ *     lockForUpdate sulla stessa riga non committata.
  */
+
 namespace App\Observers;
 
 use App\Enums\ProductionPhase;
 use App\Models\OrderItemPhaseEvent;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class OrderItemPhaseEventObserver
 {
-    /**
-     * Triggerato dopo INSERT.
-     */
     public function created(OrderItemPhaseEvent $event): void
     {
-        DB::transaction(function () use ($event): void {
-            /** @var \App\Models\OrderItem $item */
-            $item = $event->orderItem()->lockForUpdate()->firstOrFail();
+        Log::debug('[OrderItemPhaseEventObserver] created', [
+            'event' => $event->id,
+            'item'  => $event->orderItem->id,
+        ]);
 
-            // 1 ▸ ricalcola qty presenti in OGNI fase
-            $phaseQty = $item->phaseEvents()           // tutti gli eventi della riga
-                ->selectRaw('
-                    to_phase   AS phase,
-                    SUM(quantity) AS qty_in
-                ')
-                ->groupBy('phase')
-                ->pluck('qty_in', 'phase')             // [phase => qty_in_phase]
-                ->mapWithKeys(fn ($qty, $phase) => [(int)$phase => (float)$qty])
-                ->all();                               // array: 0-6 => qty
+        /** @var \App\Models\OrderItem $item */
+        $item = $event->orderItem()
+                      ->lockForUpdate()   // garantisce coerenza se arrivano eventi concorrenti
+                      ->firstOrFail();
+        
+        Log::debug('[OrderItemPhaseEventObserver] item locked', [
+            'item' => $item->id,
+            'phase' => $item->current_phase->value,
+        ]);
 
-            // 2 ▸ trova la fase minima con qty > 0
-            $newCurrent = collect(range(0, 6))
-                ->first(fn (int $p) => ($phaseQty[$p] ?? 0) > 0, ProductionPhase::SHIPPING->value);
+        /* ------------------------------------------------------------------
+         | 1 ▸ calcola la quantità NETTA presente in ogni fase
+         |     (somma in entrata – somma in uscita)
+         *----------------------------------------------------------------- */
+        $phaseQty = $item->phaseEvents()
+            ->selectRaw('to_phase AS phase, SUM(quantity) AS qty_in')
+            ->groupBy('phase')
+            ->pluck('qty_in', 'phase')          // ← chiave int (0-6)
+            ->mapWithKeys(fn ($qty, $phase) => [           // $phase è int
+                (int) $phase => (float) $qty
+            ])
+            ->all();                                   // [0-6] => qty
 
-            // 3 ▸ qty completata = somma di qty in fasi > current_phase
-            $qtyCompleted = collect($phaseQty)
-                ->filter(fn ($_, $p) => $p > $newCurrent)
-                ->sum();
+        Log::debug('[OrderItemPhaseEventObserver] phaseQty', $phaseQty);
 
-            // 4 ▸ aggiorna la riga ordine
-            $item->forceFill([
-                'current_phase'   => $newCurrent,
-                'qty_completed'   => $qtyCompleted,
-                'phase_updated_at'=> now(),
-            ])->saveQuietly();
+        /* ------------------------------------------------------------------
+         | 2 ▸ individua la nuova fase corrente
+         *----------------------------------------------------------------- */
+        $newCurrent = collect(range(0, 6))
+            ->first(fn (int $idx) => ($phaseQty[$idx] ?? 0) > 0,
+                    ProductionPhase::SHIPPING->value);   // default = 6
+        
+        Log::debug('[OrderItemPhaseEventObserver] newCurrent', [
+            'newCurrent' => $newCurrent,
+            'phaseQty'   => $phaseQty,
+        ]);
 
-            // 5 ▸ aggiorna la testata ordine (campo min_phase)
-            $order = $item->order()->lockForUpdate()->first();
-            $min = $order->items()->min('current_phase');   // query singola indicizzata
+        /* ------------------------------------------------------------------
+        | 3 ▸ quantità completata  ► SOLO fase finale (Spedizione, 6)
+        *----------------------------------------------------------------- */
+        /**
+         * Calcoliamo i pezzi “terminati” interrogando l’unica
+         * source-of-truth (gli eventi): è il saldo netto presente
+         * nella fase SHIPPING. In questo modo qty_completed cresce
+         * esclusivamente quando una unità arriva davvero alla fine
+         * del flusso produttivo.
+         *
+         * NB: quantityInPhase() non tocca il DB – usa la relazione
+         *     già in memoria – quindi è O(1).
+         */
+        $qtyCompleted = $item->quantityInPhase(ProductionPhase::SHIPPING);
 
-            $order->forceFill(['min_phase' => $min])->saveQuietly();
-        });
+        Log::debug('[OrderItemPhaseEventObserver] qtyCompleted', [
+            'qtyCompleted' => $qtyCompleted,
+        ]);
+
+        /* ------------------------------------------------------------------
+        | 4 ▸ aggiorna campi denormalizzati (solo qty_completed)
+        |     current_phase e phase_updated_at restano invariati / null
+        *----------------------------------------------------------------- */
+        $item->forceFill([
+            'qty_completed' => $qtyCompleted,
+        ])->saveQuietly();
+
+        Log::debug('[OrderItemPhaseEventObserver] item updated', [
+            'item' => $item->id,
+            'current_phase' => $item->current_phase,
+            'qty_completed' => $item->qty_completed,
+        ]);
+        
+        /* ------------------------------------------------------------------
+         | 5 ▸ aggiorna la testata ordine
+         *----------------------------------------------------------------- */
+        $order = $item->order()->lockForUpdate()->first();
+        $order->forceFill([
+            'min_phase' => $order->items()->min('current_phase'),
+        ])->saveQuietly();
+        Log::debug('[OrderItemPhaseEventObserver] order updated', [
+            'order' => $order->id,
+            'min_phase' => $order->min_phase,
+        ]);
     }
 }

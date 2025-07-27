@@ -129,17 +129,19 @@ class StockLevelController extends Controller
         }
 
         /* query righe                                */
-        $exitRows = OrderItem::query()
-            ->join('v_order_item_phase_qty as pq', function ($j) use ($phase) {
-                $j->on('pq.order_item_id', '=', 'order_items.id')
-                ->where('pq.phase', $phase)
-                ->where('pq.qty_in_phase', '>', 0);
-            })
-            ->join('orders   as o',  'o.id',  '=', 'order_items.order_id')
-            ->leftJoin('customers as c', 'c.id', '=', 'o.customer_id')
-            ->leftJoin('order_numbers as on', 'on.id', '=', 'o.order_number_id')
-            ->leftJoin('products as p', 'p.id', '=', 'order_items.product_id')
+        $phase = $phase;   // dall’input
 
+        $pqSub = DB::table('v_order_item_phase_qty')
+            ->select('order_item_id', DB::raw('SUM(qty_in_phase) AS qty_in_phase'))
+            ->where('phase', $phase)
+            ->groupBy('order_item_id');
+
+        $exitRows = OrderItem::query()
+            ->joinSub($pqSub, 'pq', 'pq.order_item_id', '=', 'order_items.id')
+            ->join('orders   as o',  'o.id',  '=', 'order_items.order_id')
+            ->leftJoin('customers as c',      'c.id', '=', 'o.customer_id')
+            ->leftJoin('order_numbers as on', 'on.id', '=', 'o.order_number_id')
+            ->leftJoin('products as p',       'p.id', '=', 'order_items.product_id')
             ->addSelect([
                 'order_items.*',
                 'pq.qty_in_phase',

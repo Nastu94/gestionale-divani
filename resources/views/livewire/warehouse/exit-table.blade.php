@@ -1,5 +1,5 @@
 {{-- resources/views/livewire/warehouse/exit-table.blade.php --}}
-<div>    
+<div>
     {{-- ╔═════════════ KPI CARDS ═════════════╗ --}}
     <div class="py-2">
         @php
@@ -32,7 +32,7 @@
     </div>
 
     {{-- ╔═════════════ TABELLONE ═════════════╗ --}}
-    <div class="py-6" x-data="exitCrud()" @open-row.window="openId = ($event.detail === openId ? null : $event.detail)">
+    <div class="py-6" x-data="exitCrud()" @open-row.window="openId = ($event.detail === openId ? null : $event.detail)" @close-row.window="openId = null">
         <div class="max-w-full mx-auto sm:px-6 lg:px-8">
             <div class="bg-white dark:bg-gray-800 shadow sm:rounded-lg">
                 <div class="p-4 overflow-x-auto">
@@ -114,9 +114,16 @@
                         <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                             @foreach ($exitRows as $row)
                                 @php
-                                    $canAdvance  = auth()->user()->can('stock.exit');
-                                    $canRollback = auth()->user()->can('orders.customer.rollback_item_phase');
-                                    $canToggle   = $canAdvance || $canRollback;
+                                    // permessi grezzi
+                                    $canAdvanceRaw  = auth()->user()->can('stock.exit');
+                                    $canRollbackRaw = auth()->user()->can('orders.customer.rollback_item_phase');
+
+                                    // logica di fase
+                                    $canAdvance  = $canAdvanceRaw  && $phase < 6;   // no “Avanza” se già in Spedizione
+                                    $canRollback = $canRollbackRaw && $phase > 0;   // no “Rollback” in Inserito
+                                    $showDdT     =                ($phase == 6);    // DdT solo in Spedizione
+
+                                    $canToggle   = $canAdvance || $canRollback || $showDdT;
                                 @endphp
 
                                 {{-- RIGA PRINCIPALE --}}
@@ -162,20 +169,21 @@
                                         <td :colspan="9" class="px-6 py-3 bg-gray-200 dark:bg-gray-700">
                                             <div class="flex items-center space-x-4 text-xs">
                                                 {{-- ► Avanza fase (qty default 100 %) --}}
-                                                @can('stock.exit')
-                                                    <button  type="button" class="inline-flex items-center hover:text-green-700"
-                                                             @click.prevent="$wire.emit('open-advance', {{ $row->id }}, {{ $row->qty_in_phase }})">
+                                                @if($canAdvance)
+                                                    <button type="button"
+                                                            class="inline-flex items-center hover:text-green-700"
+                                                            wire:click="openAdvance({{ $row->id }}, {{ $row->qty_in_phase }})">
                                                         <i class="fas fa-forward mr-1"></i> Avanza
                                                     </button>
-                                                @endcan
+                                                @endif
 
                                                 {{-- ↶ Rollback --}}
-                                                @can('orders.customer.rollback_item_phase')
+                                                @if($canRollback)
                                                     <button  type="button" class="inline-flex items-center hover:text-amber-600"
                                                              @click.prevent="$wire.emit('open-rollback', {{ $row->id }}, {{ $row->qty_in_phase }})">
                                                         <i class="fas fa-undo mr-1"></i> Rollback
                                                     </button>
-                                                @endcan
+                                                @endif
 
                                                 {{-- 📝 Note --}}
                                                 <button type="button" class="inline-flex items-center hover:text-indigo-600"
@@ -184,10 +192,12 @@
                                                 </button>
 
                                                 {{-- 🖨 DdT --}}
-                                                <button  type="button" class="inline-flex items-center hover:text-purple-600"
-                                                         @click.prevent="$wire.emit('print-ddt', {{ $row->id }})">
-                                                    <i class="fas fa-print mr-1"></i> DdT
-                                                </button>
+                                                @if($showDdT)
+                                                    <button  type="button" class="inline-flex items-center hover:text-purple-600"
+                                                             @click.prevent="$wire.emit('print-ddt', {{ $row->id }})">
+                                                        <i class="fas fa-print mr-1"></i> DdT
+                                                    </button>
+                                                @endif
                                             </div>
                                         </td>
                                     </tr>
@@ -214,4 +224,105 @@
             </div>
         </div>
     </div>
+
+    {{--  Modal Avanza  ----------------------------------------------------}}
+    <dialog  wire:ignore
+            x-data="advanceModal()"          {{-- 1️⃣ --}}
+            x-init="
+                dlg = $el;                   /*  inizializza subito  */
+                window.addEventListener('show-adv-modal', e => open(e.detail))
+            "
+            @click.outside="close"           {{-- ora il listener globale è in x-init  --}}
+            @keydown.escape.window="close"
+            class="rounded-lg shadow-lg w-80 max-w-full p-5
+                    bg-white dark:bg-gray-800 backdrop:bg-black/40">
+
+        <h2 class="text-lg font-semibold mb-4">Avanza fase</h2>
+
+        <form @submit.prevent="confirm" class="space-y-4">
+            <div>
+                <label class="block text-sm mb-1">
+                    Quantità (max <span x-text="max"></span>)
+                </label>
+
+                <input type="number" step="1" min="1"
+                    x-model.number="qty"
+                    class="w-full border rounded px-2 py-1
+                            focus:ring-indigo-500 focus:border-indigo-500">
+            </div>
+
+            <div class="flex justify-end gap-2 text-sm">
+                <button type="button" @click="close"
+                        class="px-3 py-1 bg-gray-300 rounded">Annulla</button>
+                <button type="submit"
+                        class="px-3 py-1 bg-green-600 text-white rounded">
+                    Conferma
+                </button>
+            </div>
+        </form>
+    </dialog>
+
 </div>
+
+@push('scripts')
+    <script>
+        function advanceModal () {
+            return {
+                dlg : null,          // settato in x-init
+                compId : null,
+                id  : null,
+                max : 0,
+                qty : 1,
+
+                /* ▲ apre il dialog   -------------------------------------- */
+                open (p) {
+                    this.id  = p.id
+                    this.max = p.maxQty
+                    this.qty = p.defaultQty
+                    /* fallback per browser senza <dialog> */
+                    if (! this.dlg.showModal) {
+                        this.dlg.setAttribute('open', '')
+                    } else {
+                        this.dlg.showModal()
+                    }
+                },
+
+                /* ▲ conferma → chiama Livewire ----------------------------- */
+                confirm () {
+                    if (this.qty < 1 || this.qty > this.max) {
+                        alert('Quantità non valida. Non può essere maggiore di' + this.max);
+                        return;
+                    }
+
+                    const comp = Livewire.find(this.compId)
+                    if (! comp) { console.error('Livewire component not found'); return }
+
+                    // ①  aggiorna la property
+                    comp.set('advQuantity', this.qty)
+                        // ②  solo dopo chiama il metodo
+                        .then(() => comp.call('confirmAdvance', this.qty));
+
+                    this.close();
+                },
+
+                /* ▲ chiusura ---------------------------------------------- */
+                close () { this.dlg.close ? this.dlg.close() : this.dlg.removeAttribute('open') },
+                
+                init () {
+                    this.dlg    = this.$el
+                    this.compId = this.$el.closest('[wire\\:id]').getAttribute('wire:id')  // ② salva id
+
+                    /* fallback browser che non supportano <dialog>  */
+                    if (! this.dlg.showModal) {
+                        this.dlg.showModal = () => this.dlg.setAttribute('open', '')
+                        this.dlg.close     = () => this.dlg.removeAttribute('open')
+                    }
+
+                    /* listener all’evento dispatched da Livewire             */
+                    window.addEventListener('show-adv-modal', e => this.open(e.detail))
+                },
+            }
+        }
+    </script>
+@endpush
+
