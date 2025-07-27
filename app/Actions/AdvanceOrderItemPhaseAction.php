@@ -97,6 +97,63 @@ final readonly class AdvanceOrderItemPhaseAction
                 ]);
             }
 
+            /* ------------------------------------------------------------------
+            | 3 bis ▸ blocco avanzamento se mancano prenotazioni componenti
+            |         necessari alla fase di destinazione.
+            *----------------------------------------------------------------- */
+            if (! $this->isRollback) {
+
+                /** id fase di destinazione */
+                $destPhase = $toPhase;           // 1-5
+
+                Log::debug('[AdvanceOrderItemPhaseAction] check reservations', [
+                    'destPhase' => $destPhase,
+                    'order_id'  => $item->order_id,
+                ]);
+
+                /* ① elenca i componenti il cui category → phase = $destPhase */
+                $components = $item->product?->components()
+                    ->with('category.phaseLinks')               // eager-load
+                    ->get()
+                    ->filter(fn ($comp) =>                      // tieni solo le categorie
+                        $comp->category
+                            ->phasesEnum()                     // Collection<ProductionPhase>
+                            ->contains(fn ($ph) => $ph->value === $destPhase)
+                    );
+
+                Log::debug('[AdvanceOrderItemPhaseAction] components', [
+                    'count' => $components->count(),
+                    'codes' => $components->pluck('code')->all(),
+                    'destPhase' => $destPhase,
+                ]);
+
+                foreach ($components as $comp) {
+
+                    /** quantità necessaria per i pezzi che stiamo avanzando */
+                    $perPiece   = $comp->pivot->quantity;           // da product_components
+                    $neededQty  = $perPiece * $this->quantity;
+
+                    /** prenotazioni esistenti per quest’ordine e componente */
+                    $reserved = DB::table('stock_reservations as sr')
+                        ->join('stock_levels as sl', 'sl.id', '=', 'sr.stock_level_id')
+                        ->where('sr.order_id',    $item->order_id)
+                        ->where('sl.component_id',$comp->id)
+                        ->sum('sr.quantity'); 
+
+                    Log::debug('[AdvanceOrderItemPhaseAction] reservation check', [
+                        'component'   => $comp->code,
+                        'needed'      => $neededQty,
+                        'reserved'    => $reserved,
+                    ]);
+
+                    if ($reserved < $neededQty) {
+                        throw ValidationException::withMessages([
+                            'stock' => "Mancano prenotazioni per il componente {$comp->code} (necessari $neededQty, disponibili $reserved).",
+                        ]);
+                    }
+                }
+            }
+
             // 4 ▸ scrivi l’evento storico
             Log::debug('[AdvanceOrderItemPhaseAction] crea evento', [
                 'from' => $fromPhase,

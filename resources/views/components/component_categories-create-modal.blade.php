@@ -2,6 +2,17 @@
 
 @props(['categories'])
 
+@php
+    use App\Enums\ProductionPhase;
+    // escluse fasi 0 e 6
+    $prodPhases = collect([
+        ProductionPhase::STRUCTURE,
+        ProductionPhase::PADDING,
+        ProductionPhase::UPHOLSTERY,
+        ProductionPhase::ASSEMBLY,
+        ProductionPhase::FINISHING,
+    ]);
+@endphp
 
 <div 
     @click.away="showModal = false" 
@@ -34,6 +45,9 @@
         <template x-if="mode === 'edit'">
             <input type="hidden" name="_method" value="PUT" />
         </template>
+
+        {{-- Input nascosti per ID e modalità --}}
+        <input type="hidden" name="id" x-model="form.id" />
 
         <div class="space-y-4">
             {{-- Codice + Genera --}}
@@ -81,6 +95,29 @@
                     class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100" 
                 />
                 <p x-text="errors.description?.[0]" class="text-red-600 text-xs mt-1"></p>
+            </div>
+
+            {{-- Fasi di produzione --}}
+            <div>
+                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Fasi di produzione
+                </label>
+
+                <fieldset class="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    @foreach ($prodPhases as $ph)
+                        <label class="inline-flex items-center space-x-2 text-sm">
+                            <input type="checkbox"
+                                name="phases[]"
+                                :value="'{{ $ph->value }}'"
+                                x-model="form.phases"
+                                class="rounded border-gray-300 focus:ring-purple-500
+                                        text-purple-600 dark:bg-gray-700 dark:border-gray-600">
+                            <span>{{ $ph->label() }} ({{ $ph->value }})</span>
+                        </label>
+                    @endforeach
+                </fieldset>
+
+                <p x-text="errors.phases" class="text-red-600 text-xs mt-1"></p>
             </div>
         </div>
 

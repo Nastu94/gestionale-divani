@@ -82,6 +82,11 @@ class ComponentCategoryController extends Controller
      */
     public function store(Request $request)
     {
+        // Normalizza il codice in maiuscolo
+        $request->merge([
+            'code' => strtoupper($request->input('code')),
+        ]);
+
         // Messaggi personalizzati
         $messages = [
             'code.required' => 'Il codice è obbligatorio.',
@@ -92,6 +97,9 @@ class ComponentCategoryController extends Controller
             'name.string'   => 'Il nome deve essere una stringa.',
             'name.max'      => 'Il nome non può superare i 100 caratteri.',
             'description.string' => 'La descrizione deve essere una stringa.',
+            'phases.array' => 'Le fasi devono essere un array.',
+            'phases.*.integer' => 'Ogni fase deve essere un numero intero.',
+            'phases.*.between' => 'Ogni fase deve essere compresa tra 1 e 5.',
         ];
 
         // Validazione dei dati in ingresso
@@ -99,6 +107,8 @@ class ComponentCategoryController extends Controller
             'code'        => ['required','string','max:5','unique:component_categories,code'],
             'name'        => ['required','string','max:100'],
             'description' => ['nullable','string'],
+            'phases'      => ['nullable','array'],
+            'phases.*'    => ['integer','between:1,5'],
         ], $messages);
 
         // Se la validazione fallisce, log degli errori e ritorno alla form
@@ -121,7 +131,11 @@ class ComponentCategoryController extends Controller
             DB::beginTransaction();
 
             // Creiamo la nuova categoria con i dati validati
-            ComponentCategory::create($data);
+            $cat = ComponentCategory::create($data);
+
+            if ($request->filled('phases')) {
+                $cat->syncPhases($request->input('phases', []));
+            }
 
             // Commit della transazione
             DB::commit();
@@ -145,7 +159,7 @@ class ComponentCategoryController extends Controller
     /**
      * Display the specified resource.
      */
-    public function show(ComponentCategory $componentCategory)
+    public function show(ComponentCategory $category)
     {
         //
     }
@@ -153,7 +167,7 @@ class ComponentCategoryController extends Controller
     /**
      * Show the form for editing the specified resource.
      */
-    public function edit(ComponentCategory $componentCategory)
+    public function edit(ComponentCategory $category)
     {
         //
     }
@@ -165,8 +179,18 @@ class ComponentCategoryController extends Controller
      * @param ComponentCategory $componentCategory
      * @return \Illuminate\Http\RedirectResponse
      */
-    public function update(Request $request, ComponentCategory $componentCategory)
+    public function update(Request $request, ComponentCategory $category)
     {
+        Log::debug('ComponentCategoryController@update', [
+            'id' => $category->id,
+            'data' => $request->all(),
+        ]);
+
+        // Normalizza il codice in maiuscolo
+        $request->merge([
+            'code' => strtoupper($request->input('code')),
+        ]);
+
         // Messaggi personalizzati
         $messages = [
             'code.required' => 'Il codice è obbligatorio.',
@@ -177,16 +201,21 @@ class ComponentCategoryController extends Controller
             'name.string'   => 'Il nome deve essere una stringa.',
             'name.max'      => 'Il nome non può superare i 100 caratteri.',
             'description.string' => 'La descrizione deve essere una stringa.',
+            'phases.array' => 'Le fasi devono essere un array.',
+            'phases.*.integer' => 'Ogni fase deve essere un numero intero.',
+            'phases.*.between' => 'Ogni fase deve essere compresa tra 1 e 5.',
         ];
 
         // Validazione
         $validator = Validator::make($request->all(), [
             'code'        => [
                 'required','string','max:5',
-                Rule::unique('component_categories','code')->ignore($componentCategory->id),
+                Rule::unique('component_categories','code')->ignore($category->id),
             ],
             'name'        => ['required','string','max:100'],
             'description' => ['nullable','string'],
+            'phases'      => ['nullable','array'],
+            'phases.*'    => ['integer','between:1,5'],
         ], $messages);
 
         // Se la validazione fallisce, log degli errori e ritorno alla form
@@ -209,7 +238,8 @@ class ComponentCategoryController extends Controller
             DB::beginTransaction();
 
             // Aggiorniamo la categoria con i dati validati
-            $componentCategory->update($data);
+            $category->update($data);
+            $category->syncPhases($request->input('phases', []));
 
             // Commit della transazione
             DB::commit();

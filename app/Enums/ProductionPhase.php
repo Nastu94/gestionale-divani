@@ -16,6 +16,22 @@ enum ProductionPhase: int
     case SHIPPING     = 6;
 
     /**
+     * Etichetta in italiano per UI e report.
+     */
+    public function label(): string
+    {
+        return match ($this) {
+            self::INSERTED   => 'Inserito',
+            self::STRUCTURE  => 'Struttura',
+            self::PADDING    => 'Imbottitura',
+            self::UPHOLSTERY => 'Rivestimento',
+            self::ASSEMBLY   => 'Assemblaggio',
+            self::FINISHING  => 'Finitura',
+            self::SHIPPING   => 'Spedizione',
+        };
+    }
+    
+    /**
      * Restituisce la fase successiva o null se siamo all'ultima.
      */
     public function next(): ?self

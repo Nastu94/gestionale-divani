@@ -120,11 +120,19 @@
                                     >
                                         <div class="flex items-center space-x-4 text-xs">
                                             @if($canEdit)
-                                                <button
-                                                    type="button"
-                                                    @click='openEdit(@json($category))'
-                                                    class="inline-flex items-center hover:text-yellow-600"
-                                                >
+                                                @php
+                                                    $catJson = [
+                                                        'id'          => $category->id,
+                                                        'code'        => $category->code,
+                                                        'name'        => $category->name,
+                                                        'description' => $category->description,
+                                                        'phases'      => $category->phaseLinks->pluck('phase')->values()->all(),
+                                                    ];
+                                                @endphp
+
+                                                <button  type="button"
+                                                        @click.stop="openEdit(@js($catJson))"
+                                                        class="inline-flex items-center hover:text-yellow-600">
                                                     <i class="fas fa-pencil-alt mr-1"></i> Modifica
                                                 </button>
                                             @endif
@@ -172,6 +180,7 @@
                         code: '',
                         name: '',
                         description: '',
+                        phases: [],
                     },
                     errors: {},
 
@@ -186,11 +195,15 @@
                     },
 
                     openEdit(category) {
+                        console.log(category);
                         this.mode = 'edit';
-                        this.form.id               = category.id;
-                        this.form.code             = category.code;
-                        this.form.name             = category.name;
-                        this.form.description      = category.description;
+                        this.form = {
+                            id:          category.id,
+                            code:        category.code,
+                            name:        category.name,
+                            description: category.description,
+                            phases:      category.phases ?? [],   // ← arriva già array di int
+                        };
                         this.errors = {};
                         this.showModal = true;
                     },
@@ -201,6 +214,7 @@
                             code: '',
                             name: '',
                             description: '',
+                            phases: [],
                         };
                         this.errors = {};
                     },
@@ -220,6 +234,10 @@
                             this.errors.name = 'Il nome è obbligatorio.';
                             valid = false;
                         }
+                        if (this.form.phases.length === 0) {
+                            this.errors.phases = 'Almeno una fase è richiesta.';
+                            valid = false;
+                        }
                         return valid;
                     },
 
@@ -233,6 +251,7 @@
                                 code:       '{{ addslashes(old('code','')) }}',
                                 name:       '{{ addslashes(old('name','')) }}',
                                 description:'{{ addslashes(old('description','')) }}',
+                                phases:      {!! json_encode(old('phases', [])) !!},
                             };
                         @endif
                     },
