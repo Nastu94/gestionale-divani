@@ -116,9 +116,10 @@
                         <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                             @foreach ($orders as $order)
                                 @php
-                                    $canEdit   = auth()->user()->can('orders.customer.update');
-                                    $canDelete = auth()->user()->can('orders.customer.delete');
-                                    $canCrud   = $canEdit || $canDelete;
+                                    $started      = (bool) $order->has_started_prod;          // nuovo flag
+                                    $canEdit      = auth()->user()->can('orders.customer.update')  && ! $started;
+                                    $canDelete    = auth()->user()->can('orders.customer.delete')  && ! $started;
+                                    $canCrud      = $canEdit || $canDelete;                   // apre/chiude toolbar
                                 @endphp
 
                                 {{-- RIGA PRINCIPALE --}}
@@ -128,7 +129,12 @@
                                          :class="openId === {{ $order->id }} ? 'bg-gray-200 dark:bg-gray-700' : ''"
                                      @endif
                                 >
-                                    <td class="px-6 py-2 text-center">{{ $order->orderNumber->number }}</td>
+                                    <td class="px-6 py-2 text-center">
+                                        {{ $order->orderNumber->number }}
+                                        @if ($order->has_started_prod)
+                                            <i class="fas fa-industry text-xs text-purple-600 ml-1" title="Produzione in corso"></i>
+                                        @endif
+                                    </td>
                                     <td class="px-6 py-2">
                                         {{ $order->customer      ? $order->customer->company
                                         : ($order->occasionalCustomer->company ?? '—') }}
@@ -239,11 +245,11 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                <template x-for="row in sidebarLines" :key="row.code">
+                                <template x-for="(row, idx) in sidebarLines" :key="row.uid ?? (row.code + '-' + idx)">
                                     <tr
                                         :class="{
                                             'font-semibold bg-purple-50' : row.type === 'product',
-                                            'text-gray-600 italic'       : row.type === 'component'
+                                            'text-gray-600 italic text-xs'       : row.type === 'component'
                                         }"
                                     >
                                         <td class="px-2 py-1"

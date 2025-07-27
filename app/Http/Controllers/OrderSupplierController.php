@@ -414,6 +414,7 @@ class OrderSupplierController extends Controller
         | 2‧ Aggiorna header dell’ordine
         ────────────────────────────────────────────────────────────── */
         $order->fill([
+            'delivery_date'     => $data['delivery_date'],
             'registration_date' => $data['delivery_date'],
             'bill_number'       => $data['bill_number'],
         ])->save();

@@ -39,15 +39,13 @@ class ReservationService
         }
 
         // 2. riga PO corrispondente (via pivot ordine → items)
-        $order = $lot->orders()->first();                   // ordine fornitore
-        if ($order) {
-            $poItem = $order->items()
-                             ->where('component_id', $componentId)
-                             ->with('poReservations')       // eager prenotazioni
-                             ->first();
-        } else {
-            $poItem = null;
-        }
+        $order = $lot->orders()->first();
+        $poItem = $order
+            ? $order->items()
+                    ->where('component_id', $componentId)
+                    ->with('poReservations')
+                    ->first()
+            : null;
 
         if (! $poItem) {
             return;                                        // sicurezza
@@ -57,12 +55,7 @@ class ReservationService
         foreach ($poItem->poReservations as $poRes) {
 
             // 3-a quanto resta da prenotare verso quell’OC
-            $alreadyReserved = StockReservation::where([
-                                'order_id'       => $poRes->order_customer_id,
-                                'stock_level_id' => $stockLevel->id,
-                              ])->sum('quantity');
-
-            $toReserve = max($poRes->quantity - $alreadyReserved, 0);
+            $toReserve = $poRes->quantity;
             if ($toReserve === 0) {
                 continue;                                  // già coperta
             }

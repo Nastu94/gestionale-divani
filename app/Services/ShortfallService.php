@@ -7,6 +7,7 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\OrderItemShortfall;
 use App\Models\OrderNumber;
+use App\Models\PoReservation;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -73,6 +74,7 @@ class ShortfallService
                 /* riga sul figlio */
                 $newItem = OrderItem::create([
                     'order_id'     => $child->id,
+                    'generated_by_order_customer_id' => $orig->generated_by_order_customer_id,
                     'component_id' => $orig->component_id,
                     'quantity'     => $qty,
                     'unit_price'   => $price,
@@ -86,6 +88,20 @@ class ShortfallService
                         'follow_up_item_id' => $newItem->id,   // se esiste la colonna
                     ]
                 );
+
+                /* ——► sposta le prenotazioni cliente  ◄—— */
+                foreach ($orig->poReservations as $po) {
+
+                    // copia sul nuovo item
+                    PoReservation::create([
+                        'order_item_id'      => $newItem->id,
+                        'order_customer_id'  => $po->order_customer_id,
+                        'quantity'           => $po->quantity,
+                    ]);
+
+                    // elimina la vecchia riga
+                    $po->delete();
+                }
 
                 $total += $qty * $price;
             }

@@ -50,6 +50,20 @@ class OrderCustomerController extends Controller
             ])
             ->whereHas('orderNumber', fn ($q) => $q->where('order_type', 'customer'))
 
+            /*──────── EXIST test produzione avviata ────────*/
+            ->select('orders.*')                       // <- mantieni i campi base
+            ->selectRaw(
+                'EXISTS (
+                    SELECT 1
+                    FROM   order_items oi
+                    JOIN   v_order_item_phase_qty v
+                        ON v.order_item_id = oi.id
+                    WHERE  oi.order_id    = orders.id
+                    AND  v.phase        > 0          -- oltre “Inserito”
+                    AND  v.qty_in_phase > 0
+                ) AS has_started_prod'
+            )
+
             /*─── Filtri ───*/
             ->when($filters['id'] ?? null,
                 fn ($q,$v) => $q->where('id', $v))
