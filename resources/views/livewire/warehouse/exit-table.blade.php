@@ -227,7 +227,7 @@
 
     {{--  Modal Avanza  ----------------------------------------------------}}
     <dialog  wire:ignore
-            x-data="advanceModal()"          {{-- 1️⃣ --}}
+            x-data="advanceModal()"
             x-init="
                 dlg = $el;                   /*  inizializza subito  */
                 window.addEventListener('show-adv-modal', e => open(e.detail))

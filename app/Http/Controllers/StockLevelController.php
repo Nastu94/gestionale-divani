@@ -281,7 +281,7 @@ class StockLevelController extends Controller
 
             /* 3 ‧ LOOK-UP COMPONENTE e MAGAZZINO --------------------------- */
             $component = Component::whereCode($data['component_code'])->firstOrFail();
-            $warehouse = Warehouse::firstWhere('code', 'MG-STOCK');
+            $warehouse = Warehouse::firstWhere('id', 1);
 
             /* 4 ‧ BLOCCO STOCK-LEVEL  -------------------------------------- */
             $stockLevel = StockLevel::firstOrCreate([

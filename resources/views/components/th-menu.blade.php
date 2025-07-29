@@ -37,25 +37,29 @@
             }
         },
         init() {
-            /* ---------- sync su scroll / resize ---------- */
+            /* ───── sincronizza su scroll / resize ───── */
             const sync = () => { if (this.open) this.updatePos() };
-
-            // 3° arg. = true ➜ fase capture: intercetta anche lo scroll dei container
             window.addEventListener('scroll',  sync, true);
             window.addEventListener('resize', sync);
 
-            /* ---------- watchdog su open ---------- */
+            /* ───── sposta il nodo quando si apre ───── */
             this.$watch('open', val => {
                 const dd = $refs.dropdown;
-                if (!val) { dd.remove(); return; }   // chiuso → stacchiamo il nodo
 
-                // append & posizione iniziale
-                document.body.appendChild(dd);
-                dd.style.position = 'absolute';
-                dd.style.zIndex   = 9999;
-                this.updatePos();
+                if (val) {
+                    if (dd.parentNode !== document.body) document.body.appendChild(dd);
+
+                    dd.classList.remove('hidden');          // mostra
+                    dd.style.position = 'absolute';
+                    dd.style.zIndex   = 9999;
+                    this.$nextTick(() => this.updatePos()); // calcola dopo il render
+                    return;
+                }
+
+                dd.classList.add('hidden');                 // nascondi, nessun reset display
             });
         }
+
     }"
     :class="{ 'bg-gray-100': open }"
 >
@@ -74,8 +78,7 @@
           @click.outside="open = false"
           wire:ignore
           x-transition.opacity
-          style="display:none"          {{-- Alpine sostituisce display a runtime --}}
-          class="w-48 bg-white rounded shadow text-sm">
+          class="w-48 bg-white rounded shadow text-sm hidden">
 
         {{-- Sorting links --}}
         <a href="{{ $urlWith(['sort'=>$field,'dir'=>'asc']) }}"  class="block px-3 py-1 hover:bg-gray-100">

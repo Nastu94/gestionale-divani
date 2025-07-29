@@ -85,7 +85,7 @@
                                 @endphp
 
                                 {{-- Riga principale --}}
-                                <tr  @if($canToggle)
+                                <tr  @if($canToggle && $warehouse->id !== 1)
                                          @click="openId = (openId === {{ $warehouse->id }} ? null : {{ $warehouse->id }})"
                                          class="cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700"
                                          :class="openId === {{ $warehouse->id }} ? 'bg-gray-200 dark:bg-gray-700' : ''"
@@ -113,7 +113,7 @@
                                 </tr>
 
                                 {{-- Riga CRUD con pulsante Disattiva/Ripristina :contentReference[oaicite:1]{index=1} --}}
-                                @if($canToggle)
+                                @if($canToggle && $warehouse->id !== 1)
                                     <tr x-show="openId === {{ $warehouse->id }}" x-cloak>
                                         <td :colspan="extended ? 5 : 4" class="px-6 py-3 bg-gray-200 dark:bg-gray-700">
                                             <div class="flex items-center space-x-4 text-xs">

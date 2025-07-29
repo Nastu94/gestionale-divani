@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\ComponentCategory;
+use App\Enums\ProductionPhase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -24,29 +25,45 @@ class ComponentCategoryController extends Controller
         $dir  = $request->input('dir', 'asc') === 'desc' ? 'desc' : 'asc';
 
         // Filtri
-        $filters    = $request->input('filter', []);
-        $filterCode = $filters['code'] ?? null;
-        $filterName = $filters['name'] ?? null;
+        $filters       = $request->input('filter', []);
+        $filterCode    = $filters['code']  ?? null;
+        $filterName    = $filters['name']  ?? null;
+        $filterPhase   = $filters['phase'] ?? null;
 
-        // Costruisci query
-        $query = ComponentCategory::query();
-
-        // Applica filtri se presenti
-        if ($filterCode) {
-            $query->where('code', 'like', "%{$filterCode}%");
+        /* se arriva una LABEL (struttura, taglio, …) => convertila in value */
+        if ($filterPhase && ! is_numeric($filterPhase)) {
+            $filterPhaseEnum = collect(ProductionPhase::cases())
+                ->firstWhere(fn ($c) =>
+                    str_contains(
+                        str($c->label())->lower(),       // label “Struttura”
+                        str($filterPhase)->lower()       // testo inserito
+                    )
+                );
+            $filterPhase = $filterPhaseEnum?->value;     // null → niente match
         }
-        if ($filterName) {
-            $query->where('name', 'like', "%{$filterName}%");
-        }
 
-        // Gestisci ordinamento
-        // Solo questi campi possono essere passati via query
-        if (in_array($sort, ['id','code','name'], true)) {
+        /* ---------- query ---------- */
+        $query = ComponentCategory::query()
+            ->with('phaseLinks')          // evita N+1 per la colonna in tabella
+            ->when($filters['code']  ?? null,
+                fn ($q,$v) => $q->where('code', 'like', "%$v%"))
+            ->when($filters['name']  ?? null,
+                fn ($q,$v) => $q->where('name', 'like', "%$v%"))
+            ->when($filterPhase,
+                fn ($q,$v) => $q->whereHas('phaseLinks',
+                            fn ($q) => $q->where('phase', $v)));
+
+        /* ordinamento ---------------------------------------------------- */
+        if ($sort === 'phase') {
+            // ordina per valore numerico della “prima” fase
+            $query->leftJoin('component_category_phase as ccp','ccp.category_id','=','component_categories.id')
+                ->select('component_categories.*')
+                ->groupBy('component_categories.id')
+                ->orderByRaw('MIN(ccp.phase) ' . $dir);
+        } elseif (in_array($sort, ['id','code','name'])) {
             $query->orderBy($sort, $dir);
         } else {
-            // nel raro caso venga passato un sort non consentito,
-            // ricaduta su id
-            $query->orderBy('id', 'asc');
+            $query->orderBy('id');
         }
 
         // Paginazione con preservazione della query-string
@@ -62,6 +79,7 @@ class ComponentCategoryController extends Controller
             'filters'    => [
                 'code' => $filterCode,
                 'name' => $filterName,
+                'phase' => $filterPhase, 
             ],
         ]);
     }

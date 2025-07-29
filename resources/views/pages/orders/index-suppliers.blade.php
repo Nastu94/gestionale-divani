@@ -205,7 +205,7 @@
                                             @endif
 
                                             {{-- Elimina --}}
-                                            @if($canDelete)
+                                            @if($canDelete && !isset($order->bill_number))
                                                 <form
                                                     action="{{ route('orders.supplier.destroy', $order) }}"
                                                     method="POST"

@@ -68,10 +68,10 @@
                             x-cloak
                             class="absolute z-50 w-full mt-1 bg-white border rounded shadow max-h-40 overflow-y-auto"
                         >
-                            <template x-for="option in customerOptions" :key="option.id">
+                            <template x-for="(option, idx) in customerOptions" :key="option.id + '-' + idx">
                                 <div class="px-2 py-1 hover:bg-gray-200 cursor-pointer"
                                      @click="selectCustomer(option)">
-                                    <span class="text-xs" x-text="option.company"></span>
+                                    <span class="text-xs" x-text="option.company + ' - ' + option.shipping_address"></span>
                                 </div>
                             </template>
                         </div>
@@ -376,7 +376,8 @@ function customerOrderModal() {
         resetForm(){
             this.delivery_date    = '';
             this.selectedCustomer = null;
-            this.occasional_customer_id  = null; 
+            this.occasional_customer_id  = null;
+            this.customerOptions  = [];
             this.customerSearch   = '';
             this.lines            = [];
             this.selectedProduct  = null;

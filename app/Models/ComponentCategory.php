@@ -54,6 +54,7 @@ class ComponentCategory extends Model
     {
         return $this->phaseLinks
                     ->pluck('phase')               // Collection<ProductionPhase>
+                    ->unique()
                     ->values();                    // indicizzazione pulita
     }
 

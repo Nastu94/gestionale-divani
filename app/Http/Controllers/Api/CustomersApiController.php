@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 /**
  * API Autocomplete clienti.
@@ -13,7 +14,6 @@ use Illuminate\Support\Facades\DB;
  * Ritorna id, ragione sociale, P.IVA, C.F. e primo indirizzo di spedizione.
  * Endpoint:  GET /customers/search?q=...
  *
- * @author [...]
  */
 class CustomersApiController extends Controller
 {
@@ -25,47 +25,43 @@ class CustomersApiController extends Controller
      */
     public function search(Request $request)
     {
-        $q = trim(strtolower($request->get('q', '')));
+        $raw = strtolower(trim($request->get('q', '')));
+        $raw = str_replace('*', '%', $raw);
+        $raw = preg_replace('/\s+/', '%', $raw);
+        $needle = "%{$raw}%";
 
-        /* normalizza il pattern  (es. “DIVANI*SPA” → “%divani%spa%”) */
-        $q       = str_replace(['*'], '%', $q);
-        $q       = preg_replace('/\s+/', '%', $q);
-        $needle  = "%{$q}%";
-
-        /* -----------------------------------------------------------------
-         |  Query: clienti attivi con primo indirizzo di spedizione
-         |----------------------------------------------------------------- */
         $customers = Customer::query()
+            // 1) join sugli indirizzi di tipo 'shipping'
+            ->join('customer_addresses as ca', function($join) {
+                $join->on('customers.id', '=', 'ca.customer_id')
+                    ->where('ca.type', 'shipping');
+            })
+            // 2) seleziono i campi del customer + concat_ws per shipping_address
             ->select([
                 'customers.id',
                 'customers.company',
                 'customers.email',
                 'customers.vat_number',
                 'customers.tax_code',
-                /* sub-query: 1° indirizzo type = "shipping" */
-                DB::raw("(
-                    SELECT CONCAT_WS(', ',
-                       ca.address,
-                       ca.city,
-                       ca.postal_code,
-                       ca.country
-                    )
-                    FROM customer_addresses AS ca
-                    WHERE ca.customer_id = customers.id
-                      AND ca.type = 'shipping'
-                    ORDER BY ca.id
-                    LIMIT 1
-                 ) AS shipping_address"),
+                DB::raw("CONCAT_WS(', ', ca.address, ca.city, ca.postal_code, ca.country) AS shipping_address"),
             ])
+            // 3) solo attivi
             ->where('customers.is_active', true)
-            ->where(function ($q) use ($needle) {
+            // 4) filtro su company / vat / tax_code
+            ->where(function($q) use($needle) {
                 $q->whereRaw('LOWER(customers.company)    LIKE ?', [$needle])
-                  ->orWhereRaw('LOWER(customers.vat_number) LIKE ?', [$needle])
-                  ->orWhereRaw('LOWER(customers.tax_code)   LIKE ?', [$needle]);
+                ->orWhereRaw('LOWER(customers.vat_number) LIKE ?', [$needle])
+                ->orWhereRaw('LOWER(customers.tax_code)   LIKE ?', [$needle]);
             })
+            // 5) ordino e limito
             ->orderBy('customers.company')
             ->limit(20)
             ->get();
+
+        Log::debug('CustomersApiController@search', [
+            'needle'    => $needle,
+            'customer'  => $customers,
+        ]);
 
         return response()->json($customers);
     }

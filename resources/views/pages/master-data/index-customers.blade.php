@@ -108,10 +108,16 @@
                                     $canEdit   = auth()->user()->can('customers.update');
                                     $canDelete = auth()->user()->can('customers.delete');
                                     $canCrud   = $canEdit || $canDelete;
-                                
+
+                                    // indirizzo fatturazione e “altro” (li prendo ancora dalla relazione)
                                     $b = $customer->addresses->firstWhere('type','billing');
-                                    $s = $customer->addresses->firstWhere('type','shipping');
                                     $o = $customer->addresses->firstWhere('type','other');
+
+                                    // indirizzo di spedizione “srotolato” dal join
+                                    $sa = $customer->shipping_address;
+                                    $sc = $customer->shipping_city;
+                                    $sp = $customer->shipping_postal_code;
+                                    $sn = $customer->shipping_country;
                                 @endphp
 
                                 {{-- Riga principale --}}
@@ -148,9 +154,9 @@
                                             —
                                         @endif
                                     </td>
-                                    <td x-show="extended" x-cloak class="px-6 py-2 whitespace-nowrap">
-                                        @if($s)
-                                            {{ $s->address }}, {{ $s->city }}, {{ $s->country }}
+                                    <td x-show="extended" class="px-6 py-2 whitespace-nowrap">
+                                        @if($sa)
+                                            {{ $sa }}, {{ $sc }}, {{ $sn }}
                                         @else
                                             —
                                         @endif

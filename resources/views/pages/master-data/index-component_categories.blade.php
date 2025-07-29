@@ -62,7 +62,13 @@
                             :categories="$categories"
                         />
                     </div>
-                </div>             
+                </div>
+
+                @php
+                    /* value => label  */
+                    $phaseOptions = collect(\App\Enums\ProductionPhase::cases())
+                        ->mapWithKeys(fn ($p) => [$p->value => $p->label()]);
+                @endphp
 
                 {{-- Tabella espandibile --}}
                 <div class="overflow-x-auto p-4">
@@ -87,6 +93,15 @@
                                     reset-route="categories.index"
                                 />
                                 <th class="px-6 py-2 text-left whitespace-nowrap">Descrizione</th>
+                                <x-th-menu
+                                    field="phase"
+                                    label="Fase di Produzione"
+                                    :sort="$sort"
+                                    :dir="$dir"
+                                    :filters="$filters"
+                                    reset-route="categories.index"
+                                    :options="$phaseOptions"   {{-- ★ qui l’array --}}
+                                />
                         </thead>
 
                         <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
@@ -109,13 +124,16 @@
                                     <td class="px-6 py-2 whitespace-nowrap">{{ $category->code }}</td>
                                     <td class="px-6 py-2 whitespace-nowrap">{{ $category->name }}</td>
                                     <td class="px-6 py-2 whitespace-nowrap">{{ $category->description }}</td>
+                                    <td class="px-6 py-2 whitespace-nowrap">
+                                        {{ $category->phasesEnum()->map->label()->join(', ') }}
+                                    </td>
                                 </tr>
 
                                 {{-- Riga espansa con Modifica / Elimina--}}
                                 @if($canCrud)
                                 <tr x-show="openId === {{ $category->id }}" x-cloak>
                                     <td
-                                        :colspan="extended ? 4 : 4"
+                                        :colspan="extended ? 5 : 5"
                                         class="px-6 py-3 bg-gray-200 dark:bg-gray-700"
                                     >
                                         <div class="flex items-center space-x-4 text-xs">

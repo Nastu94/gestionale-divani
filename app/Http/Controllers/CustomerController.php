@@ -22,14 +22,25 @@ class CustomerController extends Controller
         $dir     = $request->input('dir', 'asc') === 'desc' ? 'desc' : 'asc';
         $filter  = $request->input('filter.company');       // stringa o null
 
-        /* Costruisci query ----------------------------------------- */
         $customers = Customer::query()
-            ->with('addresses')                             // eager load
-            ->when($filter, fn ($q,$v) =>
-                $q->where('company','like',"%$v%"))         // filtro LIKE
-            ->orderBy('company', $dir)                      // sempre company
+            // Join solo sugli indirizzi di tipo 'shipping'
+            ->join('customer_addresses', function($join) {
+                $join->on('customers.id', '=', 'customer_addresses.customer_id')
+                    ->where('customer_addresses.type', 'shipping');
+            })
+            // Seleziono TUTTI i campi di customers + i singoli campi di spedizione
+            ->select([
+                'customers.*',
+                'customer_addresses.address    AS shipping_address',
+                'customer_addresses.city       AS shipping_city',
+                'customer_addresses.postal_code AS shipping_postal_code',
+                'customer_addresses.country    AS shipping_country',
+            ])
+            // filtro / ordinamento
+            ->when($filter, fn($q,$v) => $q->where('customers.company','like',"%{$v}%"))
+            ->orderBy('customers.company', $dir)
             ->paginate(15)
-            ->appends($request->query());                   // preserva query
+            ->appends($request->query());
 
         /* Passa variabili alla view ------------------------------- */
         return view('pages.master-data.index-customers', [
