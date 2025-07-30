@@ -130,6 +130,7 @@ class OrderCustomerController extends Controller
             'occasional_customer_id' => ['nullable', 'integer', Rule::exists('occasional_customers', 'id')],
             'customer_id'            => ['nullable', 'integer', Rule::exists('customers', 'id')],
             'delivery_date'          => ['required', 'date'],
+            'shipping_address'       => ['required', 'string', 'max:255'],
             'lines'                  => ['required', 'array', 'min:1'],
             'lines.*.product_id'     => ['required', 'integer', Rule::exists('products', 'id')],
             'lines.*.quantity'       => ['required', 'numeric', 'min:0.01'],
@@ -177,6 +178,7 @@ class OrderCustomerController extends Controller
                     'order_number_id'        => $orderNumber->id,
                     'customer_id'            => $data['customer_id']            ?? null,
                     'occasional_customer_id' => $data['occasional_customer_id'] ?? null,
+                    'shipping_address'       => $data['shipping_address'],
                     'total'                  => $total,
                     'ordered_at'             => now(),
                     'delivery_date'          => $data['delivery_date'],
@@ -400,6 +402,7 @@ class OrderCustomerController extends Controller
             'delivery_date'   => $order->delivery_date->format('Y-m-d'),
             'customer'        => $cust,
             'occ_customer'    => $occ,
+            'shipping_address'=> $order->shipping_address,
             'lines'           => $order->items->map(fn ($it) => [
                 'product_id' => $it->product_id,
                 'sku'        => $it->product->sku,

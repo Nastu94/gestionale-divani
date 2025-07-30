@@ -36,6 +36,7 @@ class Order extends Model
         'delivery_date', // Data prevista di consegna
         'registration_date', // Data registrazione magazzino
         'bill_number', // Numero bolla di consegna
+        'shipping_address', // Indirizzo di spedizione
         'min_phase', // Fase minima di produzione
     ];
 
@@ -69,6 +70,7 @@ class Order extends Model
         'delivery_date', // Data prevista di consegna
         'registration_date', // Data registrazione magazzino
         'bill_number', // Numero bolla di consegna
+        'shipping_address',
         'min_phase' // Fase minima di produzione
     ];
 

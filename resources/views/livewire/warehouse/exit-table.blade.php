@@ -1,5 +1,6 @@
 {{-- resources/views/livewire/warehouse/exit-table.blade.php --}}
 <div>
+
     {{-- ╔═════════════ KPI CARDS ═════════════╗ --}}
     <div class="py-2">
         @php
@@ -30,6 +31,9 @@
             @endforeach
         </div>
     </div>
+    
+    {{-- ╔═════════════ FLASH MESSAGES ════════════╗ --}}
+    <x-flash />
 
     {{-- ╔═════════════ TABELLONE ═════════════╗ --}}
     <div class="py-6" x-data="exitCrud()" @open-row.window="openId = ($event.detail === openId ? null : $event.detail)" @close-row.window="openId = null">

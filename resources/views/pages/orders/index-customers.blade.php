@@ -98,6 +98,7 @@
                                 <x-th-menu field="customer" label="Cliente"
                                            :sort="$sort" :dir="$dir" :filters="$filters"
                                            reset-route="orders.customer.index" />
+                                <th>Indirizzo Spedizione</th>
                                 <x-th-menu field="ordered_at" label="Data Ordine"
                                            :sort="$sort" :dir="$dir" :filters="$filters"
                                            reset-route="orders.customer.index"
@@ -139,6 +140,8 @@
                                         {{ $order->customer      ? $order->customer->company
                                         : ($order->occasionalCustomer->company ?? '—') }}
                                     </td>
+                                    <td class="px-6 py-2">
+                                        {{ $order->shipping_address ?? '—' }}
                                     <td class="px-6 py-2">{{ $order->ordered_at?->format('d/m/Y') }}</td>
                                     <td class="px-6 py-2">{{ $order->delivery_date?->format('d/m/Y') }}</td>
                                     <td class="px-6 py-2 text-center">{{ number_format($order->total, 2, ',', '.') }}</td>
@@ -147,7 +150,7 @@
                                 {{-- RIGA ESPANSA CON AZIONI --}}
                                 @if ($canCrud || auth()->user()->can('orders.customer.view'))
                                     <tr x-show="openId === {{ $order->id }}" x-cloak>
-                                        <td :colspan="5" class="px-6 py-3 bg-gray-200 dark:bg-gray-700">
+                                        <td :colspan="6" class="px-6 py-3 bg-gray-200 dark:bg-gray-700">
                                             <div class="flex items-center space-x-4 text-xs">
 
                                                 {{-- Visualizza --}}

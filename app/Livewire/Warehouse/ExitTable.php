@@ -127,6 +127,7 @@ class ExitTable extends Component
             ->joinSub($pqSub, 'pq', 'pq.order_item_id', '=', 'order_items.id')
             ->join('orders   as o',  'o.id',  '=', 'order_items.order_id')
             ->leftJoin('customers as c',      'c.id',  '=', 'o.customer_id')
+            ->leftJoin('occasional_customers as oc', 'oc.id', '=', 'o.occasional_customer_id')
             ->leftJoin('order_numbers as on', 'on.id', '=', 'o.order_number_id')
             ->leftJoin('products as p',       'p.id',  '=', 'order_items.product_id')
 
@@ -134,8 +135,7 @@ class ExitTable extends Component
                 'order_items.*',
                 'pq.qty_in_phase',
                 DB::raw('(order_items.quantity * order_items.unit_price) AS value'),
-
-                'c.company        as customer',
+                DB::raw('COALESCE(c.company, oc.company) AS customer'),
                 'on.number        as order_number',
                 'p.sku            as product',
                 'p.name           as product_name',
@@ -144,8 +144,12 @@ class ExitTable extends Component
             ])
 
             /*―――― Filtri dinamici ――――*/
-            ->when($this->filters['customer']      ?? null,
-                fn ($q, $v) => $q->where('c.company', 'like', "%{$v}%"))
+            ->when($this->filters['customer'] ?? null, function ($q, $v) {
+                $q->where(function ($qq) use ($v) {
+                    $qq->where('c.company',  'like', "%{$v}%")
+                    ->orWhere('oc.company','like', "%{$v}%");
+                });
+            })
             ->when($this->filters['order_number']  ?? null,
                 fn ($q, $v) => $q->where('on.number', 'like', "%{$v}%"))
             ->when($this->filters['product']       ?? null,
@@ -167,7 +171,7 @@ class ExitTable extends Component
             /*―――― Ordinamento (match expression PHP 8.4) ――――*/
             ->tap(function ($q) {
                 match ($this->sort) {
-                    'customer'      => $q->orderBy('c.company',       $this->dir),
+                    'customer'      => $q->orderByRaw('COALESCE(c.company, oc.company) '.$this->dir),
                     'order_number'  => $q->orderBy('on.number',       $this->dir),
                     'product'       => $q->orderBy('p.sku',           $this->dir),
                     'qty_in_phase'  => $q->orderBy('pq.qty_in_phase', $this->dir),

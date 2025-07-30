@@ -484,6 +484,7 @@ function customerOrderModal() {
                 customer_id     : this.occasional_customer_id ? null : this.selectedCustomer.id,
                 occasional_customer_id : this.occasional_customer_id ?? null,
                 delivery_date   : this.delivery_date,
+                shipping_address: this.selectedCustomer.shipping_address,
                 /* righe */
                 lines : this.lines.map(l => ({
                     product_id : l.product.id,
@@ -554,6 +555,7 @@ function customerOrderModal() {
                 this.order_number_id= o.order_number_id
                 this.delivery_date  = o.delivery_date
                 this.selectedCustomer = o.customer ?? o.occ_customer      // oggetto completo
+                this.selectedCustomer.shipping_address = o.shipping_address ?? '' // indirizzo spedizione
                 this.customerSearch   = this.selectedCustomer?.company ?? ''   // → input popolato
 
                 this.lines = o.lines.map(l => ({

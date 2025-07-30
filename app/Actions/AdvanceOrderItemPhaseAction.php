@@ -127,6 +127,9 @@ final readonly class AdvanceOrderItemPhaseAction
                     'destPhase' => $destPhase,
                 ]);
 
+                /* lista componenti con prenotazione insufficiente */
+                $missing = [];
+
                 foreach ($components as $comp) {
 
                     /** quantità necessaria per i pezzi che stiamo avanzando */
@@ -147,10 +150,18 @@ final readonly class AdvanceOrderItemPhaseAction
                     ]);
 
                     if ($reserved < $neededQty) {
-                        throw ValidationException::withMessages([
-                            'stock' => "Mancano prenotazioni per il componente {$comp->code} (necessari $neededQty, disponibili $reserved).",
-                        ]);
+                        // memorizza solo il codice (o descrizione) per il messaggio finale
+                        $missing[] = $comp->code;
                     }
+                }
+
+                /* 🛑  se c’è almeno un componente mancante → eccezione unica */
+                if ($missing) {
+                    $msg = "I componenti necessari per la prossima fase non sono ancora disponibili. "
+                        . "Verifica le giacenze prima di procedere.\n"
+                        . "Di seguito i componenti: " . implode(', ', $missing) . '.';
+
+                    throw ValidationException::withMessages(['stock' => $msg]);
                 }
             }
 
