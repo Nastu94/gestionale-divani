@@ -17,6 +17,7 @@ namespace App\Actions;
 use App\Enums\ProductionPhase;
 use App\Models\OrderItem;
 use App\Models\OrderItemPhaseEvent;
+use App\Services\StockLotConsumptionService;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -163,6 +164,16 @@ final readonly class AdvanceOrderItemPhaseAction
 
                     throw ValidationException::withMessages(['stock' => $msg]);
                 }
+            }
+
+            /* 3 ter ▸ scarico fisicamente i lotti della fase corrente */
+            if (! $this->isRollback && $fromPhase > 0) {
+                app(StockLotConsumptionService::class)
+                    ->consumeForAdvance(
+                        $item,
+                        $this->fromPhase->value,   // 👈 enum → int
+                        $this->quantity
+                    );
             }
 
             // 4 ▸ scrivi l’evento storico
