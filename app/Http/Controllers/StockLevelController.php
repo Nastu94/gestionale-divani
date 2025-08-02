@@ -304,6 +304,7 @@ class StockLevelController extends Controller
             $lot->fill([
                 'supplier_lot_code' => $data['lot_supplier'] ?: null,
                 'quantity'          => $data['qty_received'],
+                'received_quantity' => $data['qty_received'], 
             ])->save();
 
             /* 6 ‧ COLLEGA LOT_NUMBER  -------------------------------------- */
@@ -334,6 +335,8 @@ class StockLevelController extends Controller
                 // evita duplicati (lotto già collegato)
                 if (! $order->stockLevelLots->contains($lot->id)) {
                     $order->stockLevelLots()->attach($lot->id);
+
+                    Log::info("Collegato lotto {$lot->id} all'ordine {$order->id}");
                 }
 
                 // gestione riga ordine
@@ -538,12 +541,30 @@ class StockLevelController extends Controller
      */
     public function updateEntry(Request $request, ShortfallService $svc): JsonResponse
     {
+        Log::info('Aggiornamento stock-level-lots', [
+            'user_id' => auth()->id(),
+            'request' => $request->all(),
+        ]);
+
         /* 1‧ VALIDAZIONE INPUT ------------------------------------------------ */
         $payload = $request->validate([
             'lots'                  => ['required','array','min:1'],
-            'lots.*.id'             => ['required','exists:stock_level_lots,id'],
+            'lots.*.id'             => ['nullable','exists:stock_level_lots,id'],
             'lots.*.qty'            => ['required','numeric','min:0.01'],
             'lots.*.lot_supplier'   => ['nullable','string','max:50'],
+        ], [
+            'lots.*.id.exists' => 'Lotto non trovato.',
+            'lots.*.qty.required' => 'Quantità mancante.',
+            'lots.*.qty.min' => 'La quantità deve essere almeno 0.01.',
+            'lots.*.lot_supplier.max' => 'Il lotto fornitore non può superare i 50 caratteri.',
+        ]);
+
+        Log::info('Aggiornamento stock-level-lots', [
+            'lots' => collect($payload['lots'])->map(fn($l) => [
+                'id'           => $l['id'],
+                'qty'          => $l['qty'],
+                'lot_supplier' => $l['lot_supplier'] ?? null,
+            ])->toArray(),
         ]);
 
         $updated          = [];
@@ -565,6 +586,13 @@ class StockLevelController extends Controller
                         ->lockForUpdate()
                         ->find($lotData['id']);
 
+                    Log::info('Aggiornamento lotto', [
+                        'id'           => $lot->id,
+                        'qty'          => $lotData['qty'],
+                        'lot_supplier' => $lotData['lot_supplier'] ?? null,
+                    ]);
+
+                    /* 3‧ BLOCCA se lotto non trovato ------------------------------- */
                     if (! $lot) {
                         Log::warning('❌ Lot not found', ['id' => $lotData['id']]);
                         continue;
@@ -577,6 +605,12 @@ class StockLevelController extends Controller
 
                     $stockLevel = $lot->stockLevel;
                     $delta      = $lotData['qty'] - $lot->quantity;
+
+                    Log::info('StockLevel update, ordine collegato', [
+                        'order_id' => $order->id ?? null,
+                        'component_code' => $stockLevel->component->code,
+                        'delta' => $delta,
+                    ]);
 
                     /* 3-a ‧ BLOCCA se la riga è già in uno short-fall -------- */
                     $alreadySf = $order && OrderItemShortfall::whereRelation('orderItem',
@@ -599,6 +633,7 @@ class StockLevelController extends Controller
 
                         $lot->update([
                             'quantity'          => $lotData['qty'],
+                            'received_quantity' => $data['qty_received'], 
                             'supplier_lot_code' => $lotData['lot_supplier'] ?: $lot->supplier_lot_code,
                         ]);
 

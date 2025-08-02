@@ -126,7 +126,7 @@ class OrderSupplierController extends Controller
                     'desc'          => $item->component->description,
                     'unit'          => $item->component->unit_of_measure,
                     'qty'           => $item->quantity,
-                    'qty_received'  => $lot->quantity,
+                    'qty_received'  => $lot->received_quantity,
                     'lot_supplier'  => $lot->supplier_lot_code,
                     'internal_lot'  => $lot->internal_lot_code,
                     'price'         => (float) $item->unit_price,

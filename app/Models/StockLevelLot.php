@@ -30,6 +30,7 @@ class StockLevelLot extends Model
         'internal_lot_code',
         'supplier_lot_code',
         'quantity',
+        'received_quantity',
     ];
     protected static $logName = 'stock_level_lot';
 
@@ -58,6 +59,7 @@ class StockLevelLot extends Model
         'internal_lot_code',
         'supplier_lot_code',
         'quantity',
+        'received_quantity',
     ];
 
     /* relazione inversa -------------------------------------------------- */

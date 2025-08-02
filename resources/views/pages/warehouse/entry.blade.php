@@ -79,7 +79,7 @@
                                     align="left" 
                                 />
                                 <x-th-menu 
-                                    field="supplier_id"            
+                                    field="supplier.name"            
                                     label="Fornitore"
                                     :sort="$sort" 
                                     :dir="$dir" 
@@ -172,7 +172,7 @@
                                                                             ->map(fn($lot) => [
                                                                                 'code'     => $lot->internal_lot_code,
                                                                                 'supplier' => $lot->supplier_lot_code,
-                                                                                'qty'      => $lot->quantity,
+                                                                                'qty'      => $lot->received_quantity,
                                                                             ])
                                                                             ->values();   // rimuove eventuali chiavi sparse
 
@@ -180,7 +180,7 @@
                                                                             'id'          => $i->id,
                                                                             'code'        => $i->component->code,
                                                                             'name'        => $i->component->description,
-                                                                            'qty_ordered' => $i->quantity,
+                                                                            'qty_ordered' => $i->received_quantity,
                                                                             'lots'        => $lots,
                                                                             'unit'        => $i->component->unit_of_measure,
                                                                         ];
@@ -236,7 +236,7 @@
                                                                                         'id'       => $lot->id,          // ↑ ci servirà in PATCH
                                                                                         'code'     => $lot->internal_lot_code,
                                                                                         'supplier' => $lot->supplier_lot_code,
-                                                                                        'qty'      => $lot->quantity,
+                                                                                        'qty'      => $lot->received_quantity,
                                                                                     ])
                                                                                     ->values(),
                                                                 'unit'        => $i->component->unit_of_measure,
@@ -368,6 +368,7 @@
                     // visibilità
                     show  : false,
                     isNew : true,
+                    newLotCode : false,
 
                     /*variabili per la modifica */
                     editMode : false,          // true se stiamo modificando un carico già salvato
@@ -429,6 +430,8 @@
                         this.editMode   = mode === 'edit';
                         this.isNew      = !this.editMode && !data;
                         this.orderSaved = !this.isNew;
+                        console.log('Data received:', data);
+                        this.newLotCode = data === null ? true : false; // reset flag per nuovo lotto
 
                         /* 2. reset autocomplete supplier ------------------------------- */
                         this.supplierSearch  = '';
@@ -660,6 +663,12 @@
                             lot_supplier   : lotsSafe[0].supplier,
                             lots           : lotsSafe,
                         };
+
+                        console.log('Loaded row:', this.currentRow);
+
+                        if(this.currentRow.lots[0].code === ''){
+                            this.newLotCode = true;
+                        }
                     },
 
                     // resetta la riga corrente a uno stato vuoto
@@ -683,7 +692,8 @@
                         if (!Array.isArray(this.currentRow.lots)) {
                             this.currentRow.lots = [];
                         }
-                        this.currentRow.lots.push({ code:'', supplier:this.currentRow.lot_supplier, qty:'' });
+                        this.currentRow.lots.push({ code:'', supplier:'', qty:'' });
+                        this.newLotCode = true;  // reset flag per nuovo lotto
                     },
 
                     // rimuove un lotto dalla riga corrente
@@ -869,78 +879,113 @@
                         this.resetRow();
                     },
 
-                    /* Aggiorna uno o più lotti esistenti */
+                    /* Aggiorna (o aggiunge) uno o più lotti della riga corrente */
                     async updateEntry() {
 
-                        /* a) differenze nella riga attualmente aperta ------------------ */
-                        const lotsChanged = this.currentRow.lots
-                            .filter(l => l.qty != l._oldQty || l.supplier != l._oldSupplier)
-                            .map(l => ({
-                                id           : l.id,
-                                qty          : l.qty,
-                                lot_supplier : l.supplier,
-                            }));
+                        /* 0‧ costruisci due array: toCreate e toUpdate ---------------- */
+                        const toCreate = [];
+                        const toUpdate = [];
 
-                        if (!lotsChanged.length) {
+                        this.currentRow.lots.forEach(l => {
+
+                            /* nuovo lotto (non ha id) ⇒ sempre da creare */
+                            if (!l.id) {
+                                toCreate.push({
+                                    order_id         : this.formData.order_id,      // può essere null
+                                    component_code   : this.currentRow.component_code,
+                                    qty_received     : l.qty,
+                                    lot_supplier     : l.supplier,
+                                    internal_lot_code: l.code,
+                                });
+                                return;
+                            }
+
+                            /* lotto esistente: verifica se qualcosa è cambiato         */
+                            const changed = (l.qty != l._oldQty || l.supplier != l._oldSupplier);
+                            if (changed) {
+                                toUpdate.push({
+                                    id           : l.id,
+                                    qty          : l.qty,
+                                    lot_supplier : l.supplier,
+                                });
+                            }
+                        });
+
+                        if (!toCreate.length && !toUpdate.length) {
                             alert('Nessuna modifica da salvare.');
                             return;
                         }
 
-                        /* b) PATCH al back-end ---------------------------------------- */
-                        try {
-                            const r = await fetch('{{ route('stock-movements-entry.update') }}', {
-                                method : 'PATCH',
-                                headers: {
-                                    'Accept'      : 'application/json',
-                                    'Content-Type': 'application/json',
-                                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                        /* helper fetch JSON ------------------------------------------ */
+                        const fetchJson = async (url, method, body) => {
+                            const r = await fetch(url, {
+                                method,
+                                headers : {
+                                    'Accept'       : 'application/json',
+                                    'Content-Type' : 'application/json',
+                                    'X-CSRF-TOKEN' : document.querySelector('meta[name="csrf-token"]').content,
                                 },
-                                body : JSON.stringify({ lots : lotsChanged })
+                                body : JSON.stringify(body),
                             });
                             const j = await r.json();
+                            if (!r.ok || !j.success) {
+                                throw new Error(j.message || 'Errore server ('+r.status+')');
+                            }
+                            return j;
+                        };
 
-                            if (!r.ok) {
-                                if (j.blocked === 'alreadyShortfall' || j.blocked === 'shortfall') {
-                                    alert(j.message); 
-                                    this.clearComponent();
-                                    this.resetRow();  // reset riga corrente
-                                    return;
-                                }
-                                alert(j.message || 'Errore server (' + r.status + ')'); return;
+                        try {
+
+                            /* 1‧ CREA i lotti nuovi ---------------------------------- */
+                            for (const body of toCreate) {
+                                await fetchJson('{{ route('stock-movements-entry.store') }}', 'POST', body);
                             }
 
-                            /* c) sincronia fra currentRow e items ---------------------- */
-                            j.updated.forEach(u => {
+                            /* 2‧ PATCH sui lotti esistenti (se ne ho) ---------------- */
+                            let patchResp = { updated: [], shortfall_created: false };
+                            if (toUpdate.length) {
+                                patchResp = await fetchJson(
+                                    '{{ route('stock-movements-entry.update') }}', 'PATCH',
+                                    { lots: toUpdate }
+                                );
+                            }
 
-                                /* aggiorna la vista in currentRow */
+                            /* 3‧ sincronia dati nel front-end ------------------------ */
+                            patchResp.updated.forEach(u => {
+
+                                /* currentRow */
                                 const crLot = this.currentRow.lots.find(l => l.id === u.id);
                                 if (crLot) {
-                                    crLot.qty        = u.qty;
-                                    crLot.supplier   = u.lot_supplier;
-                                    crLot._oldQty    = u.qty;          // nuovo snapshot
+                                    crLot.qty          = u.qty;
+                                    crLot.supplier     = u.lot_supplier;
+                                    crLot._oldQty      = u.qty;
                                     crLot._oldSupplier = u.lot_supplier;
                                 }
 
-                                /* aggiorna la tabella riepilogo */
+                                /* tabella riepilogo */
                                 this.items.forEach(it => {
                                     const lot = it.lots.find(l => l.id === u.id);
                                     if (lot) {
-                                        lot.qty        = u.qty;
-                                        lot.supplier   = u.lot_supplier;
-                                        lot._oldQty    = u.qty;
+                                        lot.qty          = u.qty;
+                                        lot.supplier     = u.lot_supplier;
+                                        lot._oldQty      = u.qty;
                                         lot._oldSupplier = u.lot_supplier;
                                     }
                                 });
                             });
 
-                            if (j.shortfall_created) {
-                                alert('Aggiornamento effettuato. È stato creato l’ordine di recupero #' +
-                                    j.follow_up_number + '.');
-                            } else {
+                            /* 4‧ feedback utente ------------------------------------ */
+                            if (patchResp.shortfall_created) {
+                                alert('Aggiornamento effettuato. È stato creato l’ordine di recupero #'
+                                    + patchResp.follow_up_number + '.');
+                            } else if (toUpdate.length) {
                                 alert('Lotti aggiornati con successo!');
+                            } else {
+                                alert('Lotti creati con successo!');
                             }
 
-                            location.reload();  // ricarica la pagina per aggiornare la cache
+                            /* 5‧ ricarica per aggiornare cache ---------------------- */
+                            location.reload();
 
                         } catch (e) {
                             alert('Errore aggiornamento: ' + e.message);

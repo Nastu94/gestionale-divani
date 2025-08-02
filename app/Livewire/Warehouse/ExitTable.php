@@ -9,8 +9,6 @@
  * • Le stesse query sono replicate lato controller (`StockLevelController@indexExit`)
  *   per SEO / fallback in caso di assenza di JS.
  *
- * @author   ACME S.p.A.
- * @copyright 2025
  */
 
 namespace App\Livewire\Warehouse;

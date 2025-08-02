@@ -292,7 +292,7 @@
                                     <button type="button"
                                             class="mb-1 px-2 py-1 bg-indigo-600 text-white rounded text-xs
                                                 hover:bg-indigo-500"
-                                            :disabled="$store.entryModal.editMode"
+                                            :disabled="!$store.entryModal.newLotCode"
                                             @click="$store.entryModal.generateLot(idx)">
                                         <i class="fas fa-sync-alt"></i>
                                     </button>
@@ -302,7 +302,7 @@
                                 <div class="col-span-2">
                                     <label class="text-xs">Lotto fornitore</label>
                                     <input type="text"
-                                        :readonly="$store.entryModal.editMode"
+                                        :readonly="!$store.entryModal.newLotCode"
                                         x-model="lot.supplier"
                                         class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
                                 text-sm text-gray-900 dark:text-gray-100">

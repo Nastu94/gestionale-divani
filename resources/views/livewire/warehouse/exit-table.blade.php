@@ -40,6 +40,23 @@
         <div class="max-w-full mx-auto sm:px-6 lg:px-8">
             <div class="bg-white dark:bg-gray-800 shadow sm:rounded-lg">
                 <div class="p-4 overflow-x-auto">
+                    {{-- ─────────── Toolbar azioni globali ─────────── --}}
+                    <div class="flex justify-end mb-2">
+                        <button  wire:click="$refresh"
+                                class="inline-flex items-center px-3 py-1.5
+                                        bg-indigo-600 hover:bg-indigo-500
+                                        text-xs font-semibold text-white rounded-md">
+
+                            <i class="fas fa-sync-alt mr-1"></i> Aggiorna
+
+                            {{-- spinner mentre Livewire elabora --}}
+                            <span wire:loading.inline wire:target="$refresh" class="ml-2">
+                                <i class="fas fa-circle-notch fa-spin"></i>
+                            </span>
+                        </button>
+                    </div>
+                    
+                    {{-- ─────────── Tabella dati ─────────── --}}
                     <table class="table-auto min-w-full text-sm divide-y divide-gray-200 dark:divide-gray-700">
                         {{-- HEAD --}}
                         <thead class="bg-gray-300 dark:bg-gray-700 uppercase tracking-wider">
@@ -131,7 +148,8 @@
                                 @endphp
 
                                 {{-- RIGA PRINCIPALE --}}
-                                <tr  @if($canToggle)
+                                <tr  wire:key="row-{{ $row->id }}"
+                                    @if($canToggle)
                                          @click="$dispatch('open-row', {{ $row->id }})"
                                          class="cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700"
                                          :class="openId === {{ $row->id }} ? 'bg-gray-200 dark:bg-gray-700' : ''"
@@ -169,7 +187,7 @@
 
                                 {{-- RIGA TOOLBAR --}}
                                 @if($canToggle)
-                                    <tr x-show="openId === {{ $row->id }}" x-cloak>
+                                    <tr wire:key="tb-{{ $row->id }}" x-show="openId === {{ $row->id }}" x-cloak>
                                         <td :colspan="9" class="px-6 py-3 bg-gray-200 dark:bg-gray-700">
                                             <div class="flex items-center space-x-4 text-xs">
                                                 {{-- ► Avanza fase (qty default 100 %) --}}
