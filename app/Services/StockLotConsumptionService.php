@@ -7,7 +7,15 @@ use App\Models\OrderItem;
 use App\Models\StockLevelLot;
 use App\Models\StockMovement;
 use App\Models\StockReservation;
+use App\Models\OrderItemPhaseEvent;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
+
+/**
+ * Servizio per la gestione del consumo di lotti di magazzino durante
+ * l'avanzamento di fase degli ordini.
+ */
 
 class StockLotConsumptionService
 {
@@ -20,63 +28,82 @@ class StockLotConsumptionService
      */
     public function consumeForAdvance(OrderItem $item, int $fromPhase, float $qtyPieces): void
     {
-        // 1️⃣  Elenco dei componenti richiesti dalla fase di PARTENZA
-        $components = $item->product->components()
-            ->with(['category.phaseLinks', 'stockLevels.lots'])
-            ->get()
-            ->filter(fn ($comp) =>
-                $comp->category
-                     ->phasesEnum()                     // Collection<ProductionPhase>
-                     ->contains(fn ($ph) => $ph->value === $fromPhase)
-            );
+        DB::transaction(function () use ($item, $fromPhase, $qtyPieces) {
 
-        Log::debug('[StockLotConsumptionService] componenti da consumare', [
-            'count' => $components->count(),
-            'codes' => $components->pluck('code')->all(),
-            'fromPhase' => $fromPhase,
-        ]);
+            /* ── 0. skip se fase “reuse” ---------------------------------- */
+            if ($fromPhase > 0 && OrderItemPhaseEvent::query()
+                    ->where('order_item_id', $item->id)
+                    ->where('from_phase',  $fromPhase + 1)
+                    ->where('to_phase',    $fromPhase)
+                    ->where('rollback_mode', 'reuse')
+                    ->exists()) {
+                Log::info('[StockLotConsumptionService] skip – reuse phase', [
+                    'item' => $item->id, 'fromPhase' => $fromPhase,
+                ]);
+                return;                         // ← transazione si chiude subito
+            }
 
-        foreach ($components as $component) {
+            /* ── 1. componenti della fase -------------------------------- */
+            $components = $item->product->components()
+                ->with(['category.phaseLinks', 'stockLevels.lots'])
+                ->get()
+                ->filter(fn ($c) =>
+                    $c->category->phasesEnum()
+                    ->contains(fn ($p) => $p->value === $fromPhase)
+                );
 
-            // quantità da prelevare = qty pezzi × qty per pezzo (BOM)
-            $needed = $component->pivot->quantity * $qtyPieces;
+            /* ── 2. PRE-CHECK stock_reservations -------------------------- */
+            foreach ($components as $c) {
+                $need = $c->pivot->quantity * $qtyPieces;
 
-            // 2️⃣  Giacenza (stock_level) da cui prelevare
-            $stockLevel = $component->stockLevels()
-                ->orderBy('quantity', 'desc')  // più capiente per sicurezza
-                ->lockForUpdate()
-                ->firstOrFail();
+                $reserved = StockReservation::query()
+                    ->where('order_id', $item->order_id)
+                    ->whereHas('stockLevel',
+                        fn ($q) => $q->where('component_id', $c->id))
+                    ->sum('quantity');
 
-            // 3️⃣  Lotti FIFO (più vecchi prima)
-            $lots = $stockLevel->lots()
-                ->where('quantity', '>', 0)
-                ->orderBy('created_at')        // FIFO sul timestamp di arrivo
-                ->lockForUpdate()
-                ->get();
+                if ($reserved + 1e-6 < $need) {
+                    // ⬇️ qualsiasi eccezione fa rollback automatico
+                    throw ValidationException::withMessages([
+                        'stock' => "Componenti insufficienti per {$c->code}: "
+                                ."necessari {$need}, giacenza riservata {$reserved}.",
+                    ]);
+                }
+            }
 
-            foreach ($lots as $lot) {
-                if ($needed <= 0) {
-                    break;                     // richiesto già soddisfatto
+            /* ── 3. consumo lotti & rilascio reservation ------------------ */
+            foreach ($components as $c) {
+
+                $needed = $c->pivot->quantity * $qtyPieces;
+
+                $lots = StockLevelLot::query()
+                    ->where('stock_level_id', $c->stockLevels()->value('id'))
+                    ->where('quantity', '>', 0)
+                    ->orderBy('created_at')
+                    ->lockForUpdate()
+                    ->get();
+
+                foreach ($lots as $lot) {
+                    if ($needed <= 0) break;
+                    $needed = $this->consumeLot($lot, $needed, $item, $fromPhase);
                 }
 
-                $needed = $this->consumeLot($lot, $needed, $item, $fromPhase);
+                if ($needed > 0) {
+                    // lancerà eccezione → tutta la transazione si annulla
+                    throw ValidationException::withMessages([
+                        'stock' => "Consumo lotti interrotto: "
+                                .number_format($needed,2,'.','')
+                                ." mancanti di {$c->code}.",
+                    ]);
+                }
             }
 
-            if ($needed > 0) {
-                // In teoria non succede: le qty erano state prenotate.
-                Log::warning('Consumo lotti – quantità non soddisfatta', [
-                    'component' => $component->code,
-                    'missing'   => $needed,
-                    'order_item_id' => $item->id,
-                ]);
-            }
-        }
-
-        Log::debug('[StockLotConsumptionService] consumo completato', [
-            'order_item_id' => $item->id,
-            'fromPhase'     => $fromPhase,
-            'qtyPieces'     => $qtyPieces,
-        ]);
+            Log::debug('[StockLotConsumptionService] consumo completato', [
+                'order_item_id' => $item->id,
+                'fromPhase'     => $fromPhase,
+                'qtyPieces'     => $qtyPieces,
+            ]);
+        });
     }
 
     /* ---------------------------------------------------------------------
@@ -123,7 +150,7 @@ class StockLotConsumptionService
             'stock_level_id' => $lot->stock_level_id,
             'type'           => 'out',
             'quantity'       => $take,
-            'note'           => "Consumo fase {$fromPhase} – OC #{$item->order_id}",
+            'note'           => "Consumato il lotto {$lot->internal_lot_code} nella fase {$fromPhase} – OC #{$item->order_id}",
         ]);
 
         Log::debug('[StockLotConsumptionService] movimento OUT registrato', [

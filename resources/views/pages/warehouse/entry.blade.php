@@ -180,7 +180,7 @@
                                                                             'id'          => $i->id,
                                                                             'code'        => $i->component->code,
                                                                             'name'        => $i->component->description,
-                                                                            'qty_ordered' => $i->received_quantity,
+                                                                            'qty_ordered' => $i->quantity,
                                                                             'lots'        => $lots,
                                                                             'unit'        => $i->component->unit_of_measure,
                                                                         ];

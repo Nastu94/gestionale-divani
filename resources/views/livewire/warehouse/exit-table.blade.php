@@ -201,8 +201,9 @@
 
                                                 {{-- ↶ Rollback --}}
                                                 @if($canRollback)
-                                                    <button  type="button" class="inline-flex items-center hover:text-amber-600"
-                                                             @click.prevent="$wire.emit('open-rollback', {{ $row->id }}, {{ $row->qty_in_phase }})">
+                                                    <button type="button"
+                                                            class="inline-flex items-center hover:text-amber-600"
+                                                            wire:click="openRollback({{ $row->id }}, {{ $row->qty_in_phase }})">
                                                         <i class="fas fa-undo mr-1"></i> Rollback
                                                     </button>
                                                 @endif
@@ -284,6 +285,58 @@
         </form>
     </dialog>
 
+    {{--  Modal Rollback  ----------------------------------------------------}}
+    <dialog  wire:ignore
+            x-data="rollbackModal()"
+            x-init="
+                dlg = $el;                                   /* init subito  */
+                window.addEventListener('show-rollback-modal', e => open(e.detail))
+            "
+            @click.outside="close"                           {{-- esc + click out --}}
+            @keydown.escape.window="close"
+            class="rounded-lg shadow-lg w-96 max-w-full p-5
+                bg-white dark:bg-gray-800 backdrop:bg-black/40">
+
+        <h2 class="text-lg font-semibold mb-4">Rollback fase</h2>
+
+        <form @submit.prevent="confirm" class="space-y-4">
+
+            {{-- quantità --}}
+            <div>
+                <label class="block text-sm mb-1">
+                    Quantità (max <span x-text="max"></span>)
+                </label>
+                <input  type="number" step="1" min="1"
+                        x-model.number="qty"
+                        class="w-full border rounded px-2 py-1
+                            focus:ring-indigo-500 focus:border-indigo-500">
+            </div>
+
+            {{-- motivo obbligatorio --}}
+            <div>
+                <label class="block text-sm mb-1">Motivazione rollback *</label>
+                <textarea x-model.trim="reason" rows="2"
+                        class="w-full border rounded px-2 py-1
+                                focus:ring-indigo-500 focus:border-indigo-500"></textarea>
+            </div>
+
+            {{-- flag “riutilizzabile” --}}
+            <label class="inline-flex items-center text-sm">
+                <input type="checkbox" x-model="reuse"
+                    class="mr-2 rounded border-gray-300">
+                Componenti riutilizzabili (smontaggio)
+            </label>
+
+            <div class="flex justify-end gap-2 text-sm pt-2">
+                <button type="button" @click="close"
+                        class="px-3 py-1 bg-gray-300 rounded">Annulla</button>
+                <button type="submit"
+                        class="px-3 py-1 bg-amber-600 text-white rounded">
+                    Conferma
+                </button>
+            </div>
+        </form>
+    </dialog>
 </div>
 
 @push('scripts')
@@ -342,6 +395,70 @@
 
                     /* listener all’evento dispatched da Livewire             */
                     window.addEventListener('show-adv-modal', e => this.open(e.detail))
+                },
+            }
+        }
+
+        function rollbackModal () {
+            return {
+                dlg : null,
+                compId : null,    // id Livewire del componente tabella
+                id  : null,       // order_item_id
+                max : 0,
+                qty : 1,
+                reason : '',
+                reuse  : false,   // flag “componenti riutilizzabili”
+
+                /* ▲ apre il dialog ------------------------------------------------- */
+                open (p) {
+                    this.id     = p.id
+                    this.max    = p.maxQty
+                    this.qty    = p.defaultQty
+                    this.reason = ''
+                    this.reuse  = false
+
+                    if (! this.dlg.showModal) {
+                        this.dlg.setAttribute('open', '')
+                    } else {
+                        this.dlg.showModal()
+                    }
+                },
+
+                /* ▲ conferma → chiama Livewire ------------------------------------ */
+                confirm () {
+                    if (this.qty < 1 || this.qty > this.max) {
+                        alert('Quantità non valida (1-' + this.max + ').'); return;
+                    }
+                    if (this.reason.trim() === '') {
+                        alert('La motivazione è obbligatoria.'); return;
+                    }
+
+                    const comp = Livewire.find(this.compId)
+                    if (! comp) { console.error('Livewire component not found'); return }
+                            
+                    comp.call('confirmRollback', {
+                            id:     this.id,
+                            qty:    this.qty,
+                            max:    this.max,
+                            reason: this.reason,
+                            reuse:  this.reuse
+                        });
+
+                    this.close()
+                },
+
+                /* ▲ chiusura ------------------------------------------------------- */
+                close () { this.dlg.close ? this.dlg.close() : this.dlg.removeAttribute('open') },
+
+                init () {
+                    this.dlg    = this.$el
+                    this.compId = this.$el.closest('[wire\\:id]').getAttribute('wire:id')
+
+                    if (! this.dlg.showModal) {           // polyfill <dialog>
+                        this.dlg.showModal = () => this.dlg.setAttribute('open', '')
+                        this.dlg.close     = () => this.dlg.removeAttribute('open')
+                    }
+                    window.addEventListener('show-rollback-modal', e => this.open(e.detail))
                 },
             }
         }

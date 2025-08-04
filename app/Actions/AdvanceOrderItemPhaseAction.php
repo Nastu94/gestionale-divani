@@ -7,6 +7,12 @@
  *  • creazione dell’evento storico
  *  • transazione DB
  *  • delega all’Observer per aggiornare campi denormalizzati
+ *  • gestione rollback (scrap o reintegro)
+ *  • verifica prenotazioni componenti fase destinazione
+ *  • scarico lotti (se non fase 0→1)
+ *  • gestione errori e rollback
+ * 
+ * Esegue lo spostamento di una riga ordine da una fase di produzione all'altra.
  *
  * @author  Gestionale Divani
  * @license Proprietary
@@ -17,11 +23,17 @@ namespace App\Actions;
 use App\Enums\ProductionPhase;
 use App\Models\OrderItem;
 use App\Models\OrderItemPhaseEvent;
+use App\Models\StockLevel;
+use App\Models\StockReservation;
+use App\Models\StockMovement;
 use App\Services\StockLotConsumptionService;
+use App\Services\InventoryService;
+use App\Services\ProcurementService;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
+use Carbon\CarbonImmutable;
 
 final readonly class AdvanceOrderItemPhaseAction
 {
@@ -35,19 +47,21 @@ final readonly class AdvanceOrderItemPhaseAction
 
         private bool             $isRollback = false,
         private ?string          $reason     = null,
+        private string           $rollbackMode = 'scrap',
     ) {}
 
     /**
      * Esegue l'operazione e restituisce la riga aggiornata.
      */
-    public function execute(): OrderItem
+    public function execute(): array
     {
-        return DB::transaction(function (): OrderItem {
+        return DB::transaction(function (): array {
             Log::debug('[AdvanceOrderItemPhaseAction] start', [
                 'item'     => $this->item->id,
                 'qty'      => $this->quantity,
                 'rollback' => $this->isRollback,
                 'phase'    => $this->item->current_phase->value,
+                'mode'     => $this->rollbackMode,
             ]);
 
             // 1 ▸ blocco pessimista per evitare race-condition
@@ -73,7 +87,7 @@ final readonly class AdvanceOrderItemPhaseAction
             // 3 ▸ validazioni di business
             if(!$this->user->can('stock.exit')){
                 throw ValidationException::withMessages([
-                    'auth' => 'Non hai il permesso di avanzare l\'ordine.',
+                    'auth' => 'Non hai il permesso di avanzare o fare rollback dell\'ordine.',
                 ]);
             }
 
@@ -104,76 +118,26 @@ final readonly class AdvanceOrderItemPhaseAction
             *----------------------------------------------------------------- */
             if (! $this->isRollback) {
 
-                /** id fase di destinazione */
-                $destPhase = $toPhase;           // 1-5
+                $destPhase = $toPhase;   // 1-6
 
-                Log::debug('[AdvanceOrderItemPhaseAction] check reservations', [
-                    'destPhase' => $destPhase,
-                    'order_id'  => $item->order_id,
-                ]);
-
-                /* ① elenca i componenti il cui category → phase = $destPhase */
-                $components = $item->product?->components()
-                    ->with('category.phaseLinks')               // eager-load
-                    ->get()
-                    ->filter(fn ($comp) =>                      // tieni solo le categorie
-                        $comp->category
-                            ->phasesEnum()                     // Collection<ProductionPhase>
-                            ->contains(fn ($ph) => $ph->value === $destPhase)
-                    );
-
-                Log::debug('[AdvanceOrderItemPhaseAction] components', [
-                    'count' => $components->count(),
-                    'codes' => $components->pluck('code')->all(),
-                    'destPhase' => $destPhase,
-                ]);
-
-                /* lista componenti con prenotazione insufficiente */
-                $missing = [];
-
-                foreach ($components as $comp) {
-
-                    /** quantità necessaria per i pezzi che stiamo avanzando */
-                    $perPiece   = $comp->pivot->quantity;           // da product_components
-                    $neededQty  = $perPiece * $this->quantity;
-
-                    /** prenotazioni esistenti per quest’ordine e componente */
-                    $reserved = DB::table('stock_reservations as sr')
-                        ->join('stock_levels as sl', 'sl.id', '=', 'sr.stock_level_id')
-                        ->where('sr.order_id',    $item->order_id)
-                        ->where('sl.component_id',$comp->id)
-                        ->sum('sr.quantity'); 
-
-                    Log::debug('[AdvanceOrderItemPhaseAction] reservation check', [
-                        'component'   => $comp->code,
-                        'needed'      => $neededQty,
-                        'reserved'    => $reserved,
-                    ]);
-
-                    if ($reserved < $neededQty) {
-                        // memorizza solo il codice (o descrizione) per il messaggio finale
-                        $missing[] = $comp->code;
-                    }
-                }
-
-                /* 🛑  se c’è almeno un componente mancante → eccezione unica */
+                /* verifica prenotazioni componenti fase destinazione */
+                $missing = $this->checkReservations($item, $destPhase);
                 if ($missing) {
-                    $msg = "I componenti necessari per la prossima fase non sono ancora disponibili. "
-                        . "Verifica le giacenze prima di procedere.\n"
-                        . "Di seguito i componenti: " . implode(', ', $missing) . '.';
-
-                    throw ValidationException::withMessages(['stock' => $msg]);
+                    throw ValidationException::withMessages([
+                        'stock' => "I seguenti componenti non sono ancora disponibili: "
+                                   . implode(', ', $missing) . '.',
+                    ]);
                 }
-            }
 
-            /* 3 ter ▸ scarico fisicamente i lotti della fase corrente */
-            if (! $this->isRollback && $fromPhase > 0) {
-                app(StockLotConsumptionService::class)
-                    ->consumeForAdvance(
-                        $item,
-                        $this->fromPhase->value,   // 👈 enum → int
-                        $this->quantity
-                    );
+                /* scarico fisico lotti (eccetto passaggio fase 0→1) */
+                if ($fromPhase > 0) {
+                    app(StockLotConsumptionService::class)
+                        ->consumeForAdvance(
+                            $item,
+                            $this->fromPhase->value,   // 👈 enum → int
+                            $this->quantity
+                        );
+                }
             }
 
             // 4 ▸ scrivi l’evento storico
@@ -189,18 +153,163 @@ final readonly class AdvanceOrderItemPhaseAction
                 'quantity'      => $this->quantity,
                 'changed_by'    => $this->user->id,
                 'is_rollback'   => $this->isRollback,
+                'rollback_mode' => $this->isRollback ? $this->rollbackMode : null,
                 'reason'        => $this->reason,
             ]);
+
+            /*───────────────────────────────────────────────────────────────────*
+            |  Rollback “scrap” – prenotazione giacenza / creazione PO          |
+            *───────────────────────────────────────────────────────────────────*/
+            $createdPoNumbers = collect();                                     // ← per il flash
+
+            if ($this->isRollback && $this->rollbackMode === 'scrap') {
+
+                /* ■ 1 – fabbisogno componenti della fase DESTINAZIONE ($toPhase) */
+                $componentsQty = [];                                           // [comp_id => qty]
+
+                $item->product->load('components.category.phaseLinks');
+                foreach ($item->product->components as $comp) {
+                    $belongs = $comp->category
+                        ->phasesEnum()
+                        ->contains(fn ($p) => $p->value === $toPhase);
+
+                    if ($belongs) {
+                        $componentsQty[$comp->id] = ($componentsQty[$comp->id] ?? 0)
+                            + $comp->pivot->quantity * $this->quantity;
+                    }
+                }
+
+                /* Se non servono componenti (es. fase “Imbottitura” senza BOM) esci. */
+                if (empty($componentsQty)) {
+                    goto rollback_end;
+                }
+
+                /* ■ 2 – verifica disponibilità */
+                $delivery   = $item->order->delivery_date
+                    ? CarbonImmutable::parse($item->order->delivery_date)
+                    : CarbonImmutable::now();
+
+                $inv        = InventoryService::forDelivery($delivery, $item->order_id);
+                $availRes   = $inv->checkComponents($componentsQty);
+                $createdPoNumbers = collect();
+
+                /* ■ 3 – tutto OK → prenota i lotti FIFO */
+                $shortage = [];                                         // [cid => qty_left]
+
+                foreach ($componentsQty as $cid => $need) {
+
+                    $left = $need;
+
+                    StockLevel::where('component_id', $cid)
+                        ->orderBy('created_at')       // FIFO
+                        ->lockForUpdate()
+                        ->each(function (StockLevel $sl) use (&$left, $item) {
+
+                            if ($left <= 0) return false;               // abbiamo già coperto
+
+                            $already = $sl->reservations()->sum('quantity');
+                            $free    = max($sl->quantity - $already, 0);
+                            if ($free <= 0) return true;                // passa al lotto successivo
+
+                            $take = min($free, $left);
+
+                            StockReservation::create([
+                                'stock_level_id' => $sl->id,
+                                'order_id'       => $item->order_id,
+                                'quantity'       => $take,
+                            ]);
+
+                            StockMovement::create([
+                                'stock_level_id' => $sl->id,
+                                'type'           => 'reserve',
+                                'quantity'       => $take,
+                                'note'           => "Prenotazione post-rollback OC #{$item->order_id}",
+                            ]);
+
+                            $left -= $take;                             // aggiorna residuo
+                        });
+
+                    if ($left > 0) {
+                        $shortage[$cid] = $left;                        // quantità ancora da coprire
+                    }
+                }
+
+                /* ■ 4 – se rimane scoperto → genera PO (solo con permesso) ---------------- */
+                if (! empty($shortage)) {
+
+                    if (! $this->user->can('orders.supplier.create')) {
+                        throw ValidationException::withMessages([
+                            'stock' => 'Materiale insufficiente: contatta il commerciale per '
+                                    .'creare un ordine fornitore.',
+                        ]);
+                    }
+
+                    // trasformiamo $shortage in collection compatibile con ProcurementService
+                    $shortageColl = collect($shortage)
+                        ->map(fn ($q,$cid) => ['component_id' => $cid, 'shortage' => $q])
+                        ->values();
+
+                    $shortageColl = ProcurementService::buildShortageCollection($shortageColl);
+                    $procResult   = ProcurementService::fromShortage($shortageColl, $item->order_id);
+
+                    $createdPoNumbers = $procResult['po_numbers'] ?? collect();
+                }
+            }
+
+            rollback_end:
 
             // 5 ▸ Observer aggiorna order_items / orders → refresh
             $refreshed = $item->refresh();
 
             Log::info('[AdvanceOrderItemPhaseAction] commit OK', [
+                'item' => $refreshed->id,
                 'current_phase' => $refreshed->current_phase,
                 'qty_completed' => $refreshed->qty_completed,
             ]);
 
-            return $refreshed;
+            return [
+                'item' => $refreshed,
+                'po_numbers' => $createdPoNumbers,
+            ];
         });
+    }
+
+    /*───────────────────────────────────────────────────────────────────────*
+     |  Verifica se esistono prenotazioni sufficienti per la fase destino    |
+     *───────────────────────────────────────────────────────────────────────*/
+    private function checkReservations(OrderItem $item, int $destPhase): array
+    {
+        $components = $item->product?->components()
+            ->with('category.phaseLinks')
+            ->get()
+            ->filter(fn ($c) =>
+                $c->category
+                  ->phasesEnum()
+                  ->contains(fn ($p) => $p->value === $destPhase)
+            );
+
+        $missing = [];
+
+        foreach ($components as $comp) {
+            $needed   = $comp->pivot->quantity * $this->quantity;
+
+            $reserved = DB::table('stock_reservations as sr')
+                ->join('stock_levels as sl', 'sl.id', '=', 'sr.stock_level_id')
+                ->where('sr.order_id',     $item->order_id)
+                ->where('sl.component_id', $comp->id)
+                ->sum('sr.quantity');
+            
+            Log::debug('[AdvanceOrderItemPhaseAction] check reservations', [
+                'component' => $comp->code,
+                'needed'    => $needed,
+                'reserved'  => $reserved,
+            ]);
+
+            if ($reserved < $needed) {
+                $missing[] = $comp->code;
+            }
+        }
+
+        return $missing;
     }
 }

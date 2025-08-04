@@ -38,6 +38,7 @@ class OrderItemPhaseEvent extends Model
         'changed_by',
         'is_rollback',
         'reason',
+        'rollback_mode', 
     ];
 
     /** @var array<string,string> */
@@ -46,6 +47,7 @@ class OrderItemPhaseEvent extends Model
         'to_phase'   => ProductionPhase::class,
         'is_rollback'=> 'boolean',
         'quantity'   => 'float',
+        'rollback_mode' => 'string',
     ];
 
     // ─────────────────────────────────────── Relationships
@@ -77,6 +79,7 @@ class OrderItemPhaseEvent extends Model
         'changed_by',
         'is_rollback',
         'reason',
+        'rollback_mode', 
     ];
     
     /**

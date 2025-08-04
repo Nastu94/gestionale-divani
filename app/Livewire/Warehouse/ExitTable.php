@@ -65,12 +65,20 @@ class ExitTable extends Component
     public float  $advMaxQty    = 0;      // pezzi residui in fase
     public float  $advQuantity  = 0;      // input utente
 
+    /*──────────── modal ROLLBACK ──────────────*/
+    public ?int  $rbItemId   = null;
+    public float $rbMaxQty   = 0;
+    public float $rbQuantity = 0;
+    public string $rbReason  = ''; // motivo del rollback
+    public bool   $rbReuse   = false; // modalità 'reuse' o 'scrap' 
+
     /* ───────────────────────────────────────────────────────────────*
      |  Eventi Livewire: rispondono a click su pulsanti o input    |
      *───────────────────────────────────────────────────────────────*/
     protected $listeners = [
         'open-advance'   => 'openAdvance',
         'confirm-advance'=> 'confirmAdvance',
+        'confirmRollback'=> 'confirmRollback',
     ];
 
     /**
@@ -257,6 +265,76 @@ class ExitTable extends Component
             ]);
 
             session()->flash('error', $e->getMessage());
+        }
+    }
+
+    /**
+     * Avvia il rollback di una fase, mostrando il modal.
+     * @param int $itemId ID dell'ordine da fare rollback.
+     * @param float $max Massimo pezzi da fare rollback.
+     */
+    public function openRollback(int $itemId, float $max): void
+    {
+        $this->rbItemId   = $itemId;
+        $this->rbMaxQty   = $max;
+        $this->rbQuantity = $max;
+        $this->rbReason   = ''; // reset motivo
+        $this->rbReuse    = false; // reset modalità
+
+        $this->dispatch('show-rollback-modal',    // evento browser
+            id:        $itemId,
+            maxQty:    $max,
+            defaultQty:$max
+        );
+    }
+
+    /**
+     * Conferma il rollback di una fase, con modalità 'reuse' o 'scrap'.
+     * @param array $data Dati inviati dal form di rollback.
+     *
+     * @throws \Illuminate\Validation\ValidationException
+     */
+    public function confirmRollback(array $payload): void
+    {
+        $this->rbItemId   = (int)   ($payload['id']  ?? 0);
+        $this->rbQuantity = (float) ($payload['qty'] ?? 0);
+        $this->rbMaxQty   = (float) ($payload['max'] ?? $this->rbQuantity);
+        $this->rbReason   = $payload['reason'] ?? null;
+        $this->rbReuse    = ($payload['reuse'] ?? false);
+
+        $this->validate([
+            'rbQuantity' => ['required','numeric','gt:0','lte:'.$this->rbMaxQty],
+        ], [], ['rbQuantity'=>'quantità']);
+
+        try {
+            $result = app(AdvanceOrderItemPhaseAction::class, [
+                'item'         => OrderItem::findOrFail($this->rbItemId),
+                'quantity'     => $this->rbQuantity,
+                'user'         => auth()->user(),
+                'fromPhase'    => ProductionPhase::from($this->phase),
+                'isRollback'   => true,
+                'reason'       => $this->rbReason,
+                'rollbackMode' => $this->rbReuse ? 'reuse' : 'scrap',
+            ])->execute();
+
+            /* ───── messaggio dinamico ───── */
+            $msg = 'Rollback registrato.';
+            if (!empty($result['po_numbers']) && $result['po_numbers']->isNotEmpty()) {
+                $list = $result['po_numbers']->implode(',');
+                $msg .= " Creati ordini fornitore {$list}.";
+            }
+
+            session()->flash('success', $msg);
+            $this->dispatch('close-row');
+            $this->reset('rbItemId','rbMaxQty','rbQuantity', 'rbReason', 'rbReuse');
+            $this->resetPage();
+
+        } catch (\Throwable $e) {
+            Log::error('[confirmRollback] ERROR', [
+                'msg'   => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            session()->flash('error',$e->getMessage());
         }
     }
 }

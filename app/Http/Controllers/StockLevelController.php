@@ -633,11 +633,9 @@ class StockLevelController extends Controller
 
                         $lot->update([
                             'quantity'          => $lotData['qty'],
-                            'received_quantity' => $data['qty_received'], 
+                            'received_quantity' => $lotData['qty'], 
                             'supplier_lot_code' => $lotData['lot_supplier'] ?: $lot->supplier_lot_code,
                         ]);
-
-                        $stockLevel->increment('quantity', $delta);
 
                         StockMovement::create([
                             'stock_level_id' => $stockLevel->id,
