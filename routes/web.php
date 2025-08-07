@@ -816,7 +816,7 @@ Route::middleware([
     | Protette dal permesso stock.view.
     |
     */
-    Route::get('stock-levels', [StockLevelController::class, 'index'])
+    Route::get('stock-levels', [StockLevelController::class, 'indexStatic'])
         ->name('stock-levels.index')
         ->middleware('permission:stock.view');
 

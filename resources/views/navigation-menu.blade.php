@@ -16,7 +16,7 @@
 
             <div class="hidden sm:flex sm:items-center sm:ms-6">
 
-                <!-- Global Search -->
+                <!-- Global Search
                 <div class="relative">
                     <form action="{{ route('search') }}" method="GET">
                         <input
@@ -26,7 +26,7 @@
                             class="h-8 w-48 pl-9 pr-3 rounded-md border border-gray-300 bg-white dark:bg-gray-700 placeholder-gray-500 text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"
                         />
                     </form>
-                </div>
+                </div> -->
 
                 <!-- Settings Dropdown -->
                 <div class="ms-3 relative">

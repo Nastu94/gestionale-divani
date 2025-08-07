@@ -42,32 +42,38 @@ class StockLevelController extends Controller
     public function indexEntry(Request $request)
     {
         /*────────── PARAMETRI QUERY ──────────*/
-        $sort    = $request->input('sort', 'order_number');    // default ↑
-        $dir     = $request->input('dir',  'desc') === 'asc' ? 'asc' : 'desc';
+        $sortRaw = $request->input('sort', 'order_number');
+        // normalizzo i nomi che arrivano dalla UI
+        $sort = match ($sortRaw) {
+            'supplier.name' => 'supplier',
+            default         => $sortRaw,
+        };
+        $dir  = $request->input('dir', 'desc') === 'asc' ? 'asc' : 'desc';
         $filters = $request->input('filter', []);
 
         /*────────── WHITELIST ORDINABILI ─────*/
         $allowedSorts = ['order_number', 'supplier', 'delivery_date'];
-        if (! in_array($sort, $allowedSorts, true)) {
+        if (!in_array($sort, $allowedSorts, true)) {
             $sort = 'delivery_date';
         }
 
         /*────────── QUERY BASE ───────────────*/
         $supplierOrders = Order::query()
             ->with(['supplier:id,name,email,vat_number,address', 'orderNumber:id,number,order_type'])
-            ->whereHas('orderNumber', fn ($q) =>
-                $q->where('order_type', 'supplier')
-            )        // sono già ricevimenti
+            ->whereHas('orderNumber', fn ($q) => $q->where('order_type', 'supplier'))
+
             /*───── FILTRI ─────────────────────*/
             ->when($filters['order_number'] ?? null,
                 fn ($q, $v) => $q->whereHas('orderNumber',
                                     fn ($q) => $q->where('number', 'like', "%$v%")))
-            ->when($filters['supplier'] ?? null,
+            // accetta sia filter[supplier] che filter[supplier.name]
+            ->when(($filters['supplier'] ?? null) ?: ($filters['supplier.name'] ?? null),
                 fn ($q, $v) => $q->whereHas('supplier',
                                     fn ($q) => $q->where('name', 'like', "%$v%")))
             ->when($filters['delivery_date'] ?? null,
-                fn ($q, $v) => $q->whereDate('delivery_date', 'like', "%$v%"))
-            /*───── ORDINAMENTO ───────────────*/
+                fn ($q, $v) => $q->whereDate('delivery_date', $v))  // se vuoi "contiene", usa ->where('delivery_date','like',"%$v%")
+
+            /*───── ORDINAMENTO (solo UNO) ─────*/
             ->when($sort === 'supplier', function ($q) use ($dir) {
                 $q->join('suppliers as s', 'orders.supplier_id', '=', 's.id')
                 ->orderBy('s.name', $dir)
@@ -77,16 +83,85 @@ class StockLevelController extends Controller
                 $q->join('order_numbers as on', 'orders.order_number_id', '=', 'on.id')
                 ->orderBy('on.number', $dir)
                 ->select('orders.*');
-            }, function ($q) use ($sort, $dir) {
-                $q->orderBy($sort, $dir);
             })
+            ->when($sort === 'delivery_date', function ($q) use ($dir) {
+                $q->orderBy('orders.delivery_date', $dir);
+            })
+
             ->paginate(15)
             ->appends($request->query());
 
-        return view(
-            'pages.warehouse.entry',
-            compact('supplierOrders', 'sort', 'dir', 'filters')
-        );
+        return view('pages.warehouse.entry', compact('supplierOrders', 'sort', 'dir', 'filters'));
+    }
+
+    /**
+     * Copia statica completa per SEO / utenti senza JavaScript.
+     * Route NON pubblica di default – richiamata dalla view via include.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Contracts\View\View
+     */
+    public static function indexStatic(Request $request)
+    {
+        /* ✦ parametri URL (stessi di Livewire) */
+        $sort    = $request->input('sort',  '');
+        $dir     = $request->input('dir',   'asc') === 'desc' ? 'desc' : 'asc';
+        $filters = (array) $request->input('filters', []);
+
+        /* white-list sort */
+        $allowedSorts = [
+            'component_code','component_description','uom',
+            'quantity','reserved_quantity',
+        ];
+        if (! in_array($sort, $allowedSorts, true)) {
+            $sort = '';
+        }
+
+        /* sub-query reserved qty */
+        $resSub = DB::table('stock_reservations')
+            ->select('stock_level_id', DB::raw('SUM(quantity) AS reserved_quantity'))
+            ->groupBy('stock_level_id');
+
+        /* query completa (NO paginazione) */
+        $levels = DB::table('stock_levels as sl')
+            ->join('components as c', 'c.id','=','sl.component_id')
+            ->leftJoinSub($resSub,'r','r.stock_level_id','=','sl.id')
+            ->where('sl.quantity','>',0)
+
+            ->select([
+                'sl.id',
+                'sl.quantity',
+                'c.code   as component_code',
+                'c.description as component_description',
+                'c.unit_of_measure as uom',
+                DB::raw('COALESCE(r.reserved_quantity,0) AS reserved_quantity'),
+            ])
+
+            /* filtri --------------------------------*/
+            ->when($filters['component_code']        ?? null,
+                   fn ($q,$v) => $q->where('c.code','like',"%{$v}%"))
+            ->when($filters['component_description'] ?? null,
+                   fn ($q,$v) => $q->where('c.description','like',"%{$v}%"))
+            ->when($filters['uom']                   ?? null,
+                   fn ($q,$v) => $q->where('c.unit_of_measure',$v))
+            ->when($filters['reserved_quantity']     ?? null,
+                   fn ($q,$v) => $q->havingRaw('reserved_quantity >= ?',[$v]))
+
+            /* ordinamento ---------------------------*/
+            ->tap(function ($q) use ($sort,$dir) {
+                match ($sort) {
+                    'component_code'        => $q->orderBy('c.code',          $dir),
+                    'component_description' => $q->orderBy('c.description',   $dir),
+                    'uom'                   => $q->orderBy('c.unit_of_measure',$dir),
+                    'reserved_quantity'     => $q->orderBy('reserved_quantity',$dir),
+                    'quantity'              => $q->orderBy('sl.quantity',     $dir),
+                    default                 => null,
+                };
+            })
+            ->get();
+
+        /* → view static-table (partial) */
+        return view('pages.warehouse.stock-levels', compact('levels'));
     }
 
     /**

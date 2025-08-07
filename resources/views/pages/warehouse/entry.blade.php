@@ -79,7 +79,7 @@
                                     align="left" 
                                 />
                                 <x-th-menu 
-                                    field="supplier.name"            
+                                    field="supplier"            
                                     label="Fornitore"
                                     :sort="$sort" 
                                     :dir="$dir" 

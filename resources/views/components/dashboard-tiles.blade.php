@@ -8,7 +8,7 @@
     $tiles = $tiles ?? [];
 @endphp
 
-<div class="flex flex-wrap gap-4">
+<!--<div class="flex flex-wrap gap-4">
     {{-- Se l'utente non ha nessuno dei permessi previsti, non renderizza nulla --}}
     @canany(collect($tiles)->pluck('permission')->all())
         @foreach($tiles as $tile)
@@ -39,4 +39,4 @@
             @endcan
         @endforeach
     @endcanany
-</div>
+</div>-->
