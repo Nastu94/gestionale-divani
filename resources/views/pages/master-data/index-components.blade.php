@@ -160,11 +160,13 @@
                                     $canEdit   = auth()->user()->can('components.update');
                                     $canDelete = auth()->user()->can('components.delete');
                                     $canCrud   = $canEdit || $canDelete;
+                                    /* esiste almeno una giacenza positiva? */
+                                    $hasPositiveStock = $component->stockLevels->isNotEmpty();
                                 @endphp
 
                                 {{-- Riga principale --}}
                                 <tr
-                                    @if($canCrud || (auth()->user()->can('price_lists.view') || auth()->user()->can('price_lists.create')))
+                                    @if($canCrud || (auth()->user()->can('price_lists.view') || auth()->user()->can('price_lists.create') || (auth()->user()->can('stock.view') && $hasPositiveStock)))
                                         @click="openId = (openId === {{ $component->id }} ? null : {{ $component->id }})"
                                         class="cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700"
                                         :class="openId === {{ $component->id }} ? 'bg-gray-200 dark:bg-gray-700' : ''"
@@ -195,7 +197,7 @@
                                 </tr>
 
                                 {{-- Riga espansa con Modifica / Elimina / Ripristina --}}
-                                @if($canCrud || (auth()->user()->can('price_lists.view') || auth()->user()->can('price_lists.create')))
+                                @if($canCrud || (auth()->user()->can('price_lists.view') || auth()->user()->can('price_lists.create') || (auth()->user()->can('stock.view') && $hasPositiveStock)))
                                 <tr x-show="openId === {{ $component->id }}" x-cloak>
                                     <td
                                         :colspan="extended ? 10 : 5"
@@ -231,11 +233,6 @@
                                                     <i class="fas fa-handshake mr-1"></i> Fornitori
                                                 </button>
                                             @endcan
-
-                                            @php
-                                                /* esiste almeno una giacenza positiva? */
-                                                $hasPositiveStock = $component->stockLevels->isNotEmpty();
-                                            @endphp
 
                                             @if($hasPositiveStock && auth()->user()->can('stock.view'))
                                                 <button

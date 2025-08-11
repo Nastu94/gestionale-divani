@@ -975,9 +975,50 @@
                             });
 
                             /* 4‧ feedback utente ------------------------------------ */
-                            if (patchResp.shortfall_created) {
-                                alert('Aggiornamento effettuato. È stato creato l’ordine di recupero #'
-                                    + patchResp.follow_up_number + '.');
+                            const listShortfalls = (arr = []) => {
+                                if (!Array.isArray(arr) || !arr.length) return '';
+                                return arr.map(o => {
+                                    const num = o.number ?? o.id ?? '?';
+                                    const dt  = o.delivery_date ? ` (consegna ${o.delivery_date})` : '';
+                                    const lt  = (o.lead_time_days ?? null) !== null ? ` — LT ${o.lead_time_days}g` : '';
+                                    return `#${num}${dt}${lt}`;
+                                }).join('\n');
+                            };
+
+                            const normalizeShortfalls = (resp) => {
+                                // formato nuovo: array completo
+                                if (Array.isArray(resp.follow_up_orders)) return resp.follow_up_orders;
+
+                                // compat: vecchi campi singoli
+                                if (resp.follow_up_order_id || resp.follow_up_number) {
+                                    return [{
+                                        id: resp.follow_up_order_id ?? null,
+                                        number: resp.follow_up_number ?? null,
+                                        delivery_date: resp.delivery_date ?? null,
+                                        lead_time_days: resp.lead_time_days ?? null,
+                                    }];
+                                }
+                                return [];
+                            };
+
+                            const shortfalls = normalizeShortfalls(patchResp);
+
+                            if (patchResp.shortfall_blocked === 'no_permission' && (patchResp.shortfall_needed || toUpdate.length)) {
+                                alert(
+                                    'Aggiornamento effettuato.\n' +
+                                    'Sono state rilevate quantità mancanti ma non hai i permessi per creare ordini di recupero.\n' +
+                                    'Comunica agli acquisti di generare un nuovo ordine con le quantità mancanti.'
+                                );
+                            } else if (shortfalls.length) {
+                                alert(
+                                    'Aggiornamento effettuato.\n' +
+                                    'Generati ordini di recupero:\n' +
+                                    listShortfalls(shortfalls)
+                                );
+                            } else if (patchResp.shortfall_created && patchResp.follow_up_number) {
+                                // fallback vecchio singolo
+                                alert('Aggiornamento effettuato. È stato creato l’ordine di recupero #' +
+                                    patchResp.follow_up_number + '.');
                             } else if (toUpdate.length) {
                                 alert('Lotti aggiornati con successo!');
                             } else {
@@ -1063,14 +1104,53 @@
                             }
 
                             /* 4‧ feedback finale -------------------------------------- */
-                            if (j.follow_up_order_id !== null) {
-                                alert('Registrazione completata.\nGenerato ordine di recupero #' + j.follow_up_number + '.');
-                            } else if (j.skipped) {
+                            const listShortfalls = (arr = []) => {
+                                if (!Array.isArray(arr) || !arr.length) return '';
+                                return arr.map(o => {
+                                    const num = o.number ?? o.id ?? '?';
+                                    const dt  = o.delivery_date ? ` (consegna ${o.delivery_date})` : '';
+                                    const lt  = (o.lead_time_days ?? null) !== null ? ` — LT ${o.lead_time_days}g` : '';
+                                    return `#${num}${dt}${lt}`;
+                                }).join('\n');
+                            };
+
+                            const normalizeShortfalls = (resp) => {
+                                // formato nuovo: array completo
+                                if (Array.isArray(resp.follow_up_orders)) return resp.follow_up_orders;
+
+                                // compat: vecchi campi singoli
+                                if (resp.follow_up_order_id || resp.follow_up_number) {
+                                    return [{
+                                        id: resp.follow_up_order_id ?? null,
+                                        number: resp.follow_up_number ?? null,
+                                        delivery_date: resp.delivery_date ?? null,
+                                        lead_time_days: resp.lead_time_days ?? null,
+                                    }];
+                                }
+                                return [];
+                            };
+
+                            const shortfalls = normalizeShortfalls(j);
+
+                            if (j.skipped) {
                                 alert('Registrazione completata.\nNon è stato creato un ordine di recupero.');
-                            } else if (hasShortfall && j.follow_up_order_id === null) {
-                                alert('Non è stato possibile generare alcun ordine di recupero, ' +
-                                      'perchè già presente.\n' +
-                                      'La registrazione è stata completata con successo.');
+                            } else if (j.shortfall_blocked === 'no_permission' && (j.shortfall_needed || hasShortfall)) {
+                                alert(
+                                    'Registrazione completata.\n' +
+                                    'Sono state rilevate quantità mancanti ma non hai i permessi per creare ordini di recupero.\n' +
+                                    'Comunica agli acquisti di generare un nuovo ordine con le quantità mancanti.'
+                                );
+                            } else if (shortfalls.length) {
+                                alert(
+                                    'Registrazione completata.\n' +
+                                    'Generati ordini di recupero:\n' +
+                                    listShortfalls(shortfalls)
+                                );
+                            } else if (hasShortfall) {
+                                alert(
+                                    'Registrazione completata.\n' +
+                                    'Non è stato possibile generare nuovi ordini di recupero (già presenti o non necessari).'
+                                );
                             } else {
                                 alert('Registrazione completata.');
                             }

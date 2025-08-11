@@ -45,9 +45,9 @@ class RolesSeeder extends Seeder
                 'stock.*', 'reports.orders.customer', 'reports.stock_levels'
             ],
             'Magazziniere' => [
-                'orders.customer.view',
+                'orders.customer.view', 'orders.supplier.view', 'orders.supplier.update',
                 'components.view', 'products.view', 'customers.view', 'suppliers.view',
-                'stock.view', 'stock.entry', 'stock.exit', 'warehouses.view',
+                'stock.view', 'stock.entry', 'stock.entryEdit', 'stock.exit', 'warehouses.view',
             ],
         ];
 

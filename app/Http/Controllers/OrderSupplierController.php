@@ -12,6 +12,7 @@ use App\Models\Supplier;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -464,15 +465,35 @@ class OrderSupplierController extends Controller
             ]);
         }
 
-        /* 3-e  Crea *sempre* un NUOVO ordine short-fall con il service */
-        $followUp = $svc->capture($parent);   // costruisce ordine + righe mancanti
+        /* 3-e  Crea eventualmente short-fall (gruppato per lead-time + permessi) */
+        try {
+            $canCreate = $request->user()->can('orders.supplier.create');
+            $result    = $svc->captureGrouped($parent, $canCreate);
+        } catch (AuthorizationException $e) {
+            // Non bloccare il flusso: rispondi come “non creato per permessi”
+            $result = [
+                'needed'  => true,
+                'created' => false,
+                'blocked' => 'no_permission',
+                'orders'  => [],
+                'groups'  => [],
+            ];
+        }
+
+        /* compat con il front-end esistente (mostra il primo se serve) */
+        $first = $result['orders'][0] ?? null;
 
         return response()->json([
-            'success'            => true,
-            'skipped'            => false,
-            'order'              => $parent->only(['registration_date','bill_number']),
-            'follow_up_order_id' => $followUp->id,
-            'follow_up_number'   => $followUp->number,
+            'success'             => true,
+            'skipped'             => false,
+            'order'               => $parent->only(['registration_date','bill_number']),
+            'follow_up_order_id'  => $first['id']     ?? null,
+            'follow_up_number'    => $first['number'] ?? null,
+            'shortfall_needed'    => $result['needed'],
+            'shortfall_created'   => $result['created'],
+            'shortfall_blocked'   => $result['blocked'],       // <- 'no_permission' se manca permesso
+            'follow_up_orders'    => $result['orders'],        // tutti quelli creati
+            'groups'              => $result['groups'],
         ]);
     }
 

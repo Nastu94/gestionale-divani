@@ -20,6 +20,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Database\QueryException;
 use App\Exceptions\BusinessRuleException;
+use Illuminate\Auth\Access\AuthorizationException;
 
 class StockLevelController extends Controller
 {
@@ -411,7 +412,7 @@ class StockLevelController extends Controller
                 if (! $order->stockLevelLots->contains($lot->id)) {
                     $order->stockLevelLots()->attach($lot->id);
 
-                    Log::info("Collegato lotto {$lot->id} all'ordine {$order->id}");
+                    Log::info("Collegato lotto {$lot->code} all'ordine {$order->id}");
                 }
 
                 // gestione riga ordine
@@ -624,13 +625,16 @@ class StockLevelController extends Controller
             'lots.*.qty'          => ['required','numeric','min:0.01'],
             'lots.*.lot_supplier' => ['nullable','string','max:50'],
         ], [
-            'lots.*.id.exists'          => 'Lotto non trovato.',
-            'lots.*.qty.required'       => 'Quantità mancante.',
-            'lots.*.qty.min'            => 'La quantità deve essere almeno 0.01.',
-            'lots.*.lot_supplier.max'   => 'Il lotto fornitore non può superare i 50 caratteri.',
+            'lots.required'        => 'Lotti mancanti.',
+            'lots.array'           => 'Formato lotti non valido.',
+            'lots.*.id'            => 'ID lotto mancante.',
+            'lots.*.id.exists'     => 'Lotto non trovato.',
+            'lots.*.qty.required'  => 'Quantità mancante.',
+            'lots.*.qty.min'       => 'La quantità deve essere almeno 0.01.',
+            'lots.*.lot_supplier.max' => 'Il lotto fornitore non può superare i 50 caratteri.',
         ]);
 
-        Log::info('Aggiornamento stock-level-lots', [
+        Log::info('Aggiornamento stock-level-lots (payload normalizzato)', [
             'lots' => collect($payload['lots'])->map(fn($l) => [
                 'id'           => $l['id'] ?? null,
                 'qty'          => $l['qty'],
@@ -638,16 +642,19 @@ class StockLevelController extends Controller
             ])->toArray(),
         ]);
 
-        $updated          = [];
-        $shortfallCreated = false;
-        $followUpId       = null;
-        $followUpNumber   = null;
+        $updated             = [];
+        $shortfallCreated    = false;       // compat: almeno uno creato
+        $shortfallNeeded     = false;       // c’erano mancanze?
+        $shortfallBlocked    = null;        // 'no_permission' se manca permesso
+        $followUpId          = null;        // compat: primo id creato
+        $followUpNumber      = null;        // compat: primo numero creato
+        $followUpOrders      = [];          // elenco completo ordini creati (id, number, delivery_date, lead_time_days)
 
-        /* 2‧ TRANSAZIONE --------------------------------------------------- */
         try {
             DB::transaction(function () use (
                 $payload, &$updated, $svc,
-                &$shortfallCreated, &$followUpId, &$followUpNumber
+                &$shortfallCreated, &$shortfallNeeded, &$shortfallBlocked,
+                &$followUpId, &$followUpNumber, &$followUpOrders
             ) {
 
                 foreach ($payload['lots'] as $lotData) {
@@ -675,9 +682,9 @@ class StockLevelController extends Controller
                             )->first();
 
                     $stockLevel   = $lot->stockLevel;
-                    $oldReceived  = (float) ($lot->received_quantity ?? $lot->quantity); // baseline originaria
-                    $newReceived  = (float) $lotData['qty'];                             // nuovo valore inserito dall'utente
-                    $delta        = $newReceived - $oldReceived;                         // ▲▲ DELTA SU "RICEVUTO" ▲▲
+                    $oldReceived  = (float) ($lot->received_quantity ?? $lot->quantity); // baseline ricevuto
+                    $newReceived  = (float) $lotData['qty'];                             // nuovo valore ricevuto
+                    $delta        = $newReceived - $oldReceived;                         // Δ che impatta lo stock
 
                     Log::info('StockLevel update, ordine collegato', [
                         'order_id'           => $order->id ?? null,
@@ -703,42 +710,36 @@ class StockLevelController extends Controller
                     }
 
                     /* 3-b ‧ BLOCCA se manca giacenza sul LOTTO --------------- */
-                    // Se sto riducendo il "ricevuto", devo poter togliere dal lotto:
-                    // condizione: lot.quantity + delta >= 0  (ricorda: delta < 0)
                     if ($delta < 0 && ($lot->quantity + $delta) < 0) {
                         Log::warning('⛔ insufficient_stock (lot check)', [
-                            'lot_id'                 => $lot->id,
-                            'lot_quantity_now'       => (string) $lot->quantity,
-                            'delta_on_stock'         => (string) $delta,
-                            'would_be_new_lot_qty'   => (string) ($lot->quantity + $delta),
+                            'lot_id'               => $lot->id,
+                            'lot_quantity_now'     => (string) $lot->quantity,
+                            'delta_on_stock'       => (string) $delta,
+                            'would_be_new_lot_qty' => (string) ($lot->quantity + $delta),
                         ]);
                         throw new BusinessRuleException('insufficient_stock');
                     }
 
                     /* 4‧ APPLICA VARIAZIONE --------------------------------- */
-                    // NB: si aggiorna "received_quantity" e si adegua anche la qty del lotto
-                    //     di pari importo (delta), oltre allo stock level.
                     $supplierLotNew = $lotData['lot_supplier'] ?: $lot->supplier_lot_code;
 
-                    // valori "before" solo per log
-                    $beforeLotQty   = (float) $lot->quantity;
-                    $afterLotQty    = $beforeLotQty + $delta;
+                    $beforeLotQty = (float) $lot->quantity;
+                    $afterLotQty  = $beforeLotQty + $delta;
 
                     if ($delta !== 0.0 || $supplierLotNew !== $lot->supplier_lot_code) {
-
-                        // 4-a  aggiorna LOTTO (qty disponibile e ricevuto)
+                        // 4-a  aggiorna LOTTO (qty disponibile + ricevuto)
                         $lot->update([
                             'quantity'           => $afterLotQty,
                             'received_quantity'  => $newReceived,
                             'supplier_lot_code'  => $supplierLotNew,
                         ]);
 
-                        // 4-b  aggiorna STOCK LEVEL (aggregato)
+                        // 4-b  aggiorna STOCK LEVEL aggregato
                         if ($delta != 0.0) {
-                            $stockLevel->increment('quantity', $delta);
+                            $lot->stockLevel()->increment('quantity', $delta);
                         }
 
-                        // 4-c  movimento IN/OUT per rettifica ricevuto
+                        // 4-c  movimento IN/OUT
                         if ($delta != 0.0) {
                             StockMovement::create([
                                 'stock_level_id' => $stockLevel->id,
@@ -762,17 +763,45 @@ class StockLevelController extends Controller
                             'lot_supplier' => $lot->supplier_lot_code,
                         ];
 
-                        /* 5‧ DELTA NEGATIVO → possibile nuovo short-fall ----- */
+                        /* 5‧ DELTA NEGATIVO → valutazione short-fall --------- */
                         if ($delta < 0 && $order) {
-                            $newSF = $svc->capture($order);   // null se nessun gap
-                            if ($newSF) {
-                                $shortfallCreated = true;
-                                $followUpId       = $newSF->id;
-                                $followUpNumber   = $newSF->number;
-                                Log::info('Creato ordine short-fall di follow-up', [
-                                    'follow_up_order_id' => $followUpId,
-                                    'follow_up_number'   => $followUpNumber,
-                                ]);
+                            $canCreate = auth()->user()?->can('orders.supplier.create') ?? false;
+
+                            $res = $svc->captureGrouped($order, $canCreate);
+
+                            Log::info('Esito captureGrouped (updateEntry)', [
+                                'order_id'        => $order->id,
+                                'can_create'      => $canCreate,
+                                'needed'          => $res['needed'],
+                                'created'         => $res['created'],
+                                'blocked'         => $res['blocked'],
+                                'orders_count'    => count($res['orders']),
+                                'groups'          => $res['groups'],
+                            ]);
+
+                            // aggrega i risultati globali della PATCH
+                            $shortfallNeeded  = $shortfallNeeded  || ($res['needed']  ?? false);
+                            $shortfallCreated = $shortfallCreated || ($res['created'] ?? false);
+                            if (!$shortfallBlocked && !empty($res['blocked'])) {
+                                $shortfallBlocked = $res['blocked']; // 'no_permission'
+                            }
+
+                            if (!empty($res['orders'])) {
+                                // merge evitando duplicati per id
+                                $byId = collect($followUpOrders)->keyBy('id');
+                                foreach ($res['orders'] as $o) {
+                                    if (!$byId->has($o['id'])) {
+                                        $followUpOrders[] = $o;
+                                        $byId->put($o['id'], $o);
+                                    }
+                                }
+
+                                // compat: primo ordine creato
+                                $first = $followUpOrders[0] ?? null;
+                                if ($first && (!$followUpId && !$followUpNumber)) {
+                                    $followUpId     = $first['id'];
+                                    $followUpNumber = $first['number'];
+                                }
                             }
                         }
                     }
@@ -781,7 +810,7 @@ class StockLevelController extends Controller
         } catch (BusinessRuleException $e) {
             return response()->json([
                 'success' => false,
-                'blocked' => $e->getMessage(),     // alreadyShortfall | insufficient_stock
+                'blocked' => $e->getMessage(),  // alreadyShortfall | insufficient_stock
                 'message' => $e->getMessage() === 'alreadyShortfall'
                     ? 'Non è possibile modificare questa riga perché esiste un ordine di recupero. Modifica la quantità direttamente lì.'
                     : 'Non c’è abbastanza giacenza per ridurre questa quantità.',
@@ -792,9 +821,17 @@ class StockLevelController extends Controller
         return response()->json([
             'success'             => true,
             'updated'             => $updated,
+
+            // compat con vecchio front-end (primo ordine creato)
             'shortfall_created'   => $shortfallCreated,
             'follow_up_order_id'  => $followUpId,
             'follow_up_number'    => $followUpNumber,
+
+            // nuovi campi
+            'shortfall_needed'    => $shortfallNeeded,          // c’erano mancanze
+            'shortfall_blocked'   => $shortfallBlocked,         // 'no_permission' se mancava permesso
+            'follow_up_orders'    => $followUpOrders,           // tutti gli ordini shortfall creati
+            // opzionale: potresti anche includere i gruppi, ma qui non li abbiamo aggregati cross-lotto
         ]);
     }
 
