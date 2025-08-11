@@ -97,9 +97,9 @@
                     <thead class="bg-gray-300 dark:bg-gray-700">
                         <tr class="uppercase tracking-wider">
                             <th class="px-6 py-2 text-left">#</th>
-                            <th class="px-6 py-2 text-left">Nome</th>
+                            <x-th-menu field="name"  label="Nome"  :sort="$sort" :dir="$dir" :filters="$filters" />
                             <th class="px-6 py-2 text-left">Email</th>
-                            <th class="px-6 py-2 text-left">Ruoli</th>
+                            <x-th-menu field="roles" label="Ruoli" :sort="$sort" :dir="$dir" :filters="$filters" />
                         </tr>
                     </thead>
                     <tbody class="bg-white dark:bg-gray-800" x-data="{ openId: null }">

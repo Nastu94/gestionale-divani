@@ -501,83 +501,84 @@ class StockLevelController extends Controller
      */
     public function showStock(int $componentId): JsonResponse
     {
-        /* -------------------------------------------------------------
-        * 2) Giacenze attuali (lotto per lotto)
-        *    - qty > 0
-        * ----------------------------------------------------------- */
-        $levels = StockLevel::query()
-            ->select([
-                'stock_levels.id',
-                'stock_levels.component_id',
-                'stock_levels.warehouse_id',
-                'stock_levels.quantity',
-                'c.code       as component_code',
-                'c.description as component_desc',
-                'c.unit_of_measure as uom',
-                'w.code       as warehouse_code',
-                'sll.internal_lot_code as internal_lot',
-            ])
-            ->join('components as c',  'c.id',  '=', 'stock_levels.component_id')
-            ->join('warehouses as w',  'w.id',  '=', 'stock_levels.warehouse_id')
-            ->leftJoin('stock_level_lots as sll', 'sll.stock_level_id', '=', 'stock_levels.id')
-            ->where('stock_levels.component_id', $componentId)
-            ->where('stock_levels.quantity',    '>', 0)
+        // 1) Lotti attuali per il componente (qty per lotto)
+        $levels = DB::table('stock_levels as sl')
+            ->join('components as c', 'c.id', '=', 'sl.component_id')
+            ->join('warehouses as w', 'w.id', '=', 'sl.warehouse_id')
+            ->leftJoin('stock_level_lots as sll', 'sll.stock_level_id', '=', 'sl.id')
+            ->where('sl.component_id', $componentId)
+            ->where('sl.quantity', '>', 0) // deposito con giacenza > 0
             ->orderBy('w.code')
             ->orderBy('sll.internal_lot_code')
+            ->select([
+                'sl.id as stock_level_id',
+                'sl.component_id',
+                'sl.warehouse_id',
+                'c.code            as component_code',
+                'c.description     as component_desc',
+                'c.unit_of_measure as uom',
+                'w.code            as warehouse_code',
+                'sll.id            as lot_id',
+                'sll.internal_lot_code as internal_lot',
+                DB::raw('COALESCE(sll.quantity, sl.quantity) as lot_qty'),
+            ])
             ->get();
 
-        /* -----------------------------------------------------------------
-        * RISERVATO  –  somma per ogni singolo stock_level_id
-        * ---------------------------------------------------------------- */
+        // 2) Somma riservato per stock_level_id
         $reservedByLevel = StockReservation::query()
             ->selectRaw('stock_level_id, SUM(quantity) as qty')
-            ->whereIn('stock_level_id', $levels->pluck('id'))   // <-- filtro sui lotti del componente
+            ->whereIn('stock_level_id', $levels->pluck('stock_level_id')->unique())
             ->groupBy('stock_level_id')
-            ->pluck('qty', 'stock_level_id');                   // [stock_level_id => qty]
+            ->pluck('qty', 'stock_level_id'); // [stock_level_id => riservato]
 
-        /* -----------------------------------------------------------------
-        * Costruzione righe tabella
-        * ---------------------------------------------------------------- */
+        // 3) Distribuzione riserve sui lotti e costruzione righe
         $rows = collect();
+        $grouped = $levels->groupBy('stock_level_id');
 
-        foreach ($levels as $row) {
+        foreach ($grouped as $stockLevelId => $lots) {
+            $reservedLeft = (float) ($reservedByLevel[$stockLevelId] ?? 0);
 
-            $reserved = $reservedByLevel[$row->id] ?? 0;      // riservata su quel lotto
-            $free     = $row->quantity - $reserved;           // disponibile reale
+            foreach ($lots as $lot) {
+                $lotQty = (float) ($lot->lot_qty ?? 0.0);
+                if ($lotQty <= 0) {
+                    continue;
+                }
 
-            /* -------- riga MAGAZZINO (solo se >0) ------------------------- */
-            if ($free > 0) {
-                $rows->push([
-                    'id'             => $row->id,
-                    'component_code' => $row->component_code,
-                    'component_desc' => $row->component_desc,
-                    'uom'            => $row->uom,
-                    'warehouse_code' => $row->warehouse_code, // es. MG-STOCK
-                    'internal_lot'   => $row->internal_lot,
-                    'qty'            => number_format($free, 3, '.', ''),
-                ]);
+                // quota riservata da imputare su questo lotto
+                $reserveTake = min($reservedLeft, $lotQty);
+                $freeQty     = $lotQty - $reserveTake;
+
+                // Riga RISERVATO (se > 0)
+                if ($reserveTake > 0) {
+                    $rows->push([
+                        'id'             => 'R-' . ($lot->lot_id ?? ('SL-' . $stockLevelId)),
+                        'component_code' => $lot->component_code,
+                        'component_desc' => $lot->component_desc,
+                        'uom'            => $lot->uom,
+                        'warehouse_code' => 'Riservato',
+                        'internal_lot'   => $lot->internal_lot,
+                        'qty'            => number_format($reserveTake, 3, '.', ''),
+                    ]);
+                    $reservedLeft -= $reserveTake;
+                }
+
+                // Riga MAGAZZINO (se > 0)
+                if ($freeQty > 0) {
+                    $rows->push([
+                        'id'             => 'F-' . ($lot->lot_id ?? ('SL-' . $stockLevelId)),
+                        'component_code' => $lot->component_code,
+                        'component_desc' => $lot->component_desc,
+                        'uom'            => $lot->uom,
+                        'warehouse_code' => $lot->warehouse_code, // es. MG-STOCK
+                        'internal_lot'   => $lot->internal_lot,
+                        'qty'            => number_format($freeQty, 3, '.', ''),
+                    ]);
+                }
             }
-
-            /* -------- riga RISERVATO (solo se >0) ------------------------- */
-            if ($reserved > 0) {
-                $rows->push([
-                    'id'             => 'R-'.$row->id,        // chiave unica
-                    'component_code' => $row->component_code,
-                    'component_desc' => $row->component_desc,
-                    'uom'            => $row->uom,
-                    'warehouse_code' => 'Riservato',
-                    'internal_lot'   => $row->internal_lot,
-                    'qty'            => number_format($reserved, 3, '.', ''),
-                ]);
-            }
+            // Se eventuale $reservedLeft > somma lotti, lo ignoriamo (dati incoerenti)
         }
 
-        /* -----------------------------------------------------------------
-        * Risposta JSON
-        * ---------------------------------------------------------------- */
-        return response()->json([
-            'rows' => $rows->values(),
-        ]);
+        return response()->json(['rows' => $rows->values()]);
     }
 
     /**
@@ -597,22 +598,17 @@ class StockLevelController extends Controller
     }
 
     /**
-     * Aggiorna una registrazione di magazzino già esistente.
+     * Aggiorna una o più registrazioni lotto.
      *
-     * Permette di modificare quantità ricevuta e lotto fornitore;
-     * non tocca i dati di testata dell’ordine.
+     * Regola chiave:
+     *  - il delta che impatta lo stock è calcolato su "quantità ricevuta"
+     *    (received_quantity) e NON sulla quantità attuale del lotto.
+     *    delta := new_received - old_received
      *
-     * Regole di dominio:
-     *  - il lotto interno è immutabile
-     *  - se la riga è già in uno short-fall, blocca la modifica
-     *  - se si riduce la quantità, deve esserci giacenza disponibile
-     *  - aggiorna stock_level, order_items, orders.total
-     *  - logga un movimento IN/OUT per audit
+     *  - se delta < 0 devo poter scalare dal lotto corrente:
+     *      (lot.quantity + delta) >= 0  altrimenti errore "insufficient_stock".
      *
-     * @param  Request          $request
-     * @param  StockLevelLot    $lot          lotto da aggiornare (route-model-binding)
-     * @param  ShortfallService $svc
-     * @return JsonResponse
+     *  - se delta > 0 → ok (aggiungo), creo movimento IN; se delta < 0 → OUT.
      */
     public function updateEntry(Request $request, ShortfallService $svc): JsonResponse
     {
@@ -621,22 +617,22 @@ class StockLevelController extends Controller
             'request' => $request->all(),
         ]);
 
-        /* 1‧ VALIDAZIONE INPUT ------------------------------------------------ */
+        /* 1‧ VALIDAZIONE INPUT --------------------------------------------- */
         $payload = $request->validate([
-            'lots'                  => ['required','array','min:1'],
-            'lots.*.id'             => ['nullable','exists:stock_level_lots,id'],
-            'lots.*.qty'            => ['required','numeric','min:0.01'],
-            'lots.*.lot_supplier'   => ['nullable','string','max:50'],
+            'lots'                => ['required','array','min:1'],
+            'lots.*.id'           => ['nullable','exists:stock_level_lots,id'],
+            'lots.*.qty'          => ['required','numeric','min:0.01'],
+            'lots.*.lot_supplier' => ['nullable','string','max:50'],
         ], [
-            'lots.*.id.exists' => 'Lotto non trovato.',
-            'lots.*.qty.required' => 'Quantità mancante.',
-            'lots.*.qty.min' => 'La quantità deve essere almeno 0.01.',
-            'lots.*.lot_supplier.max' => 'Il lotto fornitore non può superare i 50 caratteri.',
+            'lots.*.id.exists'          => 'Lotto non trovato.',
+            'lots.*.qty.required'       => 'Quantità mancante.',
+            'lots.*.qty.min'            => 'La quantità deve essere almeno 0.01.',
+            'lots.*.lot_supplier.max'   => 'Il lotto fornitore non può superare i 50 caratteri.',
         ]);
 
         Log::info('Aggiornamento stock-level-lots', [
             'lots' => collect($payload['lots'])->map(fn($l) => [
-                'id'           => $l['id'],
+                'id'           => $l['id'] ?? null,
                 'qty'          => $l['qty'],
                 'lot_supplier' => $l['lot_supplier'] ?? null,
             ])->toArray(),
@@ -647,7 +643,7 @@ class StockLevelController extends Controller
         $followUpId       = null;
         $followUpNumber   = null;
 
-        /* 2‧ TRANSAZIONE ------------------------------------------------------ */
+        /* 2‧ TRANSAZIONE --------------------------------------------------- */
         try {
             DB::transaction(function () use (
                 $payload, &$updated, $svc,
@@ -656,67 +652,108 @@ class StockLevelController extends Controller
 
                 foreach ($payload['lots'] as $lotData) {
 
-                    /** @var StockLevelLot $lot */
+                    /** @var StockLevelLot|null $lot */
                     $lot = StockLevelLot::with(['stockLevel','stockLevel.component'])
                         ->lockForUpdate()
                         ->find($lotData['id']);
 
                     Log::info('Aggiornamento lotto', [
-                        'id'           => $lot->id,
+                        'id'           => $lotData['id'] ?? null,
                         'qty'          => $lotData['qty'],
                         'lot_supplier' => $lotData['lot_supplier'] ?? null,
                     ]);
 
-                    /* 3‧ BLOCCA se lotto non trovato ------------------------------- */
+                    /* 3‧ BLOCCA se lotto non trovato ------------------------ */
                     if (! $lot) {
                         Log::warning('❌ Lot not found', ['id' => $lotData['id']]);
                         continue;
                     }
 
-                    /* === ORDINE COLLEGATO (via pivot) ======================= */
+                    /* === ORDINE COLLEGATO (via pivot) ====================== */
                     $order = Order::whereHas('stockLevelLots', fn($q) =>
                                 $q->where('stock_level_lots.id', $lot->id)
                             )->first();
 
-                    $stockLevel = $lot->stockLevel;
-                    $delta      = $lotData['qty'] - $lot->quantity;
+                    $stockLevel   = $lot->stockLevel;
+                    $oldReceived  = (float) ($lot->received_quantity ?? $lot->quantity); // baseline originaria
+                    $newReceived  = (float) $lotData['qty'];                             // nuovo valore inserito dall'utente
+                    $delta        = $newReceived - $oldReceived;                         // ▲▲ DELTA SU "RICEVUTO" ▲▲
 
                     Log::info('StockLevel update, ordine collegato', [
-                        'order_id' => $order->id ?? null,
-                        'component_code' => $stockLevel->component->code,
-                        'delta' => $delta,
+                        'order_id'           => $order->id ?? null,
+                        'component_code'     => $stockLevel->component->code,
+                        'quantity_lot_now'   => (string) $lot->quantity,
+                        'old_received'       => (string) $oldReceived,
+                        'new_received'       => (string) $newReceived,
+                        'delta_on_stock'     => (string) $delta,
                     ]);
 
-                    /* 3-a ‧ BLOCCA se la riga è già in uno short-fall -------- */
+                    /* 3-a ‧ BLOCCA se la riga è già in uno short-fall ------- */
                     $alreadySf = $order && OrderItemShortfall::whereRelation('orderItem',
-                                    'order_id',     $order->id)
-                                ->whereRelation('orderItem',
-                                    'component_id', $stockLevel->component_id)
-                                ->exists();
+                                        'order_id',     $order->id)
+                                    ->whereRelation('orderItem',
+                                        'component_id', $stockLevel->component_id)
+                                    ->exists();
 
                     if ($alreadySf) {
+                        Log::warning('⛔ alreadyShortfall blocco', [
+                            'order_id' => $order->id, 'component_id' => $stockLevel->component_id
+                        ]);
                         throw new BusinessRuleException('alreadyShortfall');
                     }
 
-                    /* 3-b ‧ BLOCCA se manca giacenza ------------------------- */
-                    if ($delta < 0 && ($stockLevel->quantity + $delta) < 0) {
+                    /* 3-b ‧ BLOCCA se manca giacenza sul LOTTO --------------- */
+                    // Se sto riducendo il "ricevuto", devo poter togliere dal lotto:
+                    // condizione: lot.quantity + delta >= 0  (ricorda: delta < 0)
+                    if ($delta < 0 && ($lot->quantity + $delta) < 0) {
+                        Log::warning('⛔ insufficient_stock (lot check)', [
+                            'lot_id'                 => $lot->id,
+                            'lot_quantity_now'       => (string) $lot->quantity,
+                            'delta_on_stock'         => (string) $delta,
+                            'would_be_new_lot_qty'   => (string) ($lot->quantity + $delta),
+                        ]);
                         throw new BusinessRuleException('insufficient_stock');
                     }
 
-                    /* 4‧ APPLICA VARIAZIONE ---------------------------------- */
-                    if ($delta !== 0.0 || $lotData['lot_supplier'] !== $lot->supplier_lot_code) {
+                    /* 4‧ APPLICA VARIAZIONE --------------------------------- */
+                    // NB: si aggiorna "received_quantity" e si adegua anche la qty del lotto
+                    //     di pari importo (delta), oltre allo stock level.
+                    $supplierLotNew = $lotData['lot_supplier'] ?: $lot->supplier_lot_code;
 
+                    // valori "before" solo per log
+                    $beforeLotQty   = (float) $lot->quantity;
+                    $afterLotQty    = $beforeLotQty + $delta;
+
+                    if ($delta !== 0.0 || $supplierLotNew !== $lot->supplier_lot_code) {
+
+                        // 4-a  aggiorna LOTTO (qty disponibile e ricevuto)
                         $lot->update([
-                            'quantity'          => $lotData['qty'],
-                            'received_quantity' => $lotData['qty'], 
-                            'supplier_lot_code' => $lotData['lot_supplier'] ?: $lot->supplier_lot_code,
+                            'quantity'           => $afterLotQty,
+                            'received_quantity'  => $newReceived,
+                            'supplier_lot_code'  => $supplierLotNew,
                         ]);
 
-                        StockMovement::create([
-                            'stock_level_id' => $stockLevel->id,
-                            'type'           => $delta > 0 ? 'IN' : 'OUT',
-                            'quantity'       => abs($delta),
-                            'note'           => 'Modifica lotto ' . $lot->internal_lot_code,
+                        // 4-b  aggiorna STOCK LEVEL (aggregato)
+                        if ($delta != 0.0) {
+                            $stockLevel->increment('quantity', $delta);
+                        }
+
+                        // 4-c  movimento IN/OUT per rettifica ricevuto
+                        if ($delta != 0.0) {
+                            StockMovement::create([
+                                'stock_level_id' => $stockLevel->id,
+                                'type'           => $delta > 0 ? 'IN' : 'OUT',
+                                'quantity'       => abs($delta),
+                                'note'           => 'Rettifica quantità ricevuta - lotto ' . $lot->internal_lot_code,
+                            ]);
+                        }
+
+                        Log::info('Variazione applicata', [
+                            'lot_id'         => $lot->id,
+                            'lot_qty_before' => $beforeLotQty,
+                            'lot_qty_after'  => $afterLotQty,
+                            'stock_delta'    => $delta,
+                            'supplier_lot'   => $supplierLotNew,
                         ]);
 
                         $updated[] = [
@@ -725,13 +762,17 @@ class StockLevelController extends Controller
                             'lot_supplier' => $lot->supplier_lot_code,
                         ];
 
-                        /* 5‧ DELTA NEGATIVO → possibile nuovo short-fall ------ */
+                        /* 5‧ DELTA NEGATIVO → possibile nuovo short-fall ----- */
                         if ($delta < 0 && $order) {
                             $newSF = $svc->capture($order);   // null se nessun gap
                             if ($newSF) {
                                 $shortfallCreated = true;
                                 $followUpId       = $newSF->id;
                                 $followUpNumber   = $newSF->number;
+                                Log::info('Creato ordine short-fall di follow-up', [
+                                    'follow_up_order_id' => $followUpId,
+                                    'follow_up_number'   => $followUpNumber,
+                                ]);
                             }
                         }
                     }
@@ -747,7 +788,7 @@ class StockLevelController extends Controller
             ], 422);
         }
 
-        /* 6‧ RISPOSTA --------------------------------------------------------- */
+        /* 6‧ RISPOSTA ------------------------------------------------------ */
         return response()->json([
             'success'             => true,
             'updated'             => $updated,

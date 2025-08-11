@@ -8,6 +8,7 @@ use Illuminate\Database\Seeder;
 use Database\Seeders\AdminUserSeeder;
 use Database\Seeders\PermissionsSeeder;
 use Database\Seeders\RolesSeeder;
+use Database\Seeders\AdminAssignableRolesSeeder;
 
 class DatabaseSeeder extends Seeder
 {
@@ -20,6 +21,7 @@ class DatabaseSeeder extends Seeder
             PermissionsSeeder::class,
             RolesSeeder::class,
             AdminUserSeeder::class,
+            AdminAssignableRolesSeeder::class,
             ComponentCategorySeeder::class,
             ComponentSeeder::class,
         ]);

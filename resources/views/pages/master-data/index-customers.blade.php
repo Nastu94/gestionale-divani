@@ -154,7 +154,7 @@
                                             —
                                         @endif
                                     </td>
-                                    <td x-show="extended" class="px-6 py-2 whitespace-nowrap">
+                                    <td x-show="extended" x-cloak class="px-6 py-2 whitespace-nowrap">
                                         @if($sa)
                                             {{ $sa }}, {{ $sc }}, {{ $sn }}
                                         @else

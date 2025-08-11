@@ -11,20 +11,63 @@ use Illuminate\Validation\Rule;
 class UserController extends Controller
 {
     /**
-     * Mostra la lista di tutti gli utenti.
+     * Lista utenti con filtro/ordinamento per Nome e Ruoli.
      *
-     * @return \Illuminate\View\View
+     * - sort:  'name' | 'roles'                  (default: 'name')
+     * - dir:   'asc'  | 'desc'                   (default: 'asc')
+     * - filter[name]:  filtro LIKE su users.name
+     * - filter[roles]: filtro LIKE su roles.name (via whereHas)
+     *
+     * Nota: per l'ordinamento su "roles" usiamo una subquery con GROUP_CONCAT
+     *       (MySQL). Se usi Postgres, sostituisci con string_agg().
      */
-    public function index()
+    public function index(Request $request)
     {
-        // Prelevo tutti gli utenti con i ruoli, paginati
-        $users = User::with('roles')->paginate(15);
+        /* ─────────────────────────────────────────────
+         | Parametri query (coerenti con gli altri index)
+         ───────────────────────────────────────────── */
+        $sort    = $request->input('sort', 'name');                // campo sort
+        $dir     = $request->input('dir', 'asc') === 'desc' ? 'desc' : 'asc';
+        $filters = $request->input('filter', []);                  // array filtri
 
-        //Recupero i ruoli per il form di creazione/modifica
-        $roles = Role::all();
+        /* Whitelist dei campi ordinabili */
+        $allowedSorts = ['name', 'roles'];
+        if (! in_array($sort, $allowedSorts, true)) {
+            $sort = 'name';
+        }
 
-        // Ritorno la view in resources/views/pages/users/index.blade.php
-        return view('pages.users.index', compact('users', 'roles'));
+        /* ─────────────────────────────────────────────
+         | Query base
+         ───────────────────────────────────────────── */
+        $users = User::query()
+            ->with('roles') // eager-load ruoli per stampa tabella
+            /* ---- filtri colonna -------------------------------------- */
+            ->when($filters['name'] ?? null,
+                fn ($q, $v) => $q->where('name', 'like', "%{$v}%"))
+            ->when($filters['roles'] ?? null,
+                fn ($q, $v) => $q->whereHas('roles',
+                    fn ($qr) => $qr->where('name', 'like', "%{$v}%")))
+            /* ---- ordinamento ----------------------------------------- */
+            ->when($sort === 'roles', function ($q) use ($dir) {
+                // MySQL: ordiniamo per i ruoli concatenati dell'utente
+                // (Admin,Impiegato,...) per consistenza alfabetica.
+                $orderExpr = "(SELECT GROUP_CONCAT(r.name ORDER BY r.name SEPARATOR ',')
+                               FROM model_has_roles mr
+                               JOIN roles r ON r.id = mr.role_id
+                              WHERE mr.model_type = ?
+                                AND mr.model_id   = users.id)";
+                $q->orderByRaw($orderExpr . ' ' . $dir, [User::class]);
+            }, function ($q) use ($sort, $dir) {
+                $q->orderBy($sort, $dir);
+            })
+            ->paginate(15)
+            ->appends($request->query()); // preserva sort+filtri in pagina
+
+        /* Dati per il modale Crea/Modifica utente (select ruoli) */
+        $roles = Role::orderBy('name')->get(['id', 'name']);
+
+        /* Ritorno vista con variabili standardizzate */
+        return view('pages.users.index', compact('users', 'roles', 'sort', 'dir', 'filters'));
     }
 
     /**
