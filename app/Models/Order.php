@@ -27,6 +27,7 @@ class Order extends Model
      */
     protected static $logAttributes = [
         'parent_order_id', // ID dell'ordine padre, se presente
+        'has_shortfall', // Indica se ci sono shortfall associati
         'supplier_id',  // ID del fornitore associato, se ordine fornitore
         'customer_id',  // ID del cliente associato, se ordine cliente
         'occasional_customer_id', // ID del cliente occasionale, se presente
@@ -61,6 +62,7 @@ class Order extends Model
      */
     protected $fillable = [
         'parent_order_id',
+        'has_shortfall',
         'supplier_id',
         'customer_id',
         'occasional_customer_id', // ID del cliente occasionale, se presente
@@ -81,6 +83,7 @@ class Order extends Model
         'ordered_at'        => 'datetime:d/m/Y',
         'delivery_date'     => 'date:d/m/Y',
         'registration_date' => 'date:d/m/Y',
+        'has_shortfall' => 'bool',
     ];
 
     /**

@@ -129,8 +129,7 @@ class StockLotConsumptionService
         ]);
 
         /* 1) aggiorna lotto e giacenza ---------------------------------- */
-        $lot->decrement('quantity', $take);
-        $lot->stockLevel()->decrement('quantity', $take);
+        $lot->update(['quantity' => $lot->quantity - $take]);
 
         /* 2) scarica la (o le) reservation sullo stesso stock_level ----- */
         $this->releaseReservation(

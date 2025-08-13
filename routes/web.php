@@ -776,6 +776,19 @@ Route::middleware([
         ->middleware('permission:orders.supplier.update');
 
     /*
+    |---------------------------------------------------------------------------
+    | Gestione Ordini Fornitore - crea shortfall
+    |--------------------------------------------------------------------------
+    |
+    | Questa rotta permette di creare un shortfall per un ordine fornitore.
+    | Protetta dal permesso orders.supplier.create.
+    |
+    */
+    Route::post('/orders/supplier/shortfall/create', [OrderSupplierController::class, 'createShortfallHoles'])
+        ->name('orders.supplier.shortfall.create')
+        ->middleware('permission:orders.supplier.create');
+
+    /*
     |-----------------------------------------------------------|
     | Ordini fornitore – aggiorna data registrazione & bolla
     |-----------------------------------------------------------|

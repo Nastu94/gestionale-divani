@@ -191,6 +191,7 @@ class ShortfallService
                 'delivery_date'  => now()->addDays((int)$lead)->toDateString(),
                 'lines_count'    => count($arr),
                 'total_gap'      => array_reduce($arr, fn($t, $x) => $t + (float)$x['gap'], 0.0),
+                'componente'     => $arr[0]['item']->component_id ?? null,
             ];
         }
 
@@ -281,4 +282,35 @@ class ShortfallService
         ];
     }
 
+    /** TRUE se l'ordine ha almeno una riga con shortfall già creato. */
+    public function hasAnyShortfall(Order $order): bool
+    {
+        return DB::table('order_items as oi')
+            ->join('order_item_shortfalls as ois', 'ois.order_item_id', '=', 'oi.id')
+            ->where('oi.order_id', $order->id)
+            // ->whereNull('ois.deleted_at') // se soft-delete
+            ->exists();
+    }
+
+    /**
+     * Verifica se per l'ordine fornitore passato esistono mancanze che
+     * produrrebbero righe/quantità in caso di cattura shortfall.
+     * Usa captureGrouped($order, false) per NON creare nulla (dry-run).
+     */
+    public function isShortfallNeeded(Order $order): bool
+    {
+        if ($this->hasAnyShortfall($order)) {
+            return false; // ordini "padre" con shortfall già creato: niente bottone
+        }
+
+        $res    = $this->captureGrouped($order, false); // dry-run, non crea nulla
+        $needed = (bool)($res['needed'] ?? false);
+
+        if (!$needed && !empty($res['groups']) && is_iterable($res['groups'])) {
+            $gap = 0.0;
+            foreach ($res['groups'] as $g) { $gap += (float)($g['total_gap'] ?? 0); }
+            $needed = $gap > 0;
+        }
+        return $needed;
+    }
 }

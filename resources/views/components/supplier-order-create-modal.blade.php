@@ -269,6 +269,95 @@ function supplierOrderModal() {
         last_cost        : 0,
         quantity         : 1,
 
+        /* ==== Errori di validazione ==== */
+        errors: {},
+        formError: '',
+        isSaving: false,
+        isUpdating: false,
+
+        resetErrors() {
+            this.errors = {};
+            this.formError = '';
+        },
+
+        showError(path) {
+            if (!this.errors || !this.errors[path]) return '';
+            return Array.isArray(this.errors[path]) ? this.errors[path][0] : String(this.errors[path]);
+        },
+
+        /* Restituisce un messaggio "pulito" pescando SOLO il primo errore.
+        Se l'errore è su lines.N.component_id, prova ad aggiungere il codice del componente. */
+        _firstNiceError() {
+            const errs = this.errors || {};
+            const keys = Object.keys(errs);
+            if (!keys.length) return '';
+
+            const key = keys[0];
+            // messaggio "grezzo" del primo errore
+            const raw = Array.isArray(errs[key]) ? errs[key][0] : String(errs[key] ?? '');
+
+            // Se è un errore su una riga componente (es. lines.2.component_id)
+            const m = key.match(/^lines\.(\d+)\.component_id$/);
+            if (m) {
+                const idx = Number(m[1]);
+                const comp = this.lines?.[idx]?.component;
+                const label = comp?.code || comp?.name || null;
+
+                // Se riesco a ricavare il codice/nome, personalizzo il messaggio
+                if (label) {
+                return `Sono presenti più di una riga per il componente "${label}" nell’ordine.`;
+                }
+            }
+
+            // fallback: uso il primo messaggio "grezzo", SENZA aggiungere "(and N more errors)"
+            return raw || 'Dati non validi.';
+        },
+
+        async handleFetch(r) {
+            let data = null;
+            try { data = await r.json(); } catch (_) {}
+
+            // 422: Validation (Laravel)
+            if (r.status === 422) {
+            this.errors = (data && data.errors) ? data.errors : {};
+
+            // ➜ costruiamo un messaggio pulito dal PRIMO errore reale (ignora data.message)
+            this.formError = this._firstNiceError();
+
+            alert(this.formError);
+            return { ok: false, data };
+            }
+
+            // 403: permessi
+            if (r.status === 403) {
+                const msg = (data && data.message) ? data.message : 'Permesso negato.';
+                this.formError = msg;
+                alert(this.formError);
+                return { ok: false, data };
+            }
+
+            // 409: conflitti (es. vincolo unico DB violato)
+            if (r.status === 409) {
+                const msg = (data && data.message) ? data.message : 'Conflitto dati.';
+                this.formError = msg;
+                alert(this.formError);
+                return { ok: false, data };
+            }
+
+            // altri errori server
+            if (!r.ok || (data && data.success === false)) {
+                const msg = (data && data.message) ? data.message : 'Si è verificato un errore nel salvataggio.';
+                this.formError = msg;
+                alert(this.formError);
+                return { ok: false, data };
+            }
+
+            // OK
+            const okMsg = (data && (data.message || data.success)) ? (data.message || 'Operazione completata.') : 'Operazione completata.';
+            alert(okMsg);
+            return { ok: true, data };
+        },
+
         /* ==== Getter computed ==== */
         get canAddLines() {
             return this.selectedSupplier && this.delivery_date;
@@ -419,27 +508,33 @@ function supplierOrderModal() {
                 }))
             };
 
+            this.isSaving = true;
+            this.resetErrors();
             try {
-                const resp = await fetch('/orders/supplier', {
+                const r = await fetch('/orders/supplier', {
                     method : 'POST',
                     headers: {
-                        'Accept'       : 'application/json',
-                        'Content-Type' : 'application/json',
-                        'X-CSRF-TOKEN' : document.querySelector('meta[name="csrf-token"]').content
+                        'Accept'           : 'application/json',
+                        'Content-Type'     : 'application/json',
+                        'X-Requested-With' : 'XMLHttpRequest',
+                        'X-CSRF-TOKEN'     : document.querySelector('meta[name="csrf-token"]').content
                     },
                     credentials : 'same-origin',
                     body        : JSON.stringify(payload)
                 });
 
-                if (!resp.ok) throw new Error(await resp.text());
+                const { ok } = await this.handleFetch(r);
+                if (!ok) return;                 // <-- messaggi specifici già mostrati da handleFetch
 
-                // tutto ok → ricarica o chiudi modale
+                // success
                 this.close();
                 window.location.reload();
 
             } catch (e) {
-                console.error('Errore salvataggio', e);
-                alert('Si è verificato un errore nel salvataggio.');
+                this.formError = 'Errore di rete.';
+                alert(this.formError);
+            } finally {
+                this.isSaving = false;
             }
         },
 
@@ -503,27 +598,42 @@ function supplierOrderModal() {
                 }))
             };
 
+            this.isUpdating = true;
+            this.resetErrors();
             try {
                 const r = await fetch(`/orders/supplier/${this.orderId}`, {
-                    method : 'PUT',
+                    method : 'PUT', // o 'PATCH' se preferisci
                     headers: {
-                        'Accept'       : 'application/json',
-                        'Content-Type' : 'application/json',
-                        'X-CSRF-TOKEN' : document.querySelector('meta[name="csrf-token"]').content
+                        'Accept'           : 'application/json',
+                        'Content-Type'     : 'application/json',
+                        'X-Requested-With' : 'XMLHttpRequest',
+                        'X-CSRF-TOKEN'     : document.querySelector('meta[name="csrf-token"]').content
                     },
                     credentials: 'same-origin',
                     body: JSON.stringify(payload)
                 });
-                if (!r.ok) throw new Error(await r.text());
 
+                const { ok, data } = await this.handleFetch(r);
+                if (!ok) {
+                    // opzionale: evidenzia le righe duplicate
+                    // Object.keys(this.errors).forEach(k => {
+                    //   const m = k.match(/^lines\.(\d+)\.component_id$/);
+                    //   if (m) this.lines[Number(m[1])].__hasError = true;
+                    // });
+                    return;
+                }
+
+                // success
                 this.close();
                 window.location.reload();
+
             } catch (e) {
-                console.error('Errore update', e);
-                alert('Errore durante la modifica.');
+                this.formError = 'Errore di rete.';
+                alert(this.formError);
+            } finally {
+                this.isUpdating = false;
             }
         },
-
     };
 }
 </script>

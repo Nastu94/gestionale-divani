@@ -12,8 +12,9 @@ use App\Models\Warehouse;
 use App\Models\StockMovement;
 use App\Models\StockReservation;
 use App\Models\LotNumber;
+use App\Models\PoReservation;
 use App\Services\ShortfallService;
-use App\Services\ReservationService;   
+use App\Services\ReservationService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
@@ -91,6 +92,66 @@ class StockLevelController extends Controller
 
             ->paginate(15)
             ->appends($request->query());
+
+            /* ───── flag per visibilità del bottone ───── */
+            $shortfall = app(ShortfallService::class);
+
+            // Se conosci il pivot esatto fra orders e stock_level_lots, impostalo qui:
+            $pivotOrderLots = 'order_stock_level'; // ⬅️ adegua se diverso
+
+            $supplierOrders->getCollection()->transform(function (Order $o) use ($shortfall, $pivotOrderLots) {
+
+                /* 1) Ordine “registrato” secondo la tua regola */
+                $o->is_registered = (bool) $o->bill_number;
+
+                /* 2) Ha già generato shortfall? (flag DB se l’hai introdotto; altrimenti calcolalo come prima)
+                Se non hai ancora la colonna orders.has_shortfall, mantieni il calcolo via join exists. */
+                $o->has_shortfall = (bool) ($o->has_shortfall ?? false);
+
+                /* 3) Ha righe scoperte? (ORD > RIC calcolato per componente)
+                - Per ogni riga di questo ordine (oi), confrontiamo la qty ordinata con la somma dei lotti ricevuti
+                    collegati a QUESTO ordine e allo STESSO componente (tramite stock_levels).
+                - Se esiste almeno una riga con ORD > RIC → has_missing = true. */
+                $o->has_missing = DB::table('order_items as oi')
+                    ->where('oi.order_id', $o->id)
+                    ->whereExists(function ($q) use ($o, $pivotOrderLots) {
+                        $q->select(DB::raw(1))
+                        ->from("$pivotOrderLots as osl")
+                        ->join('stock_level_lots as sll', 'sll.id', '=', 'osl.stock_level_lot_id')
+                        ->join('stock_levels as sl', 'sl.id', '=', 'sll.stock_level_id')
+                        // stesso ordine e stesso componente della riga
+                        ->whereColumn('osl.order_id', 'oi.order_id')
+                        ->whereColumn('sl.component_id', 'oi.component_id')
+                        // condizione ORD > RIC (RIC = somma qty ricevuta su lotti collegati)
+                        ->whereRaw('oi.quantity > COALESCE((
+                                SELECT SUM(sll2.received_quantity)
+                                FROM '.$pivotOrderLots.' as osl2
+                                JOIN stock_level_lots as sll2 ON sll2.id = osl2.stock_level_lot_id
+                                JOIN stock_levels as sl2      ON sl2.id  = sll2.stock_level_id
+                                WHERE osl2.order_id = oi.order_id
+                                AND sl2.component_id = oi.component_id
+                            ), 0)');
+                    })
+                    ->exists();
+
+                /* 4) Serve davvero shortfall?
+                    → Solo se: registrato, NON ha già shortfall, e ha_missing = true.
+                    Il dry-run evita di accendere il bottone per altri motivi “di sistema”. */
+                $o->needs_shortfall = false;
+                if ($o->is_registered && !$o->has_shortfall && $o->has_missing) {
+                    $res = $shortfall->captureGrouped($o, false); // DRY-RUN
+                    $o->needs_shortfall = (bool)($res['needed'] ?? false);
+
+                    // Safety: se 'needed' non c'è, inferisci dai gruppi (gap > 0)
+                    if (!$o->needs_shortfall && !empty($res['groups']) && is_iterable($res['groups'])) {
+                        $gap = 0.0;
+                        foreach ($res['groups'] as $g) $gap += (float)($g['total_gap'] ?? 0);
+                        $o->needs_shortfall = $gap > 0;
+                    }
+                }
+
+                return $o;
+            });
 
         return view('pages.warehouse.entry', compact('supplierOrders', 'sort', 'dir', 'filters'));
     }
@@ -365,6 +426,26 @@ class StockLevelController extends Controller
                 'warehouse_id' => $warehouse->id,
             ]);
 
+            /* 4-bis ‧ LOCK riga PO e prenotazioni collegate ----------- */
+            // Se stiamo registrando su un ordine fornitore, blocchiamo la riga PO del componente
+            // e le eventuali po_reservations collegate per evitare "scarichi doppi" in concorrenza.
+            if (!empty($data['order_id'])) {
+                // 4-bis.1: lock sulla riga PO (se esiste già una riga per quel componente)
+                $poLine = OrderItem::query()
+                    ->where('order_id', $data['order_id'])
+                    ->where('component_id', $component->id)
+                    ->lockForUpdate() // <-- lock sulla riga ordine fornitore del componente
+                    ->first();
+
+                // 4-bis.2: lock sulle po_reservations collegate a questa riga PO (se il model/tabella esiste)
+                if ($poLine) {
+                    PoReservation::query()
+                        ->where('order_item_id', $poLine->id)
+                        ->lockForUpdate() // <-- lock sulle prenotazioni della riga PO
+                        ->get();
+                }
+            }
+
             /* 5 ‧ CREAZIONE LOTTO  ----------------------------------------- */
             $lot = $stockLevel->lots()->firstOrNew([
                 'internal_lot_code' => $data['internal_lot_code'],
@@ -390,10 +471,6 @@ class StockLevelController extends Controller
                 'status'             => 'confirmed',
                 'stock_level_lot_id' => $lot->id,
             ]);
-
-            /* 7 ‧ RICALCOLA QUANTITÀ AGGREGATA ----------------------------- */
-            $stockLevel->quantity = $stockLevel->total_quantity;
-            $stockLevel->save();
 
             /* 8 ‧ AGGANCIA ALL’ORDINE (SE C’È) ----------------------------- */
             if ($data['order_id']) {
@@ -624,6 +701,7 @@ class StockLevelController extends Controller
             'lots.*.id'           => ['nullable','exists:stock_level_lots,id'],
             'lots.*.qty'          => ['required','numeric','min:0.01'],
             'lots.*.lot_supplier' => ['nullable','string','max:50'],
+            'allow_shortfall'     => ['sometimes','boolean'],
         ], [
             'lots.required'        => 'Lotti mancanti.',
             'lots.array'           => 'Formato lotti non valido.',
@@ -642,20 +720,22 @@ class StockLevelController extends Controller
             ])->toArray(),
         ]);
 
-        $updated             = [];
-        $shortfallCreated    = false;       // compat: almeno uno creato
-        $shortfallNeeded     = false;       // c’erano mancanze?
-        $shortfallBlocked    = null;        // 'no_permission' se manca permesso
-        $followUpId          = null;        // compat: primo id creato
-        $followUpNumber      = null;        // compat: primo numero creato
-        $followUpOrders      = [];          // elenco completo ordini creati (id, number, delivery_date, lead_time_days)
+        $allowShortfall     = (bool)($payload['allow_shortfall'] ?? false);
+        $updated            = [];
+        $shortfallCreated   = false;
+        $followUpOrders     = [];   // ← array di ordini creati {id, number, delivery_date}
+        $shortfallBlocked   = null; // ← 'no_permission'
+        $shortfallNeeded    = false;
+
+        Log::info('updateEntry: allow_shortfall flag', ['allow_shortfall' => $allowShortfall]);
 
         try {
             DB::transaction(function () use (
                 $payload, &$updated, $svc,
-                &$shortfallCreated, &$shortfallNeeded, &$shortfallBlocked,
-                &$followUpId, &$followUpNumber, &$followUpOrders
+                &$shortfallCreated, &$followUpOrders, &$shortfallBlocked, &$shortfallNeeded, $allowShortfall
             ) {
+                $baseOrder = null;      // l’ordine a cui appartengono i lotti (stai editando una riga)
+                $anyNegativeDelta = false;
 
                 foreach ($payload['lots'] as $lotData) {
 
@@ -680,6 +760,8 @@ class StockLevelController extends Controller
                     $order = Order::whereHas('stockLevelLots', fn($q) =>
                                 $q->where('stock_level_lots.id', $lot->id)
                             )->first();
+                    
+                    if (!$baseOrder && $order) $baseOrder = $order; // salva il primo ordine trovato
 
                     $stockLevel   = $lot->stockLevel;
                     $oldReceived  = (float) ($lot->received_quantity ?? $lot->quantity); // baseline ricevuto
@@ -721,12 +803,19 @@ class StockLevelController extends Controller
                     }
 
                     /* 4‧ APPLICA VARIAZIONE --------------------------------- */
-                    $supplierLotNew = $lotData['lot_supplier'] ?: $lot->supplier_lot_code;
+                    if ($delta !== 0.0 || ($lotData['lot_supplier'] ?? '') !== ($lot->supplier_lot_code ?? '')) {
+                        $supplierLotNew = $lotData['lot_supplier'] ?: $lot->supplier_lot_code;
+                        $beforeLotQty   = (float) $lot->quantity;
+                        $afterLotQty    = $beforeLotQty + $delta;
 
-                    $beforeLotQty = (float) $lot->quantity;
-                    $afterLotQty  = $beforeLotQty + $delta;
+                        Log::info('Aggiornamento lotto', [
+                            'lot_id'         => $lot->id,
+                            'lot_qty_before' => $beforeLotQty,
+                            'lot_qty_after'  => $afterLotQty,
+                            'supplier_lot'   => $supplierLotNew,
+                            'delta'          => $delta
+                        ]);
 
-                    if ($delta !== 0.0 || $supplierLotNew !== $lot->supplier_lot_code) {
                         // 4-a  aggiorna LOTTO (qty disponibile + ricevuto)
                         $lot->update([
                             'quantity'           => $afterLotQty,
@@ -734,13 +823,16 @@ class StockLevelController extends Controller
                             'supplier_lot_code'  => $supplierLotNew,
                         ]);
 
-                        // 4-b  aggiorna STOCK LEVEL aggregato
+                        // 4-b  aggiorna STOCK LEVEL aggregato (ricalcolo totale, no increment)
                         if ($delta != 0.0) {
-                            $lot->stockLevel()->increment('quantity', $delta);
-                        }
 
-                        // 4-c  movimento IN/OUT
-                        if ($delta != 0.0) {
+                            Log::info('Aggiorno stock_levels.quantity con ricalcolo', [
+                                'stock_level_id'   => $stockLevel->id,
+                                'old_total'        => (string) $stockLevel->quantity,
+                                'delta_used'       => (string) $delta,   // solo per il movimento
+                            ]);
+
+                            // movimento solo del delta (resta corretto)
                             StockMovement::create([
                                 'stock_level_id' => $stockLevel->id,
                                 'type'           => $delta > 0 ? 'IN' : 'OUT',
@@ -763,47 +855,56 @@ class StockLevelController extends Controller
                             'lot_supplier' => $lot->supplier_lot_code,
                         ];
 
-                        /* 5‧ DELTA NEGATIVO → valutazione short-fall --------- */
-                        if ($delta < 0 && $order) {
+                        if ($delta < 0) $anyNegativeDelta = true;
+                    }
+                }                
+
+                // ======= post-aggiornamento: shortfall condizionale =======
+                if ($baseOrder) {
+                    // ricalcola se SERVE shortfall (dopo le rettifiche)
+                    $parent = $baseOrder->fresh()->load(['items.component', 'stockLevelLots.stockLevel']);
+                    $receivedByComp = $parent->stockLevelLots
+                        ->groupBy(fn ($lot) => $lot->stockLevel->component_id)
+                        ->map(fn ($g) => $g->sum('received_quantity')); // ← conteggio su "ricevuto"
+
+                    $missingItems = [];
+                    foreach ($parent->items as $item) {
+                        $missing = $item->quantity - ($receivedByComp->get($item->component_id, 0));
+                        if ($missing > 0) $missingItems[] = $item->id;
+                    }
+
+                    $shortfallNeeded = $anyNegativeDelta && !empty($missingItems);
+
+                    Log::info('Shortfall check after update', [
+                        'any_negative_delta' => $anyNegativeDelta,
+                        'missing_items'      => $missingItems,
+                        'shortfall_needed'   => $shortfallNeeded,
+                        'allow_shortfall'    => $allowShortfall,
+                    ]);
+
+                    if ($shortfallNeeded) {
+                        if ($allowShortfall) {
                             $canCreate = auth()->user()?->can('orders.supplier.create') ?? false;
+                            if ($canCreate) {
+                                // crea uno o più shortfall raggruppati per lead time
+                                $result = app(ShortfallService::class)
+                                            ->captureGrouped($parent, /*canCreate*/ true);
 
-                            $res = $svc->captureGrouped($order, $canCreate);
-
-                            Log::info('Esito captureGrouped (updateEntry)', [
-                                'order_id'        => $order->id,
-                                'can_create'      => $canCreate,
-                                'needed'          => $res['needed'],
-                                'created'         => $res['created'],
-                                'blocked'         => $res['blocked'],
-                                'orders_count'    => count($res['orders']),
-                                'groups'          => $res['groups'],
-                            ]);
-
-                            // aggrega i risultati globali della PATCH
-                            $shortfallNeeded  = $shortfallNeeded  || ($res['needed']  ?? false);
-                            $shortfallCreated = $shortfallCreated || ($res['created'] ?? false);
-                            if (!$shortfallBlocked && !empty($res['blocked'])) {
-                                $shortfallBlocked = $res['blocked']; // 'no_permission'
-                            }
-
-                            if (!empty($res['orders'])) {
-                                // merge evitando duplicati per id
-                                $byId = collect($followUpOrders)->keyBy('id');
-                                foreach ($res['orders'] as $o) {
-                                    if (!$byId->has($o['id'])) {
-                                        $followUpOrders[] = $o;
-                                        $byId->put($o['id'], $o);
-                                    }
+                                $created = $result['created'] ?? [];
+                                if (!empty($created)) {
+                                    $shortfallCreated = true;
+                                    // normalizza payload per il FE
+                                    $followUpOrders = collect($created)->map(fn ($o) => [
+                                        'id'            => $o->id,
+                                        'number'        => $o->number,
+                                        'delivery_date' => optional($o->delivery_date)->format('Y-m-d'),
+                                    ])->values()->all();
                                 }
-
-                                // compat: primo ordine creato
-                                $first = $followUpOrders[0] ?? null;
-                                if ($first && (!$followUpId && !$followUpNumber)) {
-                                    $followUpId     = $first['id'];
-                                    $followUpNumber = $first['number'];
-                                }
+                            } else {
+                                $shortfallBlocked = 'no_permission';
                             }
                         }
+                        // se allowShortfall = false → segnalo solo che servirebbe
                     }
                 }
             });
@@ -821,17 +922,11 @@ class StockLevelController extends Controller
         return response()->json([
             'success'             => true,
             'updated'             => $updated,
-
-            // compat con vecchio front-end (primo ordine creato)
+            // compat altenze: manteniamo i vecchi campi disattivati
             'shortfall_created'   => $shortfallCreated,
-            'follow_up_order_id'  => $followUpId,
-            'follow_up_number'    => $followUpNumber,
-
-            // nuovi campi
-            'shortfall_needed'    => $shortfallNeeded,          // c’erano mancanze
-            'shortfall_blocked'   => $shortfallBlocked,         // 'no_permission' se mancava permesso
-            'follow_up_orders'    => $followUpOrders,           // tutti gli ordini shortfall creati
-            // opzionale: potresti anche includere i gruppi, ma qui non li abbiamo aggregati cross-lotto
+            'follow_up_orders'    => $followUpOrders,     // ← array (può essere vuoto)
+            'shortfall_blocked'   => $shortfallBlocked,   // ← 'no_permission' | null
+            'shortfall_needed'    => $shortfallNeeded,    // ← true se servirebbe ma non richiesto
         ]);
     }
 

@@ -32,6 +32,7 @@ class ReservationService
         $componentId = $stockLevel->component_id;
 
         // 1. quantità libera sul lotto (giacenza – già riservato)
+        $stockLevel = $lot->stockLevel->refresh();
         $reservedOnLevel = $stockLevel->reservations()->sum('quantity');
         $freeQty         = $stockLevel->quantity - $reservedOnLevel;
         if ($freeQty <= 0) {

@@ -142,6 +142,18 @@
                                 <tr x-show="openId === {{ $order->id }}" x-cloak>
                                     <td :colspan="extended ? 7 : 5" class="px-6 py-3 bg-gray-200 dark:bg-gray-700">
                                         <div class="flex items-center space-x-4 text-xs">
+                                            {{-- Pulsante Visualizza (sidebar) --}}
+                                            @can('orders.supplier.view')
+                                                <button type="button"
+                                                        @click="$dispatch('open-lines', {
+                                                            orderId: {{ $order->id }},
+                                                            orderNumber: '{{ $order->number }}'
+                                                        })"
+                                                        class="inline-flex items-center hover:text-indigo-700">
+                                                    <i class="fas fa-eye mr-1"></i> Visualizza
+                                                </button>
+                                            @endcan
+
                                             {{-- Pulsante Registra --}}
                                             @can('stock.entry')
                                                 @if( !($order->registration_date && $order->bill_number) )
@@ -193,18 +205,47 @@
                                                 @endif  
                                             @endcan
 
-                                            {{-- Pulsante Visualizza (sidebar) --}}
-                                            @can('orders.supplier.view')
-                                                <button type="button"
-                                                        @click="$dispatch('open-lines', {
-                                                            orderId: {{ $order->id }},
-                                                            orderNumber: '{{ $order->number }}'
-                                                        })"
-                                                        class="inline-flex items-center hover:text-indigo-700">
-                                                    <i class="fas fa-eye mr-1"></i> Visualizza
-                                                </button>
+                                            {{-- Pulsante Crea Shortfall --}}
+                                            @can('orders.supplier.create')
+                                                @if(($order->is_registered ?? false) && !($order->has_shortfall ?? false) && ($order->needs_shortfall ?? false))
+                                                    <button
+                                                        type="button"
+                                                        class="inline-flex items-center hover:text-red-700"
+                                                        x-data
+                                                        x-on:click.prevent="
+                                                            $dispatch('loading', { on: true });
+                                                            fetch('{{ route('orders.supplier.shortfall.create') }}', {
+                                                                method: 'POST',
+                                                                headers: {
+                                                                    'Content-Type': 'application/json',
+                                                                    'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                                                                    'Accept': 'application/json'
+                                                                },
+                                                                body: JSON.stringify({ order_id: {{ $order->id }} })
+                                                            })
+                                                            .then(r => r.json())
+                                                            .then(data => {
+                                                                $dispatch('loading', { on: false });
+                                                                if (data?.status === 'ok') {
+                                                                    $dispatch('toast', { type: 'success', text: data.message ?? 'Shortfall creato.' });
+                                                                    $dispatch('reload-supplier-orders');
+                                                                } else {
+                                                                    $dispatch('toast', { type: 'error', text: data?.message ?? 'Operazione non completata.' });
+                                                                }
+                                                            })
+                                                            .catch(() => {
+                                                                $dispatch('loading', { on: false });
+                                                                $dispatch('toast', { type: 'error', text: 'Errore di rete.' });
+                                                            })
+                                                        "
+                                                        title="Crea Shortfall per questo ordine fornitore"
+                                                    >
+                                                        <i class="fa fa-life-ring mr-1"></i> Crea Shortfall
+                                                    </button>
+                                                @endif
                                             @endcan
 
+                                            {{-- Pulsante Modifica (solo se già registrato) --}}
                                             @can('stock.entryEdit')
                                                 @if($order->registration_date && $order->bill_number)
                                                     <button type="button"
@@ -885,6 +926,7 @@
                         /* 0‧ costruisci due array: toCreate e toUpdate ---------------- */
                         const toCreate = [];
                         const toUpdate = [];
+                        let hasNegativeDelta = false;
 
                         this.currentRow.lots.forEach(l => {
 
@@ -908,12 +950,22 @@
                                     qty          : l.qty,
                                     lot_supplier : l.supplier,
                                 });
+                                if (parseFloat(l.qty) < parseFloat(l._oldQty)) hasNegativeDelta = true;
                             }
                         });
 
                         if (!toCreate.length && !toUpdate.length) {
                             alert('Nessuna modifica da salvare.');
                             return;
+                        }
+
+                        // chiedi se creare shortfall solo se c’è almeno un delta negativo
+                        let allowShortfall = false;
+                        if (hasNegativeDelta) {
+                            allowShortfall = confirm(
+                                'Stai riducendo quantità già registrate.\n' +
+                                'Vuoi generare automaticamente un ordine di recupero se necessario?'
+                            );
                         }
 
                         /* helper fetch JSON ------------------------------------------ */
@@ -936,21 +988,22 @@
 
                         try {
 
-                            /* 1‧ CREA i lotti nuovi ---------------------------------- */
+                            /* CREA i lotti nuovi ---------------------------------- */
                             for (const body of toCreate) {
                                 await fetchJson('{{ route('stock-movements-entry.store') }}', 'POST', body);
                             }
 
-                            /* 2‧ PATCH sui lotti esistenti (se ne ho) ---------------- */
-                            let patchResp = { updated: [], shortfall_created: false };
+                            /* PATCH sui lotti esistenti (se ne ho) ---------------- */
+                            let patchResp = { updated: [] };
                             if (toUpdate.length) {
                                 patchResp = await fetchJson(
-                                    '{{ route('stock-movements-entry.update') }}', 'PATCH',
-                                    { lots: toUpdate }
+                                    '{{ route('stock-movements-entry.update') }}',
+                                    'PATCH',
+                                    { lots: toUpdate, allow_shortfall: allowShortfall }
                                 );
                             }
 
-                            /* 3‧ sincronia dati nel front-end ------------------------ */
+                            /* sincronia dati nel front-end ------------------------ */
                             patchResp.updated.forEach(u => {
 
                                 /* currentRow */
@@ -974,51 +1027,21 @@
                                 });
                             });
 
-                            /* 4‧ feedback utente ------------------------------------ */
-                            const listShortfalls = (arr = []) => {
-                                if (!Array.isArray(arr) || !arr.length) return '';
-                                return arr.map(o => {
-                                    const num = o.number ?? o.id ?? '?';
-                                    const dt  = o.delivery_date ? ` (consegna ${o.delivery_date})` : '';
-                                    const lt  = (o.lead_time_days ?? null) !== null ? ` — LT ${o.lead_time_days}g` : '';
-                                    return `#${num}${dt}${lt}`;
-                                }).join('\n');
-                            };
-
-                            const normalizeShortfalls = (resp) => {
-                                // formato nuovo: array completo
-                                if (Array.isArray(resp.follow_up_orders)) return resp.follow_up_orders;
-
-                                // compat: vecchi campi singoli
-                                if (resp.follow_up_order_id || resp.follow_up_number) {
-                                    return [{
-                                        id: resp.follow_up_order_id ?? null,
-                                        number: resp.follow_up_number ?? null,
-                                        delivery_date: resp.delivery_date ?? null,
-                                        lead_time_days: resp.lead_time_days ?? null,
-                                    }];
-                                }
-                                return [];
-                            };
-
-                            const shortfalls = normalizeShortfalls(patchResp);
-
-                            if (patchResp.shortfall_blocked === 'no_permission' && (patchResp.shortfall_needed || toUpdate.length)) {
+                            /* feedback utente ------------------------------------ */
+                            if (Array.isArray(patchResp.follow_up_orders) && patchResp.follow_up_orders.length) {
+                                const nums = patchResp.follow_up_orders.map(o => `#${o.number}`).join(', ');
+                                alert('Aggiornamento effettuato. Creati ordini di recupero: ' + nums + '.');
+                            } else if (patchResp.shortfall_blocked === 'no_permission') {
                                 alert(
                                     'Aggiornamento effettuato.\n' +
-                                    'Sono state rilevate quantità mancanti ma non hai i permessi per creare ordini di recupero.\n' +
-                                    'Comunica agli acquisti di generare un nuovo ordine con le quantità mancanti.'
+                                    'Servirebbe un ordine di recupero, ma non hai i permessi per crearlo.\n' +
+                                    'Avvisa gli acquisti per generarlo.'
                                 );
-                            } else if (shortfalls.length) {
+                            } else if (patchResp.shortfall_needed === true && allowShortfall === false) {
                                 alert(
                                     'Aggiornamento effettuato.\n' +
-                                    'Generati ordini di recupero:\n' +
-                                    listShortfalls(shortfalls)
+                                    'Le quantità risultano mancanti, ma non hai richiesto di generare ordini di recupero.'
                                 );
-                            } else if (patchResp.shortfall_created && patchResp.follow_up_number) {
-                                // fallback vecchio singolo
-                                alert('Aggiornamento effettuato. È stato creato l’ordine di recupero #' +
-                                    patchResp.follow_up_number + '.');
                             } else if (toUpdate.length) {
                                 alert('Lotti aggiornati con successo!');
                             } else {

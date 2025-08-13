@@ -164,9 +164,20 @@ class OrderSupplierController extends Controller
             'supplier_id'                => ['required','exists:suppliers,id'],
             'delivery_date'              => ['required','date'],
             'lines'                      => ['required','array','min:1'],
-            'lines.*.component_id'       => ['required','exists:components,id'],
+            'lines.*.component_id'       => ['required','distinct','exists:components,id'],
             'lines.*.quantity'           => ['required','numeric','min:0.01'],
             'lines.*.last_cost'              => ['required','numeric','min:0'],
+        ],
+        [
+            'order_number_id.required' => 'Il numero ordine è obbligatorio.',
+            'supplier_id.required'     => 'Il fornitore è obbligatorio.',
+            'delivery_date.required'   => 'La data di consegna è obbligatoria.',
+            'lines.required'           => 'Le righe sono obbligatorie.',
+            'lines.array'              => 'Le righe devono essere un array.',
+            'lines.min'                => 'Devi fornire almeno una riga.',
+            'lines.*.component_id.required' => 'Il componente è obbligatorio.',
+            'lines.*.component_id.distinct' => 'Il componente deve essere unico.',
+            'lines.*.component_id.exists'   => 'Il componente selezionato non è valido.',
         ]);
 
         DB::transaction(function () use ($data) {
@@ -261,6 +272,78 @@ class OrderSupplierController extends Controller
     }
 
     /**
+     * CTA "Crea Shortfall" per un ordine fornitore.
+     *
+     * - Valida l'input (order_id)
+     * - Determina $canCreate dai permessi utente
+     * - Applica lock row-level su TUTTE le righe dell'ordine fornitore
+     * - Chiama direttamente ShortfallService::captureGrouped($order, $canCreate)
+     * - Risponde con JSON per il front-end (status, message, summary)
+     */
+    public function createShortfallHoles(Request $request, ShortfallService $service): JsonResponse
+    {
+        /* ── 1) Validazione input ─────────────────────────────────────── */
+        $data = $request->validate([
+            'order_id' => ['required', 'integer', 'exists:orders,id'],
+        ]);
+
+        /* ── 2) Permessi → boolean $canCreate ─────────────────────────── */
+        $canCreate = (bool) optional($request->user())->can('orders.supplier.create');
+
+        /* ── 3) Transazione + lock su righe ordine ────────────────────── */
+        $summary = DB::transaction(function () use ($data, $service, $canCreate) {
+            /** @var \App\Models\Order $order */
+            $order = Order::query()
+                ->where('id', $data['order_id'])
+                ->whereNotNull('supplier_id') // sicurezza: solo PO
+                ->firstOrFail();
+
+            // Lock row-level su TUTTE le righe della PO per evitare catture concorrenti
+            $lineIds = OrderItem::query()
+                ->where('order_id', $order->id)
+                ->pluck('id');
+
+            if ($lineIds->isNotEmpty()) {
+                OrderItem::query()
+                    ->whereIn('id', $lineIds)
+                    ->lockForUpdate()
+                    ->get();
+            }
+
+            // Delega alla logica esistente (calcolo mancanti, raggruppo lead_time_days, creazione righe, po_reservations)
+            $res = $service->captureGrouped($order, $canCreate);
+
+            // Normalizza un riepilogo coerente con la UI
+            return [
+                'created_pos'   => (int)   ($res['created_pos']   ?? $res['pos']   ?? 0),
+                'created_lines' => (int)   ($res['created_lines'] ?? $res['lines'] ?? 0),
+                'covered_qty'   => (float) ($res['covered_qty']   ?? $res['qty']   ?? 0),
+            ];
+        }, 3); // retry su deadlock
+
+        /* ── 4) Risposta JSON front-end friendly ──────────────────────── */
+        if (! $canCreate) {
+            // Nessuna creazione: restituiamo 403 + riepilogo informativo
+            return response()->json([
+                'status'  => 'error',
+                'message' => 'Permesso negato: non puoi creare ordini fornitore.',
+                'summary' => $summary,
+            ], 403);
+        }
+
+        return response()->json([
+            'status'  => 'ok',
+            'message' => sprintf(
+                'Shortfall creato. PO: %d, Righe: %d, Qty coperte: %s',
+                $summary['created_pos'],
+                $summary['created_lines'],
+                (string) $summary['covered_qty']
+            ),
+            'summary' => $summary,
+        ]);
+    }
+
+    /**
      * Permette di visualizzare un ordine fornitore specifico.
      * 
      * @param  int  $id
@@ -337,10 +420,53 @@ class OrderSupplierController extends Controller
             'delivery_date'              => ['required','date'],
             'lines'                      => ['required','array','min:1'],
             'lines.*.id'                 => ['nullable','exists:order_items,id'],
-            'lines.*.component_id'       => ['required','exists:components,id'],
+            'lines.*.component_id'       => ['required','distinct','exists:components,id'],
             'lines.*.quantity'           => ['required','numeric','min:0.01'],
             'lines.*.last_cost'          => ['required','numeric','min:0'],
+        ],
+        [
+            'delivery_date.required' => 'La data di consegna è obbligatoria.',
+            'lines.required'         => 'Le righe sono obbligatorie.',
+            'lines.array'            => 'Le righe devono essere un array.',
+            'lines.min'              => 'Devi fornire almeno una riga.',
+            'lines.*.component_id.required' => 'Il componente è obbligatorio.',
+            'lines.*.component_id.distinct' => 'Il componente deve essere unico.',
+            'lines.*.component_id.exists'   => 'Il componente selezionato non è valido.',
         ]);
+
+        /* ── Verifica che nel "set finale" (DB + input) non restino duplicati ─ */
+        $orderId = $order->id;
+        $incoming = collect($request->input('lines', []))
+            ->map(fn ($row) => (int) ($row['component_id'] ?? 0))
+            ->filter()
+            ->values()
+            ->all();
+
+        $excludeIds = collect($request->input('lines', []))
+            ->map(fn ($row) => (int) ($row['id'] ?? 0))
+            ->filter()
+            ->values()
+            ->all();
+
+        // Righe già a DB diverse da quelle che stai aggiornando/creando ora
+        $already = OrderItem::query()
+            ->where('order_id', $orderId)
+            ->when(!empty($excludeIds), fn ($q) => $q->whereNotIn('id', $excludeIds))
+            ->pluck('component_id')
+            ->map(fn ($v) => (int) $v)
+            ->filter()
+            ->values()
+            ->all();
+
+        $final = array_merge($already, $incoming);
+        $dups  = collect($final)->countBy()->filter(fn ($c) => $c > 1)->keys();
+
+        if ($dups->isNotEmpty()) {
+            return response()->json([
+                'message'    => 'Questo ordine contiene più righe per lo stesso componente.',
+                'duplicates' => $dups->values(),
+            ], 422);
+        }
 
         DB::transaction(function () use ($order, $data) {
 
