@@ -9,14 +9,15 @@ use App\Models\OrderItemShortfall;
 use App\Models\StockLevel;
 use App\Models\StockLevelLot;
 use App\Models\Supplier;
+use App\Services\ShortfallService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
-use App\Services\ShortfallService;
 
 class OrderSupplierController extends Controller
 {
@@ -287,8 +288,12 @@ class OrderSupplierController extends Controller
             'order_id' => ['required', 'integer', 'exists:orders,id'],
         ]);
 
+        Log::info('[@createShortfallHoles] - dati validati', $data);
+
         /* ── 2) Permessi → boolean $canCreate ─────────────────────────── */
         $canCreate = (bool) optional($request->user())->can('orders.supplier.create');
+
+        Log::info('[@createShortfallHoles] - permessi utente', ['canCreate' => $canCreate]);
 
         /* ── 3) Transazione + lock su righe ordine ────────────────────── */
         $summary = DB::transaction(function () use ($data, $service, $canCreate) {
@@ -298,10 +303,14 @@ class OrderSupplierController extends Controller
                 ->whereNotNull('supplier_id') // sicurezza: solo PO
                 ->firstOrFail();
 
+            Log::info('[@createShortfallHoles] - ordine trovato', ['order_id' => $order->id]);
+
             // Lock row-level su TUTTE le righe della PO per evitare catture concorrenti
             $lineIds = OrderItem::query()
                 ->where('order_id', $order->id)
                 ->pluck('id');
+
+            Log::info('[@createShortfallHoles] - righe ordine trovate', ['line_ids' => $lineIds]);
 
             if ($lineIds->isNotEmpty()) {
                 OrderItem::query()
@@ -313,6 +322,8 @@ class OrderSupplierController extends Controller
             // Delega alla logica esistente (calcolo mancanti, raggruppo lead_time_days, creazione righe, po_reservations)
             $res = $service->captureGrouped($order, $canCreate);
 
+            Log::info('[@createShortfallHoles] - risultato cattura', $res);
+
             // Normalizza un riepilogo coerente con la UI
             return [
                 'created_pos'   => (int)   ($res['created_pos']   ?? $res['pos']   ?? 0),
@@ -320,6 +331,8 @@ class OrderSupplierController extends Controller
                 'covered_qty'   => (float) ($res['covered_qty']   ?? $res['qty']   ?? 0),
             ];
         }, 3); // retry su deadlock
+
+        Log::info('[@createShortfallHoles] - riepilogo transazione', $summary);
 
         /* ── 4) Risposta JSON front-end friendly ──────────────────────── */
         if (! $canCreate) {
@@ -331,15 +344,36 @@ class OrderSupplierController extends Controller
             ], 403);
         }
 
+        // --- SUCCESSO -------------------------------------------------------------
+
+        // Estrai TUTTI i numeri (fallback all'ID se il numero manca)
+        $ordersArr = is_array($res['orders'] ?? null) ? $res['orders'] : [];
+        $labels = collect($ordersArr)
+            ->map(fn ($o) => $o['number'] ?? $o['id'] ?? null)
+            ->filter()
+            ->values();
+
+        $message = 'Shortfall creato.';
+        if (!empty($res['created'])) {
+            $count = $labels->count();
+
+            if ($count === 0) {
+                // created=true ma nessun numero/id disponibile: mantieni messaggio neutro
+                $message = 'Shortfall creato.';
+            } elseif ($count === 1) {
+                $message = 'Creato ordine fornitore #' . $labels[0] . '.';
+            } else {
+                // Plurale: #X, #Y, #Z
+                $message = 'Creati ordini fornitori #' . $labels->implode(', #') . '.';
+            }
+        } elseif (empty($res['needed'])) {
+            $message = 'Nessuno shortfall necessario per questo ordine.';
+        }
+
         return response()->json([
             'status'  => 'ok',
-            'message' => sprintf(
-                'Shortfall creato. PO: %d, Righe: %d, Qty coperte: %s',
-                $summary['created_pos'],
-                $summary['created_lines'],
-                (string) $summary['covered_qty']
-            ),
-            'summary' => $summary,
+            'message' => $message,
+            'summary' => $summary ?? [], // se già calcolato in alto; altrimenti puoi rimuovere questa riga
         ]);
     }
 

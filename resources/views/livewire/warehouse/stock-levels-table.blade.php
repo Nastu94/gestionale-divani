@@ -57,6 +57,12 @@
                             <td class="px-6 py-2 text-center">{{ $level->reserved_quantity }}</td>
                         </tr>
                     @endforeach
+                    {{-- RIGA NESSUN RISULTATO --}}
+                    @if ($levels->isEmpty())
+                        <tr>
+                            <td colspan="5" class="px-6 py-2 text-center text-gray-500">Nessun risultato trovato.</td>
+                        </tr>
+                    @endif
                 </tbody>
             </table>
         </div>
@@ -65,6 +71,7 @@
         <div class="flex items-center justify-between px-6 py-2">
             <div>{{ $levels->links('vendor.pagination.tailwind-compact') }}</div>
 
+            @if($levels->hasMorePages())
             <div>
                 <label class="text-xs mr-1 p-1">Righe:</label>
                 <select wire:model="perPage" class="border rounded px-5 py-1 text-xs">
@@ -73,6 +80,7 @@
                     <option value="250">250</option>
                 </select>
             </div>
+            @endif
         </div>
     </div>
 

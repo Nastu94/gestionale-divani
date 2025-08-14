@@ -226,6 +226,13 @@
                                     </tr>
                                 @endif
                             @endforeach
+
+                            {{-- RIGA NESSUN RISULTATO --}}
+                            @if ($exitRows->isEmpty())
+                                <tr>
+                                    <td colspan="6" class="px-6 py-2 text-center text-gray-500">Nessun risultato trovato.</td>
+                                </tr>
+                            @endif
                         </tbody>
                     </table>
                 </div>
@@ -235,14 +242,17 @@
                     <div>
                         {{ $exitRows->links('vendor.pagination.tailwind-compact') }}
                     </div>
-                    <div>
-                        <label class="text-xs mr-1 p-1">Righe:</label>
-                        <select wire:model="perPage" class="border rounded px-5 py-1 text-xs">
-                            <option value="100">100</option>
-                            <option value="250">250</option>
-                            <option value="500">500</option>
-                        </select>
-                    </div>
+
+                    @if($exitRows->hasMorePages())
+                        <div>
+                            <label class="text-xs mr-1 p-1">Righe:</label>
+                            <select wire:model="perPage" class="border rounded px-5 py-1 text-xs">
+                                <option value="100">100</option>
+                                <option value="250">250</option>
+                                <option value="500">500</option>
+                            </select>
+                        </div>
+                    @endif
                 </div>
             </div>
         </div>

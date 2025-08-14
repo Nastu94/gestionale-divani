@@ -227,6 +227,13 @@
                                 </tr>
                                 @endif
                             @endforeach
+
+                            {{-- RIGA NESSUN RISULTATO --}}
+                            @if ($orders->isEmpty())
+                                <tr>
+                                    <td colspan="6" class="px-6 py-2 text-center text-gray-500">Nessun risultato trovato.</td>
+                                </tr>
+                            @endif
                         </tbody>
                     </table>
                 </div>

@@ -227,15 +227,15 @@
                                                             .then(data => {
                                                                 $dispatch('loading', { on: false });
                                                                 if (data?.status === 'ok') {
-                                                                    $dispatch('toast', { type: 'success', text: data.message ?? 'Shortfall creato.' });
-                                                                    $dispatch('reload-supplier-orders');
+                                                                    alert(data.message ?? 'Shortfall creato.');
+                                                                    window.location.reload();
                                                                 } else {
-                                                                    $dispatch('toast', { type: 'error', text: data?.message ?? 'Operazione non completata.' });
+                                                                    alert(data?.message ?? 'Operazione non completata.');
                                                                 }
                                                             })
                                                             .catch(() => {
                                                                 $dispatch('loading', { on: false });
-                                                                $dispatch('toast', { type: 'error', text: 'Errore di rete.' });
+                                                                alert('Errore di rete.');
                                                             })
                                                         "
                                                         title="Crea Shortfall per questo ordine fornitore"
