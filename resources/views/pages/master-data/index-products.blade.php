@@ -67,7 +67,7 @@
 
                 {{-- Modale Create / Edit --}}
                 <div x-show="showModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center">
-                    <div class="absolute inset-0 bg-black opacity-75" @click="showModal = false"></div>
+                    <div class="absolute inset-0 bg-black opacity-75"></div>
                     <div class="relative z-10 w-full max-w-3xl">
                         <x-product-create-modal 
                             :products="$products"

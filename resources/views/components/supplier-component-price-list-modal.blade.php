@@ -2,12 +2,6 @@
 
 <div
     x-data="componentPriceListModal()"
-    @click.away="
-        showComponentPriceListModal = false;
-        rows = [];
-        supplierId = null;
-        supplierName = '';
-    "
     x-on:load-component-price-list.window="open($event.detail.supplierId)"
     class="bg-white rounded-lg shadow-lg p-6 w-full max-w-4xl
            max-h-[85vh] overflow-hidden">                      

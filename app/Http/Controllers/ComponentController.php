@@ -87,6 +87,48 @@ class ComponentController extends Controller
      */
     public function store(Request $request)
     {
+        Log::info('Dati ricevuti dal form:', $request->all());
+
+        /* -------------------------------------------------------------
+        | Normalizzazione decimali IT → EN (prima della validazione)
+        | Gestisce:
+        |  - "1.234,56" → "1234.56"  (formato it-IT con separatore migliaia)
+        |  - "12,5"     → "12.5"
+        |  - rimuove spazi e NBSP
+        ------------------------------------------------------------- */
+        $decimalFields = ['length','width','height','weight'];
+
+        $norm = static function ($v) {
+            if ($v === null || $v === '') return null;
+            $s = preg_replace('/[ \x{00A0}]/u', '', (string) $v); // spazi + NBSP
+
+            // Caso "1.234,56": rimuove migliaia, converte virgola in punto
+            if (preg_match('/^\d{1,3}(\.\d{3})+,\d+$/', $s)) {
+                $s = str_replace('.', '', $s);
+                $s = str_replace(',', '.', $s);
+                return $s;
+            }
+
+            // Caso con sola virgola decimale: "12,5" → "12.5"
+            if (str_contains($s, ',') && ! str_contains($s, '.')) {
+                return str_replace(',', '.', $s);
+            }
+
+            // Caso "1.234" (solo punti come migliaia, niente decimali) → "1234"
+            if (substr_count($s, '.') > 1 && ! str_contains($s, ',')) {
+                return str_replace('.', '', $s);
+            }
+
+            // Altri casi (già in formato con punto o stringa numerica semplice)
+            return $s;
+        };
+
+        $toMerge = [];
+        foreach ($decimalFields as $f) {
+            $toMerge[$f] = $norm($request->input($f));
+        }
+        $request->merge($toMerge);
+
         // Validazione dei campi
         // Usa messaggi personalizzati per una migliore UX
         $messages = [
@@ -199,6 +241,48 @@ class ComponentController extends Controller
      */
     public function update(Request $request, Component $component)
     {
+        Log::info('Dati ricevuti dal form:', $request->all());
+
+        /* -------------------------------------------------------------
+        | Normalizzazione decimali IT → EN (prima della validazione)
+        | Gestisce:
+        |  - "1.234,56" → "1234.56"  (formato it-IT con separatore migliaia)
+        |  - "12,5"     → "12.5"
+        |  - rimuove spazi e NBSP
+        ------------------------------------------------------------- */
+        $decimalFields = ['length','width','height','weight'];
+
+        $norm = static function ($v) {
+            if ($v === null || $v === '') return null;
+            $s = preg_replace('/[ \x{00A0}]/u', '', (string) $v); // spazi + NBSP
+
+            // Caso "1.234,56": rimuove migliaia, converte virgola in punto
+            if (preg_match('/^\d{1,3}(\.\d{3})+,\d+$/', $s)) {
+                $s = str_replace('.', '', $s);
+                $s = str_replace(',', '.', $s);
+                return $s;
+            }
+
+            // Caso con sola virgola decimale: "12,5" → "12.5"
+            if (str_contains($s, ',') && ! str_contains($s, '.')) {
+                return str_replace(',', '.', $s);
+            }
+
+            // Caso "1.234" (solo punti come migliaia, niente decimali) → "1234"
+            if (substr_count($s, '.') > 1 && ! str_contains($s, ',')) {
+                return str_replace('.', '', $s);
+            }
+
+            // Altri casi (già in formato con punto o stringa numerica semplice)
+            return $s;
+        };
+
+        $toMerge = [];
+        foreach ($decimalFields as $f) {
+            $toMerge[$f] = $norm($request->input($f));
+        }
+        $request->merge($toMerge);
+
         // Validazione dei campi
         // Usa messaggi personalizzati per una migliore UX
         $messages = [

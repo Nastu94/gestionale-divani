@@ -1,13 +1,6 @@
 {{-- resources/views/components/component-price-list-modal.blade.php --}}
 <div
     x-data="priceListModal()"
-    @click.away="
-        showPriceListModal = false;
-        rows = [];
-        componentId = null;
-        componentCode = '';
-        componentDescr = '';
-    "
     x-on:load-price-list.window="init($event.detail.component_id)"
     class="bg-white rounded-lg shadow-lg p-6 w-full overflow-y-auto">
 

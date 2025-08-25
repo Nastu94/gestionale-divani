@@ -351,7 +351,7 @@ class ProductController extends Controller
 
             return redirect()
                 ->route('products.index')
-                ->with('success', 'Prodotto eliminato con successo.');
+                ->with('success', 'Prodotto disattivato con successo.');
 
         } catch (\Throwable $e) {
             DB::rollBack();

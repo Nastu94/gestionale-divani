@@ -8,7 +8,7 @@
     - type:   categoria (stock / import / …) – potrà essere filtrata, ma resta nascosta nella tabella
 --}}
 
-<div  @click.away="showModal = false"
+<div  
       class="relative bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-y-auto
              max-h-[90vh] w-full max-w-2xl p-6 z-10">
 

@@ -15,6 +15,7 @@ use App\Models\ComponentCategory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\belongsToMany;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 
 /**
  * Modello Eloquent per la tabella 'components'.
@@ -148,5 +149,33 @@ class Component extends Model
     public function category()
     {
         return $this->belongsTo(ComponentCategory::class, 'category_id');
+    }
+
+    protected function length(): Attribute
+    {
+        return Attribute::make(
+            set: fn ($v) => $v === null || $v === '' ? null : strtr((string) $v, [',' => '.'])
+        );
+    }
+
+    protected function width(): Attribute
+    {
+        return Attribute::make(
+            set: fn ($v) => $v === null || $v === '' ? null : strtr((string) $v, [',' => '.'])
+        );
+    }
+
+    protected function height(): Attribute
+    {
+        return Attribute::make(
+            set: fn ($v) => $v === null || $v === '' ? null : strtr((string) $v, [',' => '.'])
+        );
+    }
+
+    protected function weight(): Attribute
+    {
+        return Attribute::make(
+            set: fn ($v) => $v === null || $v === '' ? null : strtr((string) $v, [',' => '.'])
+        );
     }
 }

@@ -1,7 +1,7 @@
 {{-- resources/views/pages/warehouse/index.blade.php --}}
 
 <x-app-layout>
-    {{-- ╔════════════════════════════════ HEADER ═════════════════════════════════╗ --}}
+    {{--  HEADER  --}}
     <x-slot name="header">
         <div class="flex flex-wrap items-center justify-between">
             <h2 class="font-semibold text-lg text-gray-800 dark:text-gray-200 leading-tight">
@@ -26,14 +26,13 @@
             @endif
         @endforeach
     </x-slot>
-    {{-- ╚═════════════════════════════════════════════════════════════════════════╝ --}}
 
     <div class="py-6">
         {{-- Alpine root --}}
         <div x-data="warehouseCrud()" class="max-w-full mx-auto sm:px-6 lg:px-8">
             <div class="bg-white dark:bg-gray-800 shadow sm:rounded-lg">
 
-                {{-- ╔══════════════════ Pulsanti Nuovo + Estendi/Riduci ═════════════════╗ --}}
+                {{--  Pulsanti Nuovo + Estendi/Riduci  --}}
                 <div class="flex justify-end m-2 p-2">
                     @can('warehouses.create')
                         <button  @click="openCreate"
@@ -53,18 +52,16 @@
                         <span x-text="extended ? 'Comprimi tabella' : 'Estendi tabella'"></span>
                     </button>
                 </div>
-                {{-- ╚═══════════════════════════════════════════════════════════════════╝ --}}
 
-                {{-- ╔═════════════════════ Modale Creazione Magazzino ═══════════════════╗ --}}
+                {{--  Modale Creazione Magazzino  --}}
                 <div x-show="showModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center">
-                    <div class="absolute inset-0 bg-black opacity-75" @click="showModal = false"></div>
+                    <div class="absolute inset-0 bg-black opacity-75"></div>
                     <div class="relative z-10 w-full max-w-2xl">
                         <x-warehouse-create-modal />
                     </div>
                 </div>
-                {{-- ╚═══════════════════════════════════════════════════════════════════╝ --}}
 
-                {{-- ╔══════════════════════════ Tabella Magazzini ═══════════════════════╗ --}}
+                {{--  Tabella Magazzini  --}}
                 <div class="overflow-x-auto p-4">
                     <table class="table-auto min-w-full text-sm divide-y divide-gray-200 dark:divide-gray-700">
                         <thead class="bg-gray-300 dark:bg-gray-700 uppercase tracking-wider">
@@ -143,12 +140,11 @@
                 <div class="mt-4 px-6 py-2">
                     {{ $warehouses->links('vendor.pagination.tailwind-compact') }}
                 </div>
-                {{-- ╚═══════════════════════════════════════════════════════════════════╝ --}}
             </div>
         </div>
     </div>
 
-    {{-- ╔════════════════════════════════ Alpine JS ═══════════════════════════════╗ --}}
+    {{--  Alpine JS  --}}
     @push('scripts')
     <script>
         document.addEventListener('alpine:init', () => {
@@ -172,5 +168,4 @@
         });
     </script>
     @endpush
-    {{-- ╚═════════════════════════════════════════════════════════════════════════╝ --}}
 </x-app-layout>

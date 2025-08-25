@@ -56,7 +56,7 @@
 
                 {{-- Modale Create / Edit --}}
                 <div x-show="showModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center">
-                    <div class="absolute inset-0 bg-black opacity-75" @click="showModal = false"></div>
+                    <div class="absolute inset-0 bg-black opacity-75"></div>
                     <div class="relative z-10 w-full max-w-3xl">
                         <x-component_categories-create-modal 
                             :categories="$categories"
@@ -262,14 +262,18 @@
                     init() {
                         @if($errors->any())
                             this.showModal = true;
-                            this.mode = '{{ old('_method','create') === 'PUT' ? 'edit' : 'create' }}';
-                            this.errors = @json($errors->toArray());
+                            this.mode = {!! json_encode(old('_method','create') === 'PUT' ? 'edit' : 'create') !!};
+
+                            // array di errori di Laravel: { field: [msg, ...], ... }
+                            this.errors = {!! json_encode($errors->toArray(), JSON_UNESCAPED_UNICODE) !!};
+
+                            // id numerico o null, MAI stringa vuota → evita "id: ,"
                             this.form = {
-                                id:         {{ old('id', 'null') }},
-                                code:       '{{ addslashes(old('code','')) }}',
-                                name:       '{{ addslashes(old('name','')) }}',
-                                description:'{{ addslashes(old('description','')) }}',
-                                phases:      {!! json_encode(old('phases', [])) !!},
+                                id: {!! old('id') !== null && old('id') !== '' ? (int) old('id') : 'null' !!},
+                                code: {!! json_encode(old('code','')) !!},
+                                name: {!! json_encode(old('name','')) !!},
+                                description: {!! json_encode(old('description','')) !!},
+                                phases: {!! json_encode(old('phases', [])) !!},
                             };
                         @endif
                     },

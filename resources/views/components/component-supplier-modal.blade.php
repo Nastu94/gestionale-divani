@@ -78,7 +78,6 @@
             this.reset()
         },
     }"
-    @click.away="showSupplierModal = false"
 
     {{--  Prefill dal padre + caricamento eventuale associazione  --}}
     @prefill-supplier-form.window="
@@ -122,12 +121,9 @@
                 placeholder="Nome, P.IVA o C.F…"
                 class="w-full mt-1 border rounded p-1 text-sm"
             >
-            <p x-show="!localForm.supplier_id" x-cloak class="text-[10px] text-gray-500 mt-0.5">
-                Usa % per jolly (es. <code>CUS%01</code>)
-            </p>
             <!-- suggerimenti -->
             <div x-show="supplierOptions.length" x-cloak
-                class="absolute z-50 w-full bg-white border rounded shadow max-h-40 overflow-y-auto mt-1">
+                class="absolute z-50 bg-white border rounded shadow max-h-40 overflow-y-auto mt-1">
                 <template x-for="opt in supplierOptions" :key="opt.id">
                     <div class="px-2 py-1 hover:bg-gray-200 cursor-pointer text-xs"
                         @click="selectSupplier(opt)">
@@ -138,6 +134,9 @@
                     </div>
                 </template>
             </div>
+            <p x-show="!localForm.supplier_id" x-cloak class="text-[10px] text-gray-500 mt-0.5">
+                Usa % per jolly (es. <code>CUS%01</code>)
+            </p>
 
             <!-- riepilogo scelto -->
             <template x-if="localForm.supplier_id">

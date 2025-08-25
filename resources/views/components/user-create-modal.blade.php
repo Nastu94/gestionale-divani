@@ -16,7 +16,6 @@
 
 <!-- Modale Create/Edit Utente -->
 <div 
-    @click.away="showModal = false" 
     class="relative bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden w-full max-w-xl p-6 z-10"
 >
     <div class="flex justify-between items-center mb-4">

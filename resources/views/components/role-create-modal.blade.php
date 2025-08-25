@@ -15,7 +15,7 @@
 @endphp
 
 {{-- wrapper del modal, visibile solo se showModal = true nel genitore --}}
-<div @click.away="showModal = false"
+<div 
      x-show="showModal"
      x-cloak
      class="fixed inset-0 z-50 flex items-center justify-center">

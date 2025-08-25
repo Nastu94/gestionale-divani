@@ -12,7 +12,6 @@
 --}}
 
 <div 
-    @click.away="showModal = false" 
     class="relative bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-y-auto 
             max-h-[90vh] w-full max-w-3xl p-6 z-10"
 >
@@ -34,7 +33,7 @@
     <form 
         x-bind:action="mode === 'create' ? '{{ route('components.store') }}' : '{{ url('components') }}/' + form.id" 
         method="POST" 
-        @submit.prevent="if(validateComponent()) $el.submit()"
+        @submit.prevent="if (validateComponent()) { normalizeDecimals(); $el.submit(); }"
     >
         @csrf
 

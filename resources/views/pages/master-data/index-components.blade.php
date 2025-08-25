@@ -67,7 +67,7 @@
 
                 {{-- Modale Create / Edit --}}
                 <div x-show="showModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center">
-                    <div class="absolute inset-0 bg-black opacity-75" @click="showModal = false"></div>
+                    <div class="absolute inset-0 bg-black opacity-75"></div>
                     <div class="relative z-10 w-full max-w-3xl">
                         <x-component-create-modal 
                             :components="$components"
@@ -78,7 +78,7 @@
                 
                 {{-- Modale Fornitori --}}
                 <div x-show="showSupplierModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center">
-                    <div class="absolute inset-0 bg-black opacity-75" @click="showSupplierModal = false"></div>
+                    <div class="absolute inset-0 bg-black opacity-75"></div>
                     <div class="relative z-10 w-full max-w-xl">
                         <x-component-supplier-modal 
                             :suppliers="$suppliers"
@@ -88,7 +88,7 @@
 
                 {{-- Modale Listino Prezzi --}}
                 <div x-show="showPriceListModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center">
-                    <div class="absolute inset-0 bg-black opacity-75" @click="showPriceListModal = false"></div>
+                    <div class="absolute inset-0 bg-black opacity-75"></div>
                     <div class="relative z-10 w-full max-w-2xl">
                         <x-component-price-list-modal/>
                     </div>
@@ -96,7 +96,7 @@
 
                 {{-- Modale Giacenze --}}
                 <div x-show="showStockModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center">
-                    <div class="absolute inset-0 bg-black opacity-75" @click="showStockModal = false"></div>
+                    <div class="absolute inset-0 bg-black opacity-75"></div>
                     <div class="relative z-10 w-full max-w-2xl">
                         <x-stock-levels-modal/>
                     </div>
@@ -181,7 +181,7 @@
                                     <td x-show="extended" x-cloak class="px-6 py-2 whitespace-nowrap">{{ $component->width ?? '—' }} @if($component->width)cm @endif</td>
                                     <td x-show="extended" x-cloak class="px-6 py-2 whitespace-nowrap">{{ $component->length ?? '—' }} @if($component->length)cm @endif</td>
                                     <td x-show="extended" x-cloak class="px-6 py-2 whitespace-nowrap">{{ $component->weight ?? '—' }} @if($component->weight)kg @endif</td>
-                                    <td class="px-6 py-2 whitespace-nowrap">{{ $component->unit_of_measure}}</td>
+                                    <td class="px-6 py-2 whitespace-nowrap">{{ strtoupper($component->unit_of_measure) }}</td>
                                     <td class="px-6 py-2 whitespace-nowrap">{{ $component->category->name}}</td>
                                     <td class="px-6 py-2 text-center whitespace-nowrap">
                                         <span
@@ -417,35 +417,38 @@
                         /* (A) errori del form componente */
                         @if ($errors->any() && ! session('supplier_modal'))
                             this.showModal = true
-                            this.mode      = '{{ old('_method', 'create') === 'PUT' ? 'edit' : 'create' }}'
-                            this.errors    = @json($errors->toArray())
-                            this.form      = {
-                                id              : {{ old('id', 'null') }},
-                                category_id     : {{ old('category_id', 'null') }},
-                                code            : '{{ old('code', '') }}',
-                                description     : '{{ old('description', '') }}',
-                                material        : '{{ old('material', '') }}',
-                                height          : {{ old('height', 'null') }},
-                                width           : {{ old('width', 'null') }},
-                                length          : {{ old('length', 'null') }},
-                                weight          : {{ old('weight', 'null') }},
-                                unit_of_measure : '{{ old('unit_of_measure', '') }}',
-                                is_active       : {{ old('is_active', 'true') ? 'true' : 'false' }},
+
+                            // modalità derivata dal vecchio _method → JSON-safe
+                            this.mode = {!! json_encode(old('_method','create') === 'PUT' ? 'edit' : 'create') !!}
+
+                            // errori Laravel come { field: [msg,...] } → già allineati al template (errors.x?.[0])
+                            this.errors = {!! json_encode($errors->toArray(), JSON_UNESCAPED_UNICODE) !!}
+
+                            // valori del form: stringhe via json_encode, numerici cast → numero o null (mai vuoto)
+                            this.form = {
+                                id              : {!! old('id') !== null && old('id') !== '' ? (int) old('id') : 'null' !!},
+                                category_id     : {!! old('category_id') !== null && old('category_id') !== '' ? (int) old('category_id') : 'null' !!},
+                                code            : {!! json_encode(old('code','')) !!},
+                                description     : {!! json_encode(old('description','')) !!},
+                                material        : {!! json_encode(old('material','')) !!},
+                                height          : {!! old('height') !== null && old('height') !== '' ? (float) old('height') : 'null' !!},
+                                width           : {!! old('width') !== null && old('width') !== '' ? (float) old('width') : 'null' !!},
+                                length          : {!! old('length') !== null && old('length') !== '' ? (float) old('length') : 'null' !!},
+                                weight          : {!! old('weight') !== null && old('weight') !== '' ? (float) old('weight') : 'null' !!},
+                                unit_of_measure : {!! json_encode(old('unit_of_measure','')) !!},
+                                is_active       : {!! old('is_active', true) ? 'true' : 'false' !!}, // boolean JS puro
                             }
                         @endif
 
                         /* (B) errori modale fornitori */
                         @if (session('supplier_modal'))
                             this.showSupplierModal = true
-
                             this.$nextTick(() => {
-                                Alpine.deferMutations(() => {
-                                    this.$dispatch('prefill-supplier-form', {
-                                        component_id : {{ session('supplier_component') ?? 'null' }},
-                                        supplier_id  : '{{ old('supplier_id') }}',
-                                        price        : '{{ old('price') }}',
-                                        lead_time    : '{{ old('lead_time') }}',
-                                    })
+                                this.$dispatch('prefill-supplier-form', {
+                                    component_id : {{ session('supplier_component') ?? 'null' }},
+                                    supplier_id  : {!! json_encode(old('supplier_id','')) !!},
+                                    price        : {!! json_encode(old('price','')) !!},
+                                    lead_time    : {!! json_encode(old('lead_time','')) !!},
                                 })
                             })
                         @endif
@@ -571,6 +574,19 @@
                         })
                         .catch(() => {
                             alert('Errore di rete, riprovare.')
+                        })
+                    },
+
+                    normalizeDecimals() {
+                        ['length','width','height','weight'].forEach(k => {
+                            const v = this.form[k]
+                            if (v !== null && v !== undefined && v !== '') {
+                                // 1) togli spazi; 2) ‘1.234,56’ → ‘1234.56’; 3) ‘12,5’ → ‘12.5’
+                                let s = v.toString().replace(/\s| /g, '') // include NBSP
+                                if (/^\d{1,3}(\.\d{3})+,\d+$/.test(s)) s = s.replace(/\./g,'').replace(',', '.')
+                                else if (s.includes(',') && !s.includes('.')) s = s.replace(',', '.')
+                                this.form[k] = s
+                            }
                         })
                     },
 
