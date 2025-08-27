@@ -606,6 +606,8 @@
                             if (!r.ok) throw new Error(r.status);
                             this.componentOptions = await r.json();
                         } catch { this.componentOptions = []; }
+
+                        this.newLotCode = true;  // reset flag per nuovo lotto
                     },
 
                     /* seleziona componente dalla lista */

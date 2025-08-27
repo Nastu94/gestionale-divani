@@ -195,7 +195,7 @@ class OrderCustomerController extends Controller
 
                 // 5.1 Calcolo della disponibilità fisica usata (available)  
                 $usedLines = collect($data['lines'])->map(fn ($l) => [
-                    'product_id' => $l['product_id'],     // chiave corretta
+                    'product_id' => $l['product_id'],     
                     'quantity'   => $l['quantity'],
                 ])->all();
 
@@ -207,7 +207,7 @@ class OrderCustomerController extends Controller
                 // 🆕 5.2   prenota le quantità libere sui PO esistenti
                 InventoryServiceExtensions::reserveFreeIncoming(
                     $order,
-                    $invResult->shortage    // o, meglio, explodeBom($lines) per avere tutto il fabbisogno
+                    $invResult->shortage    
                         ->pluck('needed', 'component_id')
                         ->toArray(),
                     Carbon::parse($data['delivery_date'])
