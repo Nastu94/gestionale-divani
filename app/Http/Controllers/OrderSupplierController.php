@@ -296,7 +296,8 @@ class OrderSupplierController extends Controller
         Log::info('[@createShortfallHoles] - permessi utente', ['canCreate' => $canCreate]);
 
         /* ── 3) Transazione + lock su righe ordine ────────────────────── */
-        $summary = DB::transaction(function () use ($data, $service, $canCreate) {
+        $tx = DB::transaction(function () use ($data, $service, $canCreate) {
+
             /** @var \App\Models\Order $order */
             $order = Order::query()
                 ->where('id', $data['order_id'])
@@ -319,18 +320,25 @@ class OrderSupplierController extends Controller
                     ->get();
             }
 
-            // Delega alla logica esistente (calcolo mancanti, raggruppo lead_time_days, creazione righe, po_reservations)
+            // Delega alla logica esistente (calcolo mancanti, raggruppo e — se permesso — creo)
             $res = $service->captureGrouped($order, $canCreate);
 
             Log::info('[@createShortfallHoles] - risultato cattura', $res);
 
-            // Normalizza un riepilogo coerente con la UI
-            return [
+            // Normalizza un riepilogo coerente con la UI (lasciato identico al tuo)
+            $summary = [
                 'created_pos'   => (int)   ($res['created_pos']   ?? $res['pos']   ?? 0),
                 'created_lines' => (int)   ($res['created_lines'] ?? $res['lines'] ?? 0),
                 'covered_qty'   => (float) ($res['covered_qty']   ?? $res['qty']   ?? 0),
             ];
+
+            // ──► (FIX) RITORNA SIA $res CHE $summary
+            return compact('res', 'summary');
         }, 3); // retry su deadlock
+
+        /* ── (FIX) Estrai $res e $summary dal risultato della transazione ── */
+        $res     = $tx['res'];
+        $summary = $tx['summary'];
 
         Log::info('[@createShortfallHoles] - riepilogo transazione', $summary);
 
@@ -358,7 +366,7 @@ class OrderSupplierController extends Controller
             $count = $labels->count();
 
             if ($count === 0) {
-                // created=true ma nessun numero/id disponibile: mantieni messaggio neutro
+                // created=true ma nessun numero/id disponibile: messaggio neutro
                 $message = 'Shortfall creato.';
             } elseif ($count === 1) {
                 $message = 'Creato ordine fornitore #' . $labels[0] . '.';
@@ -373,7 +381,7 @@ class OrderSupplierController extends Controller
         return response()->json([
             'status'  => 'ok',
             'message' => $message,
-            'summary' => $summary ?? [], // se già calcolato in alto; altrimenti puoi rimuovere questa riga
+            'summary' => $summary ?? [],
         ]);
     }
 

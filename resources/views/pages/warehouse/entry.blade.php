@@ -1134,8 +1134,7 @@
                                 return arr.map(o => {
                                     const num = o.number ?? o.id ?? '?';
                                     const dt  = o.delivery_date ? ` (consegna ${o.delivery_date})` : '';
-                                    const lt  = (o.lead_time_days ?? null) !== null ? ` — LT ${o.lead_time_days}g` : '';
-                                    return `#${num}${dt}${lt}`;
+                                    return `#${num}${dt}`;
                                 }).join('\n');
                             };
 
