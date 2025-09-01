@@ -88,4 +88,12 @@ class Customer extends Model
     {
         return $this->hasMany(Order::class);
     }
+
+    /**
+     * Prezzi per prodotto associati a questo cliente.
+     */
+    public function productPrices()
+    {
+        return $this->hasMany(CustomerProductPrice::class);
+    }
 }

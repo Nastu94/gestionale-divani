@@ -82,6 +82,11 @@ class PermissionsSeeder extends Seeder
             ['name' => 'price_lists.update',          'display_name' => 'Modifica listini',                 'description' => 'Modifica listini esistenti.'],
             ['name' => 'price_lists.delete',          'display_name' => 'Elimina listini',                  'description' => 'Elimina listini dal sistema.'],
 
+            ['name' => 'product-prices.view',         'display_name' => 'Visualizza prezzi prodotto',       'description' => 'Visualizza i prezzi per prodotto.'],
+            ['name' => 'product-prices.create',       'display_name' => 'Crea prezzi prodotto',           'description' => 'Crea nuovi prezzi per prodotto.'],
+            ['name' => 'product-prices.update',       'display_name' => 'Modifica prezzi prodotto',       'description' => 'Modifica prezzi esistenti per prodotto.'],
+            ['name' => 'product-prices.delete',       'display_name' => 'Elimina prezzi prodotto',       'description' => 'Elimina prezzi per prodotto dal sistema.'],
+
             ['name' => 'reports.orders.customer',     'display_name' => 'Report ordini cliente',            'description' => 'Genera report storico degli ordini cliente.'],
             ['name' => 'reports.orders.supplier',     'display_name' => 'Report ordini fornitore',          'description' => 'Genera report storico degli ordini fornitore.'],
             ['name' => 'reports.stock_levels',        'display_name' => 'Report giacenze',                  'description' => 'Genera report delle giacenze attuali.'],

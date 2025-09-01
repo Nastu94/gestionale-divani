@@ -87,4 +87,12 @@ class Product extends Model
     {
         return $this->belongsTo(self::class, 'variant_of');
     }
+
+    /**
+     * Prezzi per cliente associati a questo prodotto.
+     */
+    public function customerPrices()
+    {
+        return $this->hasMany(CustomerProductPrice::class);
+    }
 }

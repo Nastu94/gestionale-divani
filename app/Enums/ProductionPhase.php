@@ -22,11 +22,11 @@ enum ProductionPhase: int
     {
         return match ($this) {
             self::INSERTED   => 'Inserito',
-            self::STRUCTURE  => 'Struttura',
-            self::PADDING    => 'Imbottitura',
-            self::UPHOLSTERY => 'Rivestimento',
-            self::ASSEMBLY   => 'Assemblaggio',
-            self::FINISHING  => 'Finitura',
+            self::STRUCTURE  => 'Fusto',
+            self::PADDING    => 'Spugna',
+            self::UPHOLSTERY => 'Taglio',
+            self::ASSEMBLY   => 'Cucito',
+            self::FINISHING  => 'Assemblaggio',
             self::SHIPPING   => 'Spedizione',
         };
     }

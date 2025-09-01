@@ -76,6 +76,16 @@
                     </div>
                 </div>
 
+                {{-- Modale Listino Prodotto --}}
+                <template x-if="showPriceListModal">
+                    <x-product-pricelist-modal />
+                </template>
+
+                {{-- Modale Prezzi Prodotto --}}
+                <template x-if="showCustomerPriceModal">
+                    <x-product-price-form-modal />
+                </template>
+
                 {{-- Modale Visualizza Distinta Base Prodotto --}}
                 <template x-if="showViewModal">
                     <x-product-view-modal />
@@ -187,6 +197,22 @@
                                                     <i class="fas fa-pencil-alt mr-1"></i> Modifica
                                                 </button>
                                             @endif
+                                            
+                                            @can('product-prices.view')
+                                                <button type="button"
+                                                        @click='openPriceList(@json($product))'
+                                                        class="inline-flex items-center hover:text-indigo-600">
+                                                    <i class="fas fa-list mr-1"></i> Listino
+                                                </button>
+                                            @endcan
+
+                                            @canany(['product-prices.create', 'product-prices.update'])
+                                                <button type="button"
+                                                        @click='openPriceCreate(@json($product))'
+                                                        class="inline-flex items-center hover:text-green-600">
+                                                    <i class="fas fa-handshake mr-1"></i> Cliente
+                                                </button>
+                                            @endcanany
 
                                             @if($canDelete)
                                                 @unless($product->trashed())
@@ -235,40 +261,42 @@
         </div>
     </div>
 
-    @push('scripts')
+@push('scripts')
     <script>
         document.addEventListener('alpine:init', () => {
             Alpine.data('productCrud', () => ({
+
+                /* ============================================================
+                * Sezione prodotti (già esistente)
+                * ========================================================== */
                 componentsList: @json($components),
                 generateCodeUrl: @json(route('products.generate-code')),
 
-                // Modal
+                // Modale prodotto
                 showModal: false,
                 mode: 'create',
-                form: { 
-                    id: null, 
-                    sku: '', 
-                    name: '', 
-                    description: '', 
+                form: {
+                    id: null,
+                    sku: '',
+                    name: '',
+                    description: '',
                     price: '',
                     components: [],
-                    is_active: true, 
+                    is_active: true,
                 },
                 errors: {},
 
-                // Per riga espansa e colonne aggiuntive
+                // Riga espansa / colonne
                 openId: null,
                 extended: false,
 
+                // Modale "Visualizza" prodotto
                 showViewModal: false,
-                viewProduct:   null,
+                viewProduct: null,
 
                 openShow(product) {
-                    /* salvo il prodotto da visualizzare */
-                    this.viewProduct   = product
-
-                    /* apro nel prossimo tick così il DOM vede già i dati */
-                    this.$nextTick(() => { this.showViewModal = true })
+                    this.viewProduct = product;
+                    this.$nextTick(() => { this.showViewModal = true; });
                 },
 
                 openCreate() {
@@ -280,36 +308,36 @@
                 openEdit(product) {
                     this.mode = 'edit';
                     this.form = {
-                        id:          product.id,
-                        sku:         product.sku,
-                        name:        product.name,
+                        id         : product.id,
+                        sku        : product.sku,
+                        name       : product.name,
                         description: product.description ?? '',
-                        price:       product.price,
-                        is_active:   product.is_active,
-                        components:  (product.components ?? []).map(c => ({
-                            id       : c.id,
-                            quantity : c.pivot.quantity,
+                        price      : product.price,
+                        is_active  : product.is_active,
+                        components : (product.components ?? []).map(c => ({
+                            id         : c.id,
+                            quantity   : c.pivot.quantity,
                             /* campi UI */
-                            code     : c.code,
+                            code       : c.code,
                             description: c.description,
-                            unit     : c.unit,      // opzionale, se serve in futuro
-                            existing : true,        // ← già in DB ⇒ niente pulsante “Cambia”
-                            search   : '', options: []
+                            unit       : c.unit,   // opzionale
+                            existing   : true,
+                            search     : '', options: []
                         }))
                     };
                     this.errors = {};
-                    this.$nextTick(() => { this.showModal = true });
+                    this.$nextTick(() => { this.showModal = true; });
                 },
 
                 resetForm() {
-                    this.form = { 
-                        id: null, 
-                        sku: '', 
-                        name: '', 
-                        description: '', 
-                        price: '', 
+                    this.form = {
+                        id: null,
+                        sku: '',
+                        name: '',
+                        description: '',
+                        price: '',
                         components: [],
-                        is_active: true, 
+                        is_active: true,
                     };
                     this.errors = {};
                 },
@@ -317,18 +345,9 @@
                 validateProduct() {
                     this.errors = {};
                     let valid = true;
-                    if (! this.form.sku.trim()) {
-                        this.errors.sku = 'Il codice è obbligatorio.';
-                        valid = false;
-                    }
-                    if (! this.form.name.trim()) {
-                        this.errors.name = 'Il nome è obbligatorio.';
-                        valid = false;
-                    }
-                    if (! this.form.price.trim()) {
-                        this.errors.price = 'Il prezzo è obbligatorio.';
-                        valid = false;
-                    }
+                    if (!this.form.sku.trim())   { this.errors.sku  = 'Il codice è obbligatorio.'; valid = false; }
+                    if (!this.form.name.trim())  { this.errors.name = 'Il nome è obbligatorio.';   valid = false; }
+                    if (!this.form.price.trim()) { this.errors.price= 'Il prezzo è obbligatorio.'; valid = false; }
                     return valid;
                 },
 
@@ -338,15 +357,18 @@
                         this.mode = '{{ old('_method','create') === 'PUT' ? 'edit' : 'create' }}';
                         this.errors = @json($errors->toArray());
                         this.form = {
-                            id:         {{ old('id', 'null') }},
-                            sku:           '{{ old('sku', '') }}',
-                            name:          '{{ old('name', '') }}',
-                            description:   '{{ old('description', '') }}',
-                            price:         '{{ old('price', '') }}',
-                            components:    @json(old('components', [])),
-                            is_active:     {{ old('is_active', true) ? 'true' : 'false' }},
+                            id          : {{ old('id', 'null') }},
+                            sku         : '{{ old('sku', '') }}',
+                            name        : '{{ old('name', '') }}',
+                            description : '{{ old('description', '') }}',
+                            price       : '{{ old('price', '') }}',
+                            components  : @json(old('components', [])),
+                            is_active   : {{ old('is_active', true) ? 'true' : 'false' }},
                         };
                     @endif
+
+                    // Inizializzo il debounce per la ricerca clienti (fallback se non usi .debounce nel template)
+                    this.searchCustomersDebounced = this.debounce(this.searchCustomers, 500);
                 },
 
                 async generateCode() {
@@ -357,26 +379,23 @@
                     } catch (e) {
                         console.error('Errore generazione codice:', e);
                     }
-                },                
+                },
 
-                /* ricerca componenti */
+                /* Ricerca componenti (come da tuo codice) */
                 async searchComponents(idx) {
                     const term = this.form.components[idx].search?.trim() || '';
-                    if (term.length < 2) {           // evita hit a 1 carattere
+                    if (term.length < 2) {
                         this.form.components[idx].options = [];
                         return;
                     }
-
                     try {
-                        const r = await fetch(`/components/search?q=${encodeURIComponent(term)}`,
-                                            { headers:{Accept:'application/json'} });
+                        const r = await fetch(`/components/search?q=${encodeURIComponent(term)}`, { headers:{Accept:'application/json'} });
                         this.form.components[idx].options = await r.json();
                     } catch {
                         this.form.components[idx].options = [];
                     }
                 },
 
-                /* seleziona un componente dalla lista */
                 selectComponent(idx, opt) {
                     Object.assign(this.form.components[idx], {
                         id         : opt.id,
@@ -387,27 +406,330 @@
                     });
                 },
 
-                /* rimuove la selezione di un componente */
                 removeSelection(idx) {
                     Object.assign(this.form.components[idx], {
-                        id      : null,
-                        code    : '',
-                        description: '',
-                        search  : '',
+                        id: null, code: '', description: '', search: '',
                     });
                 },
 
-                /* override add-row: marca come “nuovo” */
                 addComponentRow() {
                     this.form.components.push({
-                        id: null, quantity: 1,          // back-end fields
-                        /* campi d’appoggio UI */
+                        id: null, quantity: 1,
                         search: '', options: [], existing: false
                     });
+                },
+
+                /* ============================================================
+                * NUOVO: Prezzi cliente–prodotto (modali + ricerca cliente)
+                * ========================================================== */
+
+                // Modale Listino
+                showPriceListModal: false,
+                priceList: [],
+
+                // Modale Cliente (create/edit on-the-fly)
+                showCustomerPriceModal: false,
+
+                // Prodotto selezionato per l'assegnazione prezzi
+                selectedProduct: null,
+
+                // Form del modale Cliente
+                priceForm: {
+                    mode: 'create',              // 'create' | 'edit'
+                    current_id: null,            // id versione in edit
+                    customer_id: null,
+                    customer_name: '',
+                    price: '',
+                    reference_date: new Date().toISOString().slice(0,10), // default oggi
+                    valid_from: '',
+                    valid_to: '',
+                    auto_close_prev: true,       // chiudi automaticamente la versione che copre 'valid_from'
+                    notes: '',
+                    // updated_at: null,         // opzionale per concorrenza ottimistica
+                },
+                priceErrors: {},
+
+                // Ricerca cliente (stile customer-order-create-modal)
+                customerSearch: '',              // testo input
+                customerOptions: [],             // dropdown risultati
+                customerLoading: false,
+                searchCustomersDebounced: null,  // fallback se non usi @input.debounce nel Blade
+                selectedCustomer: null,     // oggetto cliente scelto (company, email, vat_number, etc.)
+                showGuestButton: false,     // di default off: non ha senso assegnare prezzi ad un guest
+
+                // Debounce utility
+                debounce(fn, wait = 300) {
+                    let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn.apply(this, args), wait); };
+                },
+
+                /* ---------- Apertura / chiusura modali prezzi ---------- */
+                openPriceList(product) {
+                    this.selectedProduct = product;
+                    this.fetchPriceList().then(() => { this.showPriceListModal = true; });
+                },
+
+                openPriceCreate(product) {
+                    this.selectedProduct = product;
+                    this.resetCustomerPriceForm();
+
+                    // reset ricerca + cliente selezionato
+                    this.selectedCustomer = null;
+                    this.customerSearch   = '';
+                    this.customerOptions  = [];
+                    this.customerLoading  = false;
+
+                    this.showCustomerPriceModal = true;
+                },
+
+                closeCustomerPriceModal() {
+                    this.showCustomerPriceModal = false;
+                    this.resetCustomerPriceForm();
+
+                    // reset ricerca + cliente selezionato
+                    this.selectedCustomer = null;
+                    this.customerSearch   = '';
+                    this.customerOptions  = [];
+                    this.customerLoading  = false;
+                },
+
+                /* ----------------- API prezzi ----------------- */
+                async fetchPriceList() {
+                    if (!this.selectedProduct) return;
+                    const url = `/products/${this.selectedProduct.id}/customer-prices`;
+                    const r = await fetch(url, { headers: {Accept: 'application/json'} });
+                    const j = await r.json();
+                    this.priceList = j.data ?? [];
+                },
+
+                /* ---------------- Ricerca clienti ----------------
+                * identica nello spirito a customer-order-create-modal:
+                * - input: customerSearch
+                * - debounce: @input.debounce.500 (o this.searchCustomersDebounced)
+                * - risultati: customerOptions
+                * - key: option.id + '-' + idx
+                */
+                async searchCustomers() {
+                    const term = (this.customerSearch || '').trim();
+                    if (term.length < 2) { this.customerOptions = []; return; }
+
+                    this.customerLoading = true;
+                    try {
+                        const r = await fetch(`/customers/search?q=${encodeURIComponent(term)}`, {
+                            headers: { Accept:'application/json' }, credentials:'same-origin'
+                        });
+                        if (!r.ok) throw new Error(r.status);
+
+                        const data = await r.json();
+                        const arr  = Array.isArray(data) ? data : [];
+
+                        // Deduplica: privilegio id, altrimenti stringa serializzata
+                        const seen = new Set();
+                        this.customerOptions = arr.filter((option) => {
+                            const key = option && option.id != null ? `id:${option.id}` : `str:${JSON.stringify(option)}`;
+                            if (seen.has(key)) return false;
+                            seen.add(key); return true;
+                        }).slice(0, 20);
+
+                    } catch (e) {
+                        console.error('searchCustomers error', e);
+                        this.customerOptions = [];
+                    } finally {
+                        this.customerLoading = false;
+                    }
+                },
+
+                // Selezione dal dropdown: popolo il form + risoluzione create→edit
+                selectCustomer(option) {
+                    // Normalizzo nome/label
+                    const name = option?.company || option?.name || option?.label || '';
+
+                    // Salvo oggetto completo per il pannellino riepilogo
+                    this.selectedCustomer = {
+                        id: option?.id ?? null,
+                        company: option?.company ?? option?.name ?? '',
+                        email: option?.email ?? null,
+                        vat_number: option?.vat_number ?? null,
+                        tax_code: option?.tax_code ?? null,
+                        // se l’endpoint non restituisce shipping_address pronto, usa fallback base
+                        shipping_address: option?.shipping_address
+                            ?? [option?.address, option?.postal_code && option?.city ? `${option.postal_code} ${option.city}` : option?.city, option?.province, option?.country]
+                                .filter(Boolean).join(', ')
+                    };
+
+                    // Allineo il form tecnico
+                    this.priceForm.customer_id   = this.selectedCustomer.id;
+                    this.priceForm.customer_name = name; // compat, se lo usi altrove
+
+                    // UI input + dropdown
+                    this.customerSearch  = name;
+                    this.customerOptions = [];
+
+                    // Escamotage: se esiste una versione valida alla data, passo in edit e precompilo
+                    this.resolveCustomerPrice();
+                },
+
+                // Risolve product+customer(+date) → versione valida o ultimo storico
+                async resolveCustomerPrice() {
+                    this.priceErrors = {};
+                    if (!this.selectedProduct || !this.priceForm.customer_id) return;
+
+                    const url = `/products/${this.selectedProduct.id}/customer-prices/resolve?customer_id=${this.priceForm.customer_id}&date=${this.priceForm.reference_date}`;
+                    const r   = await fetch(url, { headers: {Accept:'application/json'} });
+                    const j   = await r.json();
+
+                    if (j.current) {
+                        this.priceForm.mode       = 'edit';
+                        this.priceForm.current_id = j.current.id;
+                        this.priceForm.price      = String(j.current.price);
+                        this.priceForm.valid_from = j.current.valid_from ?? '';
+                        this.priceForm.valid_to   = j.current.valid_to ?? '';
+                        this.priceForm.notes      = j.current.notes ?? '';
+                        // this.priceForm.updated_at = j.current.updated_at ?? null;  // se vuoi concorrenza
+                    } else {
+                        this.priceForm.mode       = 'create';
+                        this.priceForm.current_id = null;
+                        if (j.latestArchived) {
+                            this.priceForm.price      = String(j.latestArchived.price);
+                            this.priceForm.valid_from = '';
+                            this.priceForm.valid_to   = '';
+                            this.priceForm.notes      = j.latestArchived.notes ?? '';
+                        } else {
+                            this.priceForm.price = '';
+                            this.priceForm.valid_from = '';
+                            this.priceForm.valid_to   = '';
+                            this.priceForm.notes      = '';
+                        }
+                    }
+                },
+
+                onValidFromChanged() {
+                    // La chiusura della versione precedente avviene server-side
+                },
+
+                normalizePrice(v) {
+                    return (typeof v === 'string') ? v.replace(',', '.') : v;
+                },
+
+                // Crea/Aggiorna versione prezzo
+                async saveCustomerPrice() {
+                    try {
+                        this.priceErrors = {};
+
+                        const payload = {
+                            customer_id    : this.priceForm.customer_id,
+                            price          : this.normalizePrice(this.priceForm.price),
+                            currency       : 'EUR',
+                            valid_from     : this.priceForm.valid_from || null,
+                            valid_to       : this.priceForm.valid_to   || null,
+                            notes          : this.priceForm.notes      || null,
+                            auto_close_prev: this.priceForm.mode === 'create' ? !!this.priceForm.auto_close_prev : false,
+                            updated_at     : this.priceForm.mode === 'edit' ? (this.priceForm.updated_at ?? null) : null,
+                        };
+
+                        let url = `/products/${this.selectedProduct.id}/customer-prices`;
+                        let method = 'POST';
+                        if (this.priceForm.mode === 'edit' && this.priceForm.current_id) {
+                            url    = `/products/${this.selectedProduct.id}/customer-prices/${this.priceForm.current_id}`;
+                            method = 'PUT';
+                        }
+
+                        // 🔐 Token CSRF dal meta
+                        const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+
+                        const r = await fetch(url, {
+                            method,
+                            headers: {
+                                'Content-Type'   : 'application/json',
+                                'Accept'         : 'application/json',
+                                'X-CSRF-TOKEN'   : token,                    // ← obbligatorio
+                                'X-Requested-With': 'XMLHttpRequest'
+                            },
+                            credentials: 'same-origin',                      // ← invia i cookie di sessione
+                            body: JSON.stringify(payload)
+                        });
+
+                        if (r.status === 409) {
+                            const j = await r.json();
+                            alert(j.message || 'Il record è stato modificato da un altro utente.');
+                            return;
+                        }
+                        if (r.status === 422) {
+                            const j = await r.json();
+                            this.priceErrors = j.errors || {};
+                            alert(j.message || 'Errori di validazione.');
+                            return;
+                        }
+                        if (!r.ok) {
+                            const j = await r.json().catch(() => ({}));
+                            alert(j.message || 'Errore salvataggio.');
+                            return;
+                        }
+
+                        await this.fetchPriceList();
+                        alert('Prezzo salvato con successo.');
+                        this.closeCustomerPriceModal();
+                        this.showPriceListModal = true;
+
+                    } catch (e) {
+                        console.error(e);
+                        alert('Errore di rete.');
+                    }
+                },
+
+                async deleteCustomerPrice(row) {
+                    if (!this.selectedProduct) return;
+                    if (!confirm('Eliminare questa versione di prezzo?')) return;
+
+                    try {
+                        const url = `/products/${this.selectedProduct.id}/customer-prices/${row.id}`;
+                        const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+
+                        const r = await fetch(url, {
+                            method: 'DELETE',
+                            headers: {
+                                'Accept'          : 'application/json',
+                                'X-CSRF-TOKEN'    : token,                    // ← obbligatorio
+                                'X-Requested-With': 'XMLHttpRequest'
+                            },
+                            credentials: 'same-origin'                       // ← invia i cookie di sessione
+                        });
+
+                        if (!r.ok) {
+                            const j = await r.json().catch(() => ({}));
+                            alert(j.message || 'Errore eliminazione.');
+                            return;
+                        }
+                        await this.fetchPriceList();
+
+                    } catch (e) {
+                        console.error(e);
+                        alert('Errore di rete.');
+                    }
+                },
+
+                resetCustomerPriceForm() {
+                    this.priceForm = {
+                        mode: 'create',
+                        current_id: null,
+                        customer_id: null,
+                        customer_name: '',
+                        price: '',
+                        reference_date: new Date().toISOString().slice(0,10),
+                        valid_from: '',
+                        valid_to: '',
+                        auto_close_prev: true,
+                        notes: '',
+                    };
+                    this.priceErrors      = {};
+                    this.selectedCustomer = null;  // ← reset pannellino
+                    this.customerSearch   = '';    // ← reset input
+                    this.customerOptions  = [];
                 },
 
             }));
         });
     </script>
-    @endpush
+@endpush
+
+
 </x-app-layout>

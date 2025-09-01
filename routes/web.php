@@ -23,6 +23,7 @@ use App\Http\Controllers\WarehouseController;
 use App\Http\Controllers\LotsController;
 use App\Http\Controllers\ComponentCategoryController;
 use App\Http\Controllers\OccasionalCustomerController;
+use App\Http\Controllers\ProductCustomerPriceController;
 use App\Http\Controllers\Api\SupplierApiController;
 use App\Http\Controllers\Api\ComponentApiController;
 use App\Http\Controllers\Api\OrderNumberApiController;
@@ -1384,4 +1385,48 @@ Route::middleware([
             'destroy' => 'permissions.destroy',
         ])
         ->middleware('permission:roles.manage');
+
+    /*
+|--------------------------------------------------------------------------
+| Prezzi Cliente–Prodotto
+|--------------------------------------------------------------------------
+    | Visualizzazione elenco prezzi (per modale "Listino") – READ ONLY
+    | Permesso: product-prices.view
+    */
+    Route::get('products/{product}/customer-prices', [ProductCustomerPriceController::class, 'index'])
+        ->name('products.customer-prices.index')
+        ->middleware('permission:product-prices.view');
+
+    /*
+    | Resolve per l’escamotage (create→edit on-the-fly)
+    | Ritorna versione valida alla data o ultimo storico – READ
+    | Permesso: product-prices.view
+    */
+    Route::get('products/{product}/customer-prices/resolve', [ProductCustomerPriceController::class, 'resolve'])
+        ->name('products.customer-prices.resolve')
+        ->middleware('permission:product-prices.view');
+
+    /*
+    | Creazione nuova versione (con eventuale chiusura automatica)
+    | Permesso: product-prices.create
+    */
+    Route::post('products/{product}/customer-prices', [ProductCustomerPriceController::class, 'store'])
+        ->name('products.customer-prices.store')
+        ->middleware('permission:product-prices.create');
+
+    /*
+    | Aggiornamento versione esistente (correzione retroattiva)
+    | Permesso: product-prices.update
+    */
+    Route::put('products/{product}/customer-prices/{price}', [ProductCustomerPriceController::class, 'update'])
+        ->name('products.customer-prices.update')
+        ->middleware('permission:product-prices.update');
+
+    /*
+    | Eliminazione versione (attiva/futura/storica)
+    | Permesso: product-prices.delete
+    */
+    Route::delete('products/{product}/customer-prices/{price}', [ProductCustomerPriceController::class, 'destroy'])
+        ->name('products.customer-prices.destroy')
+        ->middleware('permission:product-prices.delete');
 });
