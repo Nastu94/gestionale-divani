@@ -425,24 +425,37 @@ function customerOrderModal() {
 
         /* ==== Ricerca prodotti ==== */
         async searchProducts() {
-            if (this.productSearch.trim().length < 2) {          // evita hit con 1 carattere
-                this.productOptions = [];
-                return;
+            if (this.productSearch.trim().length < 2) {
+                this.productOptions = []; return;
             }
 
+            // id cliente "reale": per guest (occasionale) mettilo a null
+            const custId = this.occasional_customer_id ? '' : (this.selectedCustomer?.id ?? '');
+
+            const qs = new URLSearchParams({
+                q: this.productSearch.trim(),
+                ...(custId ? { customer_id: String(custId) } : {}),
+                ...(this.delivery_date ? { date: this.delivery_date } : {}),
+            });
+
             try {
-                const r = await fetch(
-                    `/products/search?q=${encodeURIComponent(this.productSearch.trim())}`,
-                    { headers:{Accept:'application/json'}, credentials:'same-origin' }
-                );
+                const r = await fetch(`/products/search?${qs.toString()}`, {
+                    headers:{ Accept:'application/json' }, credentials:'same-origin'
+                });
                 if (!r.ok) throw new Error(r.status);
-                this.productOptions = await r.json();            // [{id, sku, name, price}, ...]
+                this.productOptions = await r.json(); // ogni option può avere effective_price & price_source
             } catch {
                 this.productOptions = [];
             }
         },
 
-        selectProduct(p){ this.selectedProduct=p; this.productOptions=[]; this.price=p.price ?? 0; },
+        selectProduct(option) {
+            this.selectedProduct = option;
+            this.productOptions  = [];
+            // Default prezzo da resolver se disponibile, altrimenti base
+            const p = option.effective_price ?? option.price ?? 0;
+            this.price = Number(p);
+        },
 
         /* ==== Gestione righe ==== */
         addLine(){

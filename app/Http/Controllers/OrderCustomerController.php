@@ -13,6 +13,7 @@ use App\Services\ProcurementService;
 use App\Services\OrderUpdateService;
 use App\Services\OrderDeleteService;
 use App\Services\Traits\InventoryServiceExtensions;
+use App\Support\Pricing\CustomerPriceResolver;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -22,6 +23,9 @@ use Illuminate\Validation\Rule;
 
 class OrderCustomerController extends Controller
 {
+    // inietta il resolver
+    public function __construct(private CustomerPriceResolver $priceResolver) {}
+
     /**
      * Mostra l’elenco paginato degli ordini cliente.
      * Questo metodo gestisce la visualizzazione della pagina degli ordini,
@@ -114,8 +118,11 @@ class OrderCustomerController extends Controller
     /**
      * Memorizza un nuovo ordine cliente.
      *
-     * @param  Request  $request
-     * @return JsonResponse
+     * • Prezzo unitario riga risolto server-side con CustomerPriceResolver
+     *   (customer_id + product_id + delivery_date). Se l’utente possiede il
+     *   permesso "orders.price.override" ed invia un prezzo, prevale l’override.
+     * • Il prezzo viene sempre "congelato" sulla riga (storico coerente).
+     * • Logica esistente (reservation/PO) invariata.
      */
     public function store(Request $request): JsonResponse
     {
@@ -134,29 +141,61 @@ class OrderCustomerController extends Controller
             'lines'                  => ['required', 'array', 'min:1'],
             'lines.*.product_id'     => ['required', 'integer', Rule::exists('products', 'id')],
             'lines.*.quantity'       => ['required', 'numeric', 'min:0.01'],
-            'lines.*.price'          => ['required', 'numeric', 'min:0'],
+            // ⬇️ il prezzo lato client ora è facoltativo; valido solo se presente
+            'lines.*.price'          => ['nullable', 'numeric', 'min:0'],
         ]);
 
         /* esclusività customer_id / occasional_customer_id */
-        if (! ($data['customer_id'] xor $data['occasional_customer_id'] ?? null)) {
+        if (! ($data['customer_id'] xor ($data['occasional_customer_id'] ?? null))) {
             Log::warning('OrderCustomer@store – violazione esclusività customer vs occasional', $data);
             return response()->json(['message' => 'Indicare solo customer_id oppure occasional_customer_id.'], 422);
         }
 
         /*─────────── VERIFICA DISPONIBILITÀ (obbligatoria) ───────────*/
         $inv = InventoryService::forDelivery($data['delivery_date'])
-                ->check(collect($data['lines'])->map(fn($l)=>[
-                    'product_id'=>$l['product_id'],
-                    'quantity'  =>$l['quantity']
-                ])->values()->all());
+            ->check(collect($data['lines'])->map(fn($l)=>[
+                'product_id'=>$l['product_id'],
+                'quantity'  =>$l['quantity']
+            ])->values()->all());
 
         if ($inv === null) {
             return response()->json(['message'=>'Esegui prima la verifica disponibilità.'], 409);
         }
 
+        /*─────────── RISOLUZIONE PREZZI SERVER-SIDE ───────────*/
+        $customerId  = $data['customer_id'] ?? null;                  // guest → null
+        $delivery    = Carbon::parse($data['delivery_date']);
+        $canOverride = $request->user()->can('orders.price.override');
+
+        // Prepara righe con prezzo definitivo (override se consentito, altrimenti resolver)
+        $resolvedLines = collect($data['lines'])->map(function(array $l) use ($customerId, $delivery, $canOverride) {
+            $productId = (int) $l['product_id'];
+
+            if ($canOverride && array_key_exists('price', $l) && $l['price'] !== null && $l['price'] !== '') {
+                $unit = (string) $l['price'];
+            } else {
+                $resolved = $this->priceResolver->resolve($productId, $customerId, $delivery);
+                if ($resolved === null) {
+                    abort(response()->json([
+                        'message' => 'Prezzo non disponibile per uno dei prodotti nella data indicata.'
+                    ], 422));
+                }
+                $unit = (string) $resolved['price'];
+            }
+
+            return [
+                'product_id' => $productId,
+                'quantity'   => (float) $l['quantity'],
+                'price'      => $unit,          // string decimal → coerente con DB
+            ];
+        })->values();
+
+        // Totale ordine calcolato sul prezzo definitivo risolto server-side
+        $total = $resolvedLines->reduce(fn(float $s, $l) => $s + ($l['quantity'] * (float) $l['price']), 0.0);
+
         try {
             /*────── TRANSAZIONE: salva ordine + righe ──────*/
-            $order = DB::transaction(function () use ($data) {
+            $order = DB::transaction(function () use ($data, $resolvedLines, $total) {
 
                 /* 1. blocca OrderNumber customer */
                 $orderNumber = OrderNumber::where('id', $data['order_number_id'])
@@ -167,13 +206,7 @@ class OrderCustomerController extends Controller
 
                 if ($orderNumber->order) abort(409, 'OrderNumber già assegnato.');
 
-                /* 2. totale */
-                $total = collect($data['lines'])->reduce(
-                    fn (float $s, $l) => $s + ($l['quantity'] * $l['price']),
-                    0.0
-                );
-
-                /* 3. header */
+                /* 2. header */
                 $order = Order::create([
                     'order_number_id'        => $orderNumber->id,
                     'customer_id'            => $data['customer_id']            ?? null,
@@ -184,18 +217,18 @@ class OrderCustomerController extends Controller
                     'delivery_date'          => $data['delivery_date'],
                 ]);
 
-                /* 4. righe */
-                foreach ($data['lines'] as $line) {
+                /* 3. righe (prezzi già risolti) */
+                foreach ($resolvedLines as $line) {
                     $order->items()->create([
                         'product_id' => $line['product_id'],
                         'quantity'   => $line['quantity'],
-                        'unit_price' => $line['price'],
+                        'unit_price' => $line['price'],   // ← congelato
                     ]);
                 }
 
-                // 5.1 Calcolo della disponibilità fisica usata (available)  
-                $usedLines = collect($data['lines'])->map(fn ($l) => [
-                    'product_id' => $l['product_id'],     
+                // 4. Prenotazioni stock (logica esistente)
+                $usedLines = $resolvedLines->map(fn ($l) => [
+                    'product_id' => $l['product_id'],
                     'quantity'   => $l['quantity'],
                 ])->all();
 
@@ -204,40 +237,33 @@ class OrderCustomerController extends Controller
                     $order->id
                 )->check($usedLines);
 
-                // 🆕 5.2   prenota le quantità libere sui PO esistenti
                 InventoryServiceExtensions::reserveFreeIncoming(
                     $order,
-                    $invResult->shortage    
+                    $invResult->shortage
                         ->pluck('needed', 'component_id')
                         ->toArray(),
                     Carbon::parse($data['delivery_date'])
                 );
 
-                // 5.3   ricalcola la situazione ***dopo*** la prenotazione appena fatta
                 $invResult = InventoryService::forDelivery(
                     $data['delivery_date'], $order->id
                 )->check($usedLines);
 
-                // 5.4 Per ogni componente, prenota in stock_reservations  
                 foreach ($invResult->shortage as $row) {
                     $needed    = $row['needed'];
-                    $have      = $row['available'] + $row['incoming'] + $row['my_incoming'];
-                    $fromStock = min($row['available'], $needed);  // quanto effettivamente prelevato
+                    $fromStock = min($row['available'], $needed);
 
                     if ($fromStock > 0) {
-                        // prendo uno StockLevel qualsiasi
                         $sl = StockLevel::where('component_id', $row['component_id'])
-                                ->orderBy('quantity')
-                                ->first();
+                            ->orderBy('quantity')
+                            ->first();
 
-                        // 5.4.1 crea prenotazione
                         StockReservation::create([
                             'stock_level_id' => $sl->id,
                             'order_id'       => $order->id,
                             'quantity'       => $fromStock,
                         ]);
 
-                        // 5.4.2 registra movimento magazzino
                         StockMovement::create([
                             'stock_level_id' => $sl->id,
                             'type'           => 'reserve',
@@ -249,7 +275,7 @@ class OrderCustomerController extends Controller
 
                 Log::info('OrderCustomer@store – ordine e righe salvati', [
                     'order_id' => $order->id,
-                    'lines'    => count($data['lines']),
+                    'lines'    => $resolvedLines->count(),
                 ]);
 
                 return $order;
@@ -258,17 +284,14 @@ class OrderCustomerController extends Controller
             /*─────────── CREA / MERGE PO + prenotazioni ───────────*/
             $poNumbers = [];
             if (! $inv->ok && $request->user()->can('orders.supplier.create')) {
-                // 6.0 Costruisce la collezione di carenza
                 $shortCol = ProcurementService::buildShortageCollection($inv->shortage);
-
-                // 6.1 crea PO e prenotazioni
-                $proc       = ProcurementService::fromShortage($shortCol, $order->id);
-                $poNumbers  = $proc['po_numbers']->all();   // collection → array
+                $proc     = ProcurementService::fromShortage($shortCol, $order->id);
+                $poNumbers= $proc['po_numbers']->all();
             }
 
             return response()->json([
-                'order_id' => $order->id,
-                'po_numbers'   => $poNumbers,
+                'order_id'   => $order->id,
+                'po_numbers' => $poNumbers,
             ], 201);
 
         } catch (\Throwable $e) {
@@ -292,25 +315,41 @@ class OrderCustomerController extends Controller
     /**
      * Restituisce in JSON le righe dell’ordine + esploso componenti.
      *
-     * @param  Order  $order           Istanza iniettata tramite Route Model Binding
+     * ✅ Coerenza con la nuova logica prezzi:
+     *    - Il prezzo unitario del prodotto proviene SEMPRE da $item->unit_price
+     *      (valore “congelato” salvato dallo store/update tramite resolver),
+     *      quindi NON ricalcoliamo nulla e non richiamiamo il resolver qui.
+     *    - I costi dei componenti restano informativi (come nel codice originale),
+     *      stimati sul supplier col last_cost più basso, se presente.
+     *
+     * @param  Order  $order  (route model binding)
      * @return \Illuminate\Http\JsonResponse
      */
     public function lines(Order $order): JsonResponse
     {
-        // carica i dati necessari in un solo round-trip
+        // Eager‑load mirato: solo i campi necessari per ridurre le query.
         $order->load([
-            'items.product.components.componentSuppliers',  // per last_cost
+            // Prodotto: ci bastano id, sku, name
+            'items.product:id,sku,name',
+
+            // Componenti del prodotto: campi base + unità di misura
+            'items.product.components' => function ($q) {
+                $q->select('components.id','components.code','components.description','components.unit_of_measure');
+            },
+
+            // Fornitori del componente: solo ciò che serve per il last_cost
+            'items.product.components.componentSuppliers:id,component_id,last_cost',
         ]);
 
         $rows = collect();
 
         foreach ($order->items as $item) {
-            $product    = $item->product;
-            $qtyOrdered = $item->quantity;
-            $priceUnit  = $item->unit_price;
-            $subtotal   = $qtyOrdered * $priceUnit;
+            $product    = $item->product;                // Modello Product già eager‑load
+            $qtyOrdered = (float) $item->quantity;       // Quantità ordinata
+            $priceUnit  = (float) $item->unit_price;     // ✅ Prezzo "congelato" al momento dell’ordine
+            $subtotal   = $qtyOrdered * $priceUnit;      // Subtotale riga prodotto
 
-            /* ──────────────── 1) riga PRODOTTO ──────────────── */
+            /* ──────────────── 1) Riga PRODOTTO ──────────────── */
             $rows->push([
                 'code'   => $product->sku,
                 'desc'   => $product->name,
@@ -321,28 +360,28 @@ class OrderCustomerController extends Controller
                 'type'   => 'product',
             ]);
 
-            /* ─────────────── 2) righe COMPONENTI ────────────── */
+            /* ─────────────── 2) Righe COMPONENTI ────────────── */
             foreach ($product->components as $component) {
-                // costo: pick del supplier con last_cost più basso o 0 se assente
+                // Costo indicativo: supplier con last_cost più basso (se disponibile)
                 $priceComp = optional(
-                    $component->componentSuppliers
-                            ->sortBy('last_cost')
-                            ->first()
-                )->last_cost ?? 0;
+                    $component->componentSuppliers->sortBy('last_cost')->first()
+                )->last_cost ?? 0.0;
+
+                $qtyComp = $qtyOrdered * (float) $component->pivot->quantity; // quantità componente per l’ordine
 
                 $rows->push([
                     'code'   => $component->code,
                     'desc'   => $component->description,
-                    'qty'    => $qtyOrdered * $component->pivot->quantity,
+                    'qty'    => $qtyComp,
                     'unit'   => $component->unit_of_measure ?? 'pz',
-                    'price'  => $priceComp,
-                    'subtot' => $priceComp * $qtyOrdered * $component->pivot->quantity,
+                    'price'  => (float) $priceComp,
+                    'subtot' => (float) $priceComp * $qtyComp,
                     'type'   => 'component',
                 ]);
             }
         }
 
-        // 🛈 NON ordiniamo: la sequenza è già «prodotto → componenti»
+        // Nessun ordinamento: rimane la sequenza "prodotto → componenti"
         return response()->json($rows->values());
     }
 
@@ -415,10 +454,11 @@ class OrderCustomerController extends Controller
 
     /**
      * Aggiorna un ordine cliente + righe.
-     * 
-     * @param  Request  $request
-     * @param  Order  $order           Istanza iniettata tramite Route Model Binding
-     * @return \Illuminate\Http\JsonResponse
+     *
+     * • Per le righe NUOVE o modificate, il prezzo viene risolto server-side
+     *   con CustomerPriceResolver (salvo override con permesso dedicato).
+     * • Le righe già esistenti mantengono il prezzo salvato, salvo vengano
+     *   esplicitamente sostituite dal front-end (dipende da OrderUpdateService).
      */
     public function update(Request $request, Order $order): JsonResponse
     {
@@ -428,16 +468,46 @@ class OrderCustomerController extends Controller
             'lines'              => ['required','array','min:1'],
             'lines.*.product_id' => ['required','integer','distinct', Rule::exists('products','id')],
             'lines.*.quantity'   => ['required','numeric','min:0.01'],
-            'lines.*.price'      => ['required','numeric','min:0'],
+            // ⬇️ prezzo opzionale (override)
+            'lines.*.price'      => ['nullable','numeric','min:0'],
         ]);
+
+        /*──────── PREPARAZIONE RIGHE CON PREZZO RISOLTO ────────*/
+        $customerId  = $order->customer_id;                 // guest → null
+        $delivery    = Carbon::parse($data['delivery_date']);
+        $canOverride = $request->user()->can('orders.price.override');
+
+        // NB: OrderUpdateService riceverà righe con il campo 'price' già definito
+        $preparedLines = collect($data['lines'])->map(function(array $l) use ($customerId, $delivery, $canOverride) {
+            $productId = (int) $l['product_id'];
+
+            if ($canOverride && array_key_exists('price', $l) && $l['price'] !== null && $l['price'] !== '') {
+                $unit = (string) $l['price'];
+            } else {
+                $resolved = $this->priceResolver->resolve($productId, $customerId, $delivery);
+                if ($resolved === null) {
+                    abort(response()->json([
+                        'message' => 'Prezzo non disponibile per uno dei prodotti nella data indicata.'
+                    ], 422));
+                }
+                $unit = (string) $resolved['price'];
+            }
+
+            return [
+                'product_id' => $productId,
+                'quantity'   => (float) $l['quantity'],
+                'price'      => $unit,
+            ];
+        })->values();
 
         /*──────── BUSINESS LOGIC ────────*/
         $svc    = app(OrderUpdateService::class);
 
+        // Passiamo le righe già "prezzate" al service (contratto invariato)
         $result = $svc->handle(
-            $order,                         // ordine da modificare
-            collect($data['lines']),        // righe in arrivo dal front-end
-            $data['delivery_date']          // nuova data di consegna (o la stessa)
+            $order,
+            $preparedLines,
+            $data['delivery_date']
         );
 
         /*──────── RESPONSE ────────*/
