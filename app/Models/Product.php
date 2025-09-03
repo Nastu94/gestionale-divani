@@ -7,6 +7,9 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Spatie\Activitylog\Traits\LogsActivity;
 use Spatie\Activitylog\LogOptions;
 use App\Models\Component;
+use App\Models\Fabric;
+use App\Models\Color;
+use App\Models\ProductFabricColorOverride;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -94,5 +97,31 @@ class Product extends Model
     public function customerPrices()
     {
         return $this->hasMany(CustomerProductPrice::class);
+    }
+
+    /**
+     * RELAZIONI per variabili (tessuto/colore) e override.
+     * Non alteriamo altro codice già presente nel Model.
+     */
+    public function fabrics(): BelongsToMany
+    {
+        // Whitelist + eventuali override per-prodotto sul tessuto
+        return $this->belongsToMany(Fabric::class, 'product_fabrics')
+            ->withPivot(['surcharge_type','surcharge_value','is_default'])
+            ->withTimestamps();
+    }
+
+    public function colors(): BelongsToMany
+    {
+        // Whitelist + eventuali override per-prodotto sul colore
+        return $this->belongsToMany(Color::class, 'product_colors')
+            ->withPivot(['surcharge_type','surcharge_value','is_default'])
+            ->withTimestamps();
+    }
+
+    public function fabricColorOverrides(): HasMany
+    {
+        // Override eccezionali su coppia tessuto×colore per questo prodotto
+        return $this->hasMany(ProductFabricColorOverride::class);
     }
 }

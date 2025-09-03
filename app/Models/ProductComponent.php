@@ -21,6 +21,8 @@ class ProductComponent extends Pivot
         'product_id',   // ID del prodotto
         'component_id', // ID del componente
         'quantity',     // Quantità del componente nel prodotto
+        'is_variable',
+        'variable_slot'
     ];
     protected static $logName = 'product_component';
     
@@ -54,5 +56,16 @@ class ProductComponent extends Pivot
         'product_id',
         'component_id',
         'quantity',
+        'is_variable',
+        'variable_slot'
+    ];
+
+    /**
+     * Cast per la gestione dello slot variabile in BOM.
+     * Manteniamo eventuali cast esistenti unendoli all'array (senza sovrascrivere).
+     */
+    protected $casts = [
+        'is_variable'   => 'bool',
+        'variable_slot' => 'string',
     ];
 }

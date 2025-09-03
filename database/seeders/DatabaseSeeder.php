@@ -9,6 +9,10 @@ use Database\Seeders\AdminUserSeeder;
 use Database\Seeders\PermissionsSeeder;
 use Database\Seeders\RolesSeeder;
 use Database\Seeders\AdminAssignableRolesSeeder;
+use Database\Seeders\ComponentCategorySeeder;
+use Database\Seeders\FabricSeeder;
+use Database\Seeders\ColorSeeder;
+use Database\Seeders\ComponentSeeder;
 
 class DatabaseSeeder extends Seeder
 {
@@ -23,6 +27,8 @@ class DatabaseSeeder extends Seeder
             AdminUserSeeder::class,
             AdminAssignableRolesSeeder::class,
             ComponentCategorySeeder::class,
+            FabricSeeder::class,
+            ColorSeeder::class,
             ComponentSeeder::class,
         ]);
     }

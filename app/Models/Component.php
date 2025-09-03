@@ -12,6 +12,8 @@ use App\Models\StockMovement;
 use App\Models\Product;
 use App\Models\Alert;
 use App\Models\ComponentCategory;
+use App\Models\Fabric;
+use App\Models\Color;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\belongsToMany;
@@ -177,5 +179,25 @@ class Component extends Model
         return Attribute::make(
             set: fn ($v) => $v === null || $v === '' ? null : strtr((string) $v, [',' => '.'])
         );
+    }
+    
+    /**
+     * Collegamenti al tessuto/colore per gli SKU di tipo "fabric".
+     * Non intacca gli altri componenti (fabric_id/color_id rimangono null).
+     */
+    public function fabric(): BelongsTo
+    {
+        return $this->belongsTo(Fabric::class);
+    }
+
+    public function color(): BelongsTo
+    {
+        return $this->belongsTo(Color::class);
+    }
+
+    /** Scope di utilità per filtrare i componenti tessuto (opzionale se hai un campo category). */
+    public function scopeFabricSku($query)
+    {
+        return $query->whereNotNull('fabric_id')->whereNotNull('color_id');
     }
 }

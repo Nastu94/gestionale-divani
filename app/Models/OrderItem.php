@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Models\OrderProductVariable;
 use App\Enums\ProductionPhase;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany; 
@@ -97,6 +98,14 @@ class OrderItem extends Model
     public function generatedByOc(): BelongsTo
     {
         return $this->belongsTo(Order::class, 'generated_by_order_customer_id');
+    }
+
+    /**
+     * Variabili scelte su questa riga d'ordine (tipicamente 1: FABRIC_MAIN).
+     */
+    public function variables(): HasMany
+    {
+        return $this->hasMany(OrderProductVariable::class);
     }
     
     /**

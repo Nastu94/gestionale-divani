@@ -4,6 +4,14 @@
  *
  * Ogni categoria ha un generatore di descrizioni ad hoc
  * (materiale, dimensione, variante …) così da ottenere testi pertinenti.
+ * 
+ * Aggiornamento STRICT per categoria TESSU:
+ * - i componenti TESSU nascono SEMPRE con fabric_id + color_id valorizzati
+ * - UoM = 'm' (metri)
+ * - descrizione coerente: "Tessuto {Fabric} {Color}"
+ * - nessun componente TESSU "orfano"
+ * 
+ * PHP 8.4 / Laravel 12
  */
 
 namespace Database\Seeders;
@@ -11,6 +19,8 @@ namespace Database\Seeders;
 use Illuminate\Support\Facades\Schema;
 use App\Models\Component;
 use App\Models\ComponentCategory;
+use App\Models\Fabric;   // ⬅️ aggiunta
+use App\Models\Color;    // ⬅️ aggiunta
 use Illuminate\Database\Seeder;
 use Faker\Factory as Faker;
 
@@ -18,7 +28,6 @@ class ComponentSeeder extends Seeder
 {
     public function run(): void
     {
-        
         // 1) Disabilita i vincoli FK per evitare errori
         Schema::disableForeignKeyConstraints();
 
@@ -81,13 +90,106 @@ class ComponentSeeder extends Seeder
                 : 1;
         }
 
-        /* Inserimento di 100 record */
+        /* STRICT: Pre-carico cataloghi tessuti e colori (solo attivi) */
+        $fabrics = Fabric::where('active', true)->get();
+        $colors  = Color::where('active', true)->get();
+
+        if ($fabrics->isEmpty() || $colors->isEmpty()) {
+            // Non blocco il seeder: le altre categorie verranno create comunque.
+            // Ma i TESSU verranno saltati per evitare componenti "orfani".
+            $this->command->warn('⚠️  Nessun tessuto o colore attivo trovato. Esegui prima FabricSeeder e ColorSeeder. I componenti TESSU verranno saltati.');
+        }
+
+        // Contatore reale di record creati/aggiornati
+        $createdOrUpdated = 0;
+
+        /* Inserimento di 100 record (o meno, se si saltano TESSU senza catalogo) */
         for ($i = 0; $i < 100; $i++) {
             $cat      = $categories->random();
             $number   = str_pad($counters[$cat->id], 5, '0', STR_PAD_LEFT);
             $code     = "{$cat->code}-{$number}";
             $counters[$cat->id]++;
 
+            // === STRICT: branch speciale per categoria TESSU (tessuti) ===
+            if ($cat->code === 'TESSU') {
+                if ($fabrics->isEmpty() || $colors->isEmpty()) {
+                    // Cataloghi non pronti → saltiamo il giro per non creare TESSU orfani
+                    continue;
+                }
+
+                // Provo alcune coppie random per rispettare l'unicità (fabric_id, color_id)
+                $maxTries     = 7;
+                $chosenFabric = null;
+                $chosenColor  = null;
+
+                while ($maxTries-- > 0) {
+                    $tryFabric = $fabrics->random();
+                    $tryColor  = $colors->random();
+
+                    $exists = Component::query()
+                        ->where('fabric_id', $tryFabric->id)
+                        ->where('color_id',  $tryColor->id)
+                        ->exists();
+
+                    if (!$exists) {
+                        $chosenFabric = $tryFabric;
+                        $chosenColor  = $tryColor;
+                        break;
+                    }
+                }
+
+                // Se tutte le combinazioni tentate esistono già → niente duplicati
+                if (!$chosenFabric || !$chosenColor) {
+                    $this->command->warn('ℹ️  Combinazioni tessuto×colore già sature: saltata una riga TESSU.');
+                    continue;
+                }
+
+                // Descrizione parlante e UoM coerente
+                $description = 'Tessuto ' . $chosenFabric->name . ' ' . $chosenColor->name;
+
+                // Se esiste già una riga per questa coppia, aggiorno (senza cambiare il "code" storico)
+                $existing = Component::where('fabric_id', $chosenFabric->id)
+                                     ->where('color_id',  $chosenColor->id)
+                                     ->first();
+
+                if ($existing) {
+                    $existing->update([
+                        'category_id'     => $cat->id,
+                        // 'code'          => $existing->code, // non lo tocco per evitare collisioni con eventuale UNIQUE su "code"
+                        'description'     => $description,
+                        'material'        => 'tessuto',
+                        'length'          => null,
+                        'width'           => null,
+                        'height'          => null,
+                        'weight'          => null,
+                        'unit_of_measure' => 'm',   // metri per i tessuti
+                        'is_active'       => true,
+                    ]);
+                    $createdOrUpdated++;
+                    continue;
+                }
+
+                // Altrimenti creo il componente nuovo con il "code" progressivo
+                Component::create([
+                    'category_id'     => $cat->id,
+                    'code'            => $code,         // mantieni il tuo schema TESSU-00001, 00002, ...
+                    'description'     => $description,
+                    'material'        => 'tessuto',
+                    'length'          => null,
+                    'width'           => null,
+                    'height'          => null,
+                    'weight'          => null,
+                    'unit_of_measure' => 'm',
+                    'is_active'       => true,
+                    'fabric_id'       => $chosenFabric->id, // STRICT: sempre valorizzati
+                    'color_id'        => $chosenColor->id,  // STRICT: sempre valorizzati
+                ]);
+
+                $createdOrUpdated++;
+                continue; // passo al prossimo giro
+            }
+
+            // === CATEGORIE DIVERSE DA TESSU → logica originale invariata ===
             // usa generatore specifico o fallback
             $description = $descriptionGen[$cat->code]()
                             ?? ucfirst($faker->words(3, true));
@@ -104,8 +206,10 @@ class ComponentSeeder extends Seeder
                 'unit_of_measure' => $faker->randomElement(['pz', 'm', 'kg', 'ml']),
                 'is_active'       => $faker->boolean(90),
             ]);
+
+            $createdOrUpdated++;
         }
 
-        $this->command->info('✅  100 componenti realistici creati con successo.');
+        $this->command->info("✅  Componenti creati/aggiornati: {$createdOrUpdated}.");
     }
 }
