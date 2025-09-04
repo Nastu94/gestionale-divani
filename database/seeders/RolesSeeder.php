@@ -29,7 +29,8 @@ class RolesSeeder extends Seeder
                 'categories.*', 'components.*', 'products.*', 'price_lists.view',
                 'customers.view', 'suppliers.view', 'product-prices.view',
                 'stock.*', 'alerts.*', 'warehouses.*',
-                'reports.orders.*', 'reports.stock_levels', 'reports.stock_movements'
+                'reports.orders.*', 'reports.stock_levels', 'reports.stock_movements',
+                'product-variables.*'
             ],
             'Commerciale' => [
                 'orders.supplier.*', 'price_lists.*',
@@ -42,7 +43,7 @@ class RolesSeeder extends Seeder
                 'orders.supplier.view', 'orders.supplier.create', 'orders.supplier.update',
                 'categories.view', 'components.view', 'products.view', 'price_lists.view',
                 'customers.view', 'suppliers.view', 'warehouses.view', 'product-prices.view',
-                'stock.*', 'reports.orders.customer', 'reports.stock_levels'
+                'stock.*', 'reports.orders.customer', 'reports.stock_levels', 'product-variables.view'
             ],
             'Magazziniere' => [
                 'orders.customer.view', 'orders.supplier.view', 'orders.supplier.update',

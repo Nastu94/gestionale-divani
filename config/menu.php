@@ -15,6 +15,7 @@ return [
                 ['label'=>'Clienti',    'route'=>'customers.index',        'permission'=>'customers.view'],
                 ['label'=>'Fornitori',  'route'=>'suppliers.index',        'permission'=>'suppliers.view'],
                 ['label'=>'Prodotti',   'route'=>'products.index',         'permission'=>'products.view'],
+                ['label'=>'Variabili',  'route'=>'variables.index',        'permission'=>'product-variables.view'],
             ],
         ],
         [
@@ -66,7 +67,8 @@ return [
                 ['label'=>'Clienti',    'route'=>'customers.index',        'icon'=>'fa-user',                 'permission'=>'customers.view'],
                 ['label'=>'Fornitori',  'route'=>'suppliers.index',        'icon'=>'fa-truck',                'permission'=>'suppliers.view'],
                 ['label'=>'Prodotti',   'route'=>'products.index',         'icon'=>'fa-box-open',             'permission'=>'products.view'],
-                ['label'=>'Categorie',  'route'=>'categories.index',       'icon'=>'fa-sitemap',                 'permission'=>'categories.view'],
+                ['label'=>'Categorie',  'route'=>'categories.index',       'icon'=>'fa-sitemap',              'permission'=>'categories.view'],
+                ['label'=>'Variabili',  'route'=>'variables.index',        'icon'=>'fa-palette',              'permission'=>'product-variables.view'],
             ],
         ],
         [

@@ -24,6 +24,7 @@ use App\Http\Controllers\LotsController;
 use App\Http\Controllers\ComponentCategoryController;
 use App\Http\Controllers\OccasionalCustomerController;
 use App\Http\Controllers\ProductCustomerPriceController;
+use App\Http\Controllers\FabricColorAdminController;
 use App\Http\Controllers\Api\SupplierApiController;
 use App\Http\Controllers\Api\ComponentApiController;
 use App\Http\Controllers\Api\OrderNumberApiController;
@@ -1390,6 +1391,10 @@ Route::middleware([
 |--------------------------------------------------------------------------
 | Prezzi Cliente–Prodotto
 |--------------------------------------------------------------------------
+    |--------------------------------------------------------------------------
+    | Gestione Prezzi Prodotto – solo index (visualizzazione elenco)
+    |--------------------------------------------------------------------------
+    |
     | Visualizzazione elenco prezzi (per modale "Listino") – READ ONLY
     | Permesso: product-prices.view
     */
@@ -1398,6 +1403,10 @@ Route::middleware([
         ->middleware('permission:product-prices.view');
 
     /*
+    |--------------------------------------------------------------------------
+    | Gestione Permessi – risoluzione prezzo (create→edit on-the-fly)
+    |--------------------------------------------------------------------------
+    |
     | Resolve per l’escamotage (create→edit on-the-fly)
     | Ritorna versione valida alla data o ultimo storico – READ
     | Permesso: product-prices.view
@@ -1407,6 +1416,10 @@ Route::middleware([
         ->middleware('permission:product-prices.view');
 
     /*
+    |--------------------------------------------------------------------------
+    | Gestione Permessi – solo store (creazione)
+    |--------------------------------------------------------------------------
+    |
     | Creazione nuova versione (con eventuale chiusura automatica)
     | Permesso: product-prices.create
     */
@@ -1415,6 +1428,10 @@ Route::middleware([
         ->middleware('permission:product-prices.create');
 
     /*
+    |--------------------------------------------------------------------------
+    | Gestione Permessi – solo update (modifica)
+    |--------------------------------------------------------------------------
+    |
     | Aggiornamento versione esistente (correzione retroattiva)
     | Permesso: product-prices.update
     */
@@ -1423,10 +1440,33 @@ Route::middleware([
         ->middleware('permission:product-prices.update');
 
     /*
+    |--------------------------------------------------------------------------
+    | Gestione Permessi – solo destroy (cancellazione)
+    |--------------------------------------------------------------------------
+    |
     | Eliminazione versione (attiva/futura/storica)
     | Permesso: product-prices.delete
     */
     Route::delete('products/{product}/customer-prices/{price}', [ProductCustomerPriceController::class, 'destroy'])
         ->name('products.customer-prices.destroy')
         ->middleware('permission:product-prices.delete');
+
+    /*
+|--------------------------------------------------------------------------
+| Variabili tessutoXcolore
+|--------------------------------------------------------------------------
+    |--------------------------------------------------------------------------
+    | Gestione Variabili – solo index (visualizzazione elenco)
+    |--------------------------------------------------------------------------
+    |
+    | Visualizzazione elenco variabili – READ ONLY
+    | Permesso: product-variables.view
+    */
+
+    Route::resource('variables', FabricColorAdminController::class)
+        ->only(['index'])
+        ->names([
+            'index' => 'variables.index',
+        ])
+        ->middleware('permission:product-variables.view');
 });

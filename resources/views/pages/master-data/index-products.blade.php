@@ -249,6 +249,13 @@
                                 </tr>
                                 @endif
                             @endforeach
+                            @if($products->isEmpty())
+                                <tr>
+                                    <td :colspan="extended ? 5 : 3" class="px-6 py-4 text-center text-gray-500">
+                                        Nessun prodotto trovato.
+                                    </td>
+                                </tr>
+                            @endif
                         </tbody>
                     </table>
                 </div>

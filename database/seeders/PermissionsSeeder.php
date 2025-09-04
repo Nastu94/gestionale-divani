@@ -87,6 +87,12 @@ class PermissionsSeeder extends Seeder
             ['name' => 'product-prices.update',       'display_name' => 'Modifica prezzi prodotto',       'description' => 'Modifica prezzi esistenti per prodotto.'],
             ['name' => 'product-prices.delete',       'display_name' => 'Elimina prezzi prodotto',       'description' => 'Elimina prezzi per prodotto dal sistema.'],
 
+            ['name' => 'product-variables.view',      'display_name' => 'Visualizza variabili prodotto',    'description' => 'Visualizza le variabili associate ai prodotti.'],
+            ['name' => 'product-variables.create',    'display_name' => 'Crea variabili prodotto',          'description' => 'Crea nuove variabili per i prodotti.'],
+            ['name' => 'product-variables.update',    'display_name' => 'Modifica variabili prodotto',      'description' => 'Modifica variabili esistenti per i prodotti.'],
+            ['name' => 'product-variables.manage',    'display_name' => 'Gestisci variabili prodotto',      'description' => 'Gestisce l\'associazione delle variabili ai prodotti.'],
+            ['name' => 'product-variables.delete',    'display_name' => 'Elimina variabili prodotto',       'description' => 'Elimina variabili prodotto dal sistema.'],
+
             ['name' => 'reports.orders.customer',     'display_name' => 'Report ordini cliente',            'description' => 'Genera report storico degli ordini cliente.'],
             ['name' => 'reports.orders.supplier',     'display_name' => 'Report ordini fornitore',          'description' => 'Genera report storico degli ordini fornitore.'],
             ['name' => 'reports.stock_levels',        'display_name' => 'Report giacenze',                  'description' => 'Genera report delle giacenze attuali.'],

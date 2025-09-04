@@ -42,7 +42,9 @@ class RoleController extends Controller
             'reports.orders'     => 'Report Ordini',
             'reports'            => 'Report',
             'warehouses'         => 'Magazzini',
-            'categories'         => 'Categorie'
+            'categories'         => 'Categorie',
+            'product-prices'     => 'Prezzi Prodotto',
+            'product-variables'  => 'Variabili Prodotto',
         ];
 
         // Mappa azione → [lettera, descrizione ITA]
@@ -59,7 +61,7 @@ class RoleController extends Controller
             'supplier'        => ['FR', 'Fornitore (report)'],
             'stock_levels'    => ['GR', 'Giacenze (report)'],
             'stock_movements' => ['MR', 'Movimenti (report)'],
-            'rollback_item_phase' => ['R', 'Rollback fase articolo']
+            'rollback_item_phase' => ['R', 'Rollback fase articolo'],
         ];
 
         return view('pages.roles.index', compact(
