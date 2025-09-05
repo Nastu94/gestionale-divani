@@ -1455,18 +1455,65 @@ Route::middleware([
 |--------------------------------------------------------------------------
 | Variabili tessutoXcolore
 |--------------------------------------------------------------------------
-    |--------------------------------------------------------------------------
-    | Gestione Variabili – solo index (visualizzazione elenco)
-    |--------------------------------------------------------------------------
-    |
-    | Visualizzazione elenco variabili – READ ONLY
-    | Permesso: product-variables.view
+    |-------------------------------------------------------------------------- 
+    | Gestione Variabili – solo index/show (visualizzazione elenco) 
+    |-------------------------------------------------------------------------- 
+    | Visualizzazione elenco variabili – READ ONLY 
+    | Permesso: product-variables.view 
     */
-
     Route::resource('variables', FabricColorAdminController::class)
-        ->only(['index'])
+        ->only(['index', 'show'])
         ->names([
             'index' => 'variables.index',
+            'show'  => 'variables.show',
         ])
         ->middleware('permission:product-variables.view');
+
+    /*
+    |-------------------------------------------------------------------------- 
+    | Salvataggio abbinamento tessuto×colore su componente TESSU (modale "Abbina")
+    |-------------------------------------------------------------------------- 
+    | Azione mutante (salva mapping) 
+    | Permesso: product-variables.manage 
+    */
+    Route::post('variables/{component}/mapping', [FabricColorAdminController::class, 'storeMapping'])
+        ->name('variables.mapping.store')
+        ->middleware('permission:product-variables.manage');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Crea componenti TESSU mancanti (bulk)
+    |--------------------------------------------------------------------------
+    | Permesso: product-variables.create
+    | BODY atteso (JSON):
+    | {
+    |   "pairs": [ {"fabric_id":1,"color_id":2}, ... ],
+    |   "description_pattern": "Tessuto :fabric :color"  // opzionale
+    | }
+    */
+    Route::post('variables/components/missing', [FabricColorAdminController::class, 'createMissingComponents'])
+        ->name('variables.components.missing')
+        ->middleware('permission:product-variables.create');
+        
+    /*
+    |--------------------------------------------------------------------------
+    | Nuovo Tessuto (creazione da modale)
+    |--------------------------------------------------------------------------
+    | Permesso: product-variables.create
+    | Metodo: POST /variables/fabrics
+    */
+    Route::post('variables/fabrics', [FabricColorAdminController::class, 'storeFabric'])
+        ->name('variables.fabrics.store')
+        ->middleware('permission:product-variables.create');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Nuovo Colore (creazione da modale)
+    |--------------------------------------------------------------------------
+    | Permesso: product-variables.create
+    | Metodo: POST /variables/colors
+    */
+    Route::post('variables/colors', [FabricColorAdminController::class, 'storeColor'])
+        ->name('variables.colors.store')
+        ->middleware('permission:product-variables.create');
 });

@@ -110,34 +110,48 @@ Pagina: "Variabili (Fabrics & Colors) → Mapping TESSU"
                                     $dup    = $isDuplicate($cmp->fabric_id, $cmp->color_id);
                                     $fabricName = $cmp->fabric_id ? (optional($fabrics->firstWhere('id', $cmp->fabric_id))->name ?? null) : null;
                                     $colorName  = $cmp->color_id  ? (optional($colors->firstWhere('id', $cmp->color_id))->name ?? null) : null;
+
+                                    // COERENZA: deriviamo classi/label dalla valutazione server
+                                    $coh = $cmp->coherence ?? ['status'=>'ok','tooltip'=>''];
+                                    $cohClass = match($coh['status']) {
+                                        'warning' => 'bg-orange-200 text-orange-900',
+                                        'info'    => 'bg-blue-200 text-blue-900',
+                                        default   => 'bg-green-200 text-green-900',
+                                    };
+                                    $cohLabel = strtoupper($coh['status']); // OK | INFO | WARNING
                                 @endphp
                                 <tr class="border-t @if(!$mapped) bg-yellow-50 @elseif($dup) bg-red-50 @endif">
-                                    <td class="px-1 py-2 font-mono">{{ $cmp->code }}</td>
-                                    <td class="px-1 py-2">{{ $cmp->description }}</td>
-                                    <td class="px-1 py-2">
+                                    <td class="px-1 py-2 font-mono text-xs">{{ $cmp->code }}</td>
+                                    <td class="px-1 py-2 text-xs">{{ $cmp->description }}</td>
+                                    <td class="px-1 py-2 text-xs">
                                         @if($cmp->fabric_id)
                                             {{ $fabricName ?? '—' }}
                                         @else
-                                            <span class="text-yellow-700">— non impostato —</span>
+                                            <span class="text-yellow-700 text-xs">— non impostato —</span>
                                         @endif
                                     </td>
-                                    <td class="px-1 py-2">
+                                    <td class="px-1 py-2 text-xs">
                                         @if($cmp->color_id)
                                             {{ $colorName ?? '—' }}
                                         @else
-                                            <span class="text-yellow-700">— non impostato —</span>
+                                            <span class="text-yellow-700 text-xs">— non impostato —</span>
                                         @endif
                                     </td>
-                                    <td class="px-1 py-2">
+                                    <td class="px-1 py-2 text-xs">
                                         @if(!$mapped)
-                                            <span class="inline-block px-2 py-0.5 rounded bg-yellow-200 text-yellow-900">Non mappato</span>
+                                            <span class="inline-block px-2 py-0.5 rounded bg-yellow-200 text-yellow-900 text-xs">Non mappato</span>
                                         @elseif($dup)
-                                            <span class="inline-block px-2 py-0.5 rounded bg-red-200 text-red-900">Conflitto</span>
+                                            <span class="inline-block px-2 py-0.5 rounded bg-red-200 text-red-900 text-xs">Conflitto</span>
                                         @else
-                                            <span class="inline-block px-2 py-0.5 rounded bg-green-200 text-green-900">OK</span>
+                                            <span class="inline-block px-2 py-0.5 rounded bg-green-200 text-green-900 text-xs">OK</span>
                                         @endif
+                                        {{-- COERENZA: pill aggiuntiva SENZA nuova colonna --}}
+                                        <span class="inline-block px-2 py-0.5 rounded {{ $cohClass }} text-xs ml-2"
+                                              title="{{ $coh['tooltip'] ?? '' }}">
+                                            Coerenza: {{ $cohLabel }}
+                                        </span>
                                     </td>
-                                    <td class="px-1 py-2">{{ $cmp->is_active ? 'Sì' : 'No' }}</td>
+                                    <td class="px-1 py-2 text-xs text-center">{{ $cmp->is_active ? 'Sì' : 'No' }}</td>
                                     @can('product-variables.manage')
                                         <td class="px-1 py-2 text-right">
                                             <button
@@ -225,9 +239,27 @@ Pagina: "Variabili (Fabrics & Colors) → Mapping TESSU"
                 {{-- Pulsanti operativi (verranno abilitati nelle prossime fasi) --}}
                 @can('product-variables.create')
                     <div class="mt-3 flex flex-wrap gap-2 text-xs">
-                        <button class="px-3 py-1 rounded bg-gray-200 cursor-not-allowed" title="In arrivo">+ Nuovo Tessuto</button>
-                        <button class="px-3 py-1 rounded bg-gray-200 cursor-not-allowed" title="In arrivo">+ Nuovo Colore</button>
-                        <button class="px-3 py-1 rounded bg-gray-200 cursor-not-allowed" title="In arrivo">Crea componenti mancanti</button>
+                        <button type="button"
+                                class="px-3 py-1 rounded bg-indigo-600 text-white"
+                                title="Crea un nuovo tessuto"
+                                @click="$dispatch('open-new-fabric-modal')">
+                            + Nuovo Tessuto
+                        </button>
+
+                        <button type="button"
+                                class="px-3 py-1 rounded bg-sky-600 text-white"
+                                title="Crea un nuovo colore"
+                                @click="$dispatch('open-new-color-modal')">
+                            + Nuovo Colore
+                        </button>
+
+                        {{-- Crea componenti mancanti --}}
+                        <button type="button"
+                                class="px-3 py-1 rounded bg-emerald-600 text-white"
+                                title="Genera gli SKU TESSU mancanti per le coppie selezionate"
+                                @click="$dispatch('open-cmc-modal')">
+                            Crea componenti mancanti
+                        </button>
                     </div>
                 @endcan
             </div>
@@ -239,6 +271,8 @@ Pagina: "Variabili (Fabrics & Colors) → Mapping TESSU"
                     <li>Ogni coppia tessuto×colore selezionabile deve avere uno SKU in TESSU.</li>
                     <li>I conflitti indicano coppie duplicate su più componenti: risolvere prima di usarle nei prodotti.</li>
                     <li>Fabrics & Colors “globali” definiscono le maggiorazioni di fallback; gli override per-prodotto si configurano dalla modale “Variabili”.</li>
+                    <li>I conflitti indicano coppie duplicate su più componenti: risolvere prima di usarle nei prodotti.</li>
+                    <li>“Coerenza” valuta se la descrizione suggerisce tessuto/colore diversi dal mapping.</li>
                 </ul>
             </div>
         </div>
@@ -246,5 +280,25 @@ Pagina: "Variabili (Fabrics & Colors) → Mapping TESSU"
 
     {{-- Inclusione del MODALE "Abbina tessuto×colore" --}}
     {{-- Passiamo a props i cataloghi e la matrice per validazioni client-side --}}
-    <x-product-variable-matching-modal :fabrics="$fabrics" :colors="$colors" :matrix="$matrix" />
+    <x-product-variable-matching-modal 
+        :fabrics="$fabrics" :colors="$colors" :matrix="$matrix" 
+        :fabric-aliases="$fabricAliases"
+        :color-aliases="$colorAliases"
+        :ambiguous-color-terms="$ambiguousColorTerms"
+    />
+    
+    {{-- Inclusione dei MODALI OPERATIVI (solo se l'utente ha i permessi) --}}
+    @can('product-variables.create')
+        {{-- Modale: Crea componenti mancanti --}}
+        <x-create-missing-tessu-components-modal 
+            :fabrics="$fabrics" :colors="$colors" :matrix="$matrix" 
+        />
+
+        {{-- Modale: + Nuovo Tessuto --}}
+        <x-new-fabric-modal />
+
+        {{-- Modale: + Nuovo Colore --}}
+        <x-new-color-modal />
+    @endcan
+
 </x-app-layout>

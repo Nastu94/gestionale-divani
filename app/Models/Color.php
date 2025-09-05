@@ -5,6 +5,8 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Spatie\Activitylog\Traits\LogsActivity;
+use Spatie\Activitylog\LogOptions;
 
 /**
  * Modello Eloquent per i colori.
@@ -12,6 +14,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
  */
 class Color extends Model
 {
+    use LogsActivity;
+
     protected $fillable = [
         'name', 'code', 'hex', 'surcharge_type', 'surcharge_value', 'active',
     ];
@@ -20,6 +24,23 @@ class Color extends Model
         'active' => 'bool',
         'surcharge_value' => 'decimal:2',
     ];
+
+    protected static $logAttributes = [
+        'name', 'code', 'hex', 'surcharge_type', 'surcharge_value', 'active',
+    ];
+
+    protected static $logName = 'color';
+
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->useLogName('color')
+            ->logFillable()
+            ->logOnlyDirty()
+            ->dontSubmitEmptyLogs();
+    }
+
+
 
     public function products(): BelongsToMany
     {

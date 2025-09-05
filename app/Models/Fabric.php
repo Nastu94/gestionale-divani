@@ -5,6 +5,8 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Spatie\Activitylog\Traits\LogsActivity;
+use Spatie\Activitylog\LogOptions;
 
 /**
  * Modello Eloquent per i tessuti.
@@ -12,6 +14,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
  */
 class Fabric extends Model
 {
+    use LogsActivity;
+
     protected $fillable = [
         'name', 'code', 'surcharge_type', 'surcharge_value', 'active',
     ];
@@ -20,6 +24,21 @@ class Fabric extends Model
         'active' => 'bool',
         'surcharge_value' => 'decimal:2',
     ];
+
+    protected static $logAttributes = [
+        'name', 'code', 'surcharge_type', 'surcharge_value', 'active',
+    ];
+
+    protected static $logName = 'fabric';
+
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->useLogName('fabric')
+            ->logFillable()
+            ->logOnlyDirty()
+            ->dontSubmitEmptyLogs();
+    }
 
     /** Prodotti che ammettono questo tessuto (whitelist per-prodotto). */
     public function products(): BelongsToMany
