@@ -151,7 +151,7 @@ class FabricColorAdminController extends Controller
         // Ordinamento e paginazione (append per mantenere filtri nei link)
         $components = $componentsQuery
             ->orderBy('code')
-            ->paginate(20)
+            ->paginate(10)
             ->appends([
                 'state'     => $state,
                 'active'    => $active,
@@ -498,7 +498,7 @@ class FabricColorAdminController extends Controller
      * Validazione:
      * - name: obbligatorio, univoco in tabella fabrics (case-insensitive a seconda del collation)
      * - active: boolean (default true)
-     * - markup_type / markup_value: opzionali; se le colonne non esistono, vengono ignorate
+     * - surcharge_type / surcharge_value: opzionali; se le colonne non esistono, vengono ignorate
      *
      * @return \Illuminate\Http\JsonResponse
      */
@@ -509,13 +509,13 @@ class FabricColorAdminController extends Controller
             'name'         => ['required', 'string', 'max:100', Rule::unique('fabrics', 'name')],
             'active'       => ['nullable', 'boolean'],
             // I campi markup sono opzionali: li validiamo ma li useremo solo se esistono in DB
-            'markup_type'  => ['nullable', Rule::in(['fixed', 'percent'])],
-            'markup_value' => ['nullable', 'numeric', 'min:0'],
+            'surcharge_type'  => ['nullable', Rule::in(['fixed', 'percent'])],
+            'surcharge_value' => ['nullable', 'numeric', 'min:0'],
         ], [], [
             'name'         => 'nome',
             'active'       => 'attivo',
-            'markup_type'  => 'tipo maggiorazione',
-            'markup_value' => 'valore maggiorazione',
+            'surcharge_type'  => 'tipo maggiorazione',
+            'surcharge_value' => 'valore maggiorazione',
         ]);
 
         // Creazione record
@@ -526,8 +526,8 @@ class FabricColorAdminController extends Controller
         // Imposto surcharge solo se le colonne esistono fisicamente (evita errori SQL se non hai ancora migrato)
         if (Schema::hasColumn('fabrics', 'surcharge_type') && Schema::hasColumn('fabrics', 'surcharge_value')) {
             // Se non inviati, lascio null / default DB
-            $fabric->surcharge_type  = $data['markup_type']  ?? null;
-            $fabric->surcharge_value = $data['markup_value'] ?? null;
+            $fabric->surcharge_type  = $data['surcharge_type']  ?? null;
+            $fabric->surcharge_value = $data['surcharge_value'] ?? null;
         }
 
         $fabric->save();
@@ -539,8 +539,8 @@ class FabricColorAdminController extends Controller
                 'id'           => $fabric->id,
                 'name'         => $fabric->name,
                 'active'       => (bool) $fabric->active,
-                'markup_type'  => $fabric->markup_type ?? null,
-                'markup_value' => $fabric->markup_value ?? null,
+                'surcharge_type'  => $fabric->surcharge_type ?? null,
+                'surcharge_value' => $fabric->surcharge_value ?? null,
             ],
         ]);
     }
@@ -559,8 +559,8 @@ class FabricColorAdminController extends Controller
         $rules = [
             'name'         => ['required', 'string', 'max:100', Rule::unique('colors', 'name')],
             'active'       => ['nullable', 'boolean'],
-            'markup_type'  => ['nullable', Rule::in(['fixed', 'percent'])],
-            'markup_value' => ['nullable', 'numeric', 'min:0'],
+            'surcharge_type'  => ['nullable', Rule::in(['fixed', 'percent'])],
+            'surcharge_value' => ['nullable', 'numeric', 'min:0'],
         ];
 
         // Validazione HEX solo se la colonna esiste
@@ -578,8 +578,8 @@ class FabricColorAdminController extends Controller
             'name'         => 'nome',
             'hex'          => 'colore (HEX)',
             'active'       => 'attivo',
-            'markup_type'  => 'tipo maggiorazione',
-            'markup_value' => 'valore maggiorazione',
+            'surcharge_type'  => 'tipo maggiorazione',
+            'surcharge_value' => 'valore maggiorazione',
         ]);
 
         $color = new Color();
@@ -596,8 +596,8 @@ class FabricColorAdminController extends Controller
 
         // Markup opzionale
         if (Schema::hasColumn('colors', 'surcharge_type') && Schema::hasColumn('colors', 'surcharge_value')) {
-            $color->surcharge_type  = $data['markup_type']  ?? null;
-            $color->surcharge_value = $data['markup_value'] ?? null;
+            $color->surcharge_type  = $data['surcharge_type']  ?? null;
+            $color->surcharge_value = $data['surcharge_value'] ?? null;
         }
 
         $color->save();
@@ -610,8 +610,8 @@ class FabricColorAdminController extends Controller
                 'name'         => $color->name,
                 'hex'          => $color->hex ?? null,
                 'active'       => (bool)$color->active,
-                'markup_type'  => $color->markup_type ?? null,
-                'markup_value' => $color->markup_value ?? null,
+                'surcharge_type'  => $color->surcharge_type ?? null,
+                'surcharge_value' => $color->surcharge_value ?? null,
             ],
         ]);
     }
@@ -626,6 +626,81 @@ class FabricColorAdminController extends Controller
             $h = $h[0].$h[0].$h[1].$h[1].$h[2].$h[2];
         }
         return '#'.strtoupper($h);
+    }
+
+    /**
+     * Aggiorna un tessuto esistente (modale "Modifica Tessuto").
+     *
+     * Validazione:
+     * - name: obbligatorio, univoco in fabrics.name escludendo l'ID corrente
+     * - active: boolean (default lascia com'è)
+     * - markup_*: opzionali; usati SOLO se le colonne esistono
+     */
+    public function updateFabric(Request $request, Fabric $fabric): JsonResponse
+    {
+        // Validazione: name unico escludendo l'ID corrente
+        $data = $request->validate([
+            'name'         => ['required','string','max:100', Rule::unique('fabrics','name')->ignore($fabric->id)],
+            'active'       => ['nullable','boolean'],
+            'surcharge_type'  => ['nullable', Rule::in(['fixed','percent'])],
+            'surcharge_value' => ['nullable','numeric','min:0'],
+        ], [], [
+            'name'=>'nome','active'=>'attivo','surcharge_type'=>'tipo maggiorazione','surcharge_value'=>'valore maggiorazione'
+        ]);
+
+        $fabric->name   = trim($data['name']);
+        $fabric->active = array_key_exists('active',$data) ? (bool)$data['active'] : $fabric->active;
+
+        if (Schema::hasColumn('fabrics','surcharge_type') && Schema::hasColumn('fabrics','surcharge_value')) {
+            $fabric->surcharge_type  = $data['surcharge_type']  ?? null;
+            $fabric->surcharge_value = $data['surcharge_value'] ?? null;
+        }
+
+        $fabric->save();
+
+        return response()->json(['ok'=>true,'message'=>'Tessuto aggiornato.']);
+    }
+
+    /**
+     * Aggiorna un colore esistente (modale "Modifica Colore").
+     *
+     * Validazione:
+     * - name: obbligatorio, univoco in colors.name escludendo l'ID corrente
+     * - hex: opzionale; se la colonna esiste, validiamo formato (#RGB o #RRGGBB) e unicità escludendo l'ID corrente
+     * - active: boolean (default lascia com'è)
+     * - markup_*: opzionali; usati SOLO se le colonne esistono
+     */
+    public function updateColor(Request $request, Color $color): JsonResponse
+    {
+        $rules = [
+            'name'         => ['required','string','max:100', Rule::unique('colors','name')->ignore($color->id)],
+            'active'       => ['nullable','boolean'],
+            'surcharge_type'  => ['nullable', Rule::in(['fixed','percent'])],
+            'surcharge_value' => ['nullable','numeric','min:0'],
+        ];
+        if (Schema::hasColumn('colors','hex')) {
+            $rules['hex'] = ['nullable','string','regex:/^#?([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/', Rule::unique('colors','hex')->ignore($color->id)];
+        }
+
+        $data = $request->validate($rules, [], [
+            'name'=>'nome','hex'=>'colore (HEX)','active'=>'attivo','surcharge_type'=>'tipo maggiorazione','surcharge_value'=>'valore maggiorazione'
+        ]);
+
+        $color->name   = trim($data['name']);
+        $color->active = array_key_exists('active',$data) ? (bool)$data['active'] : $color->active;
+
+        if (Schema::hasColumn('colors','hex')) {
+            $hex = $data['hex'] ?? null;
+            $color->hex = $hex ? $this->normalizeHex($hex) : null; // consenti svuotamento
+        }
+        if (Schema::hasColumn('colors','surcharge_type') && Schema::hasColumn('colors','surcharge_value')) {
+            $color->surcharge_type  = $data['surcharge_type']  ?? null;
+            $color->surcharge_value = $data['surcharge_value'] ?? null;
+        }
+
+        $color->save();
+
+        return response()->json(['ok'=>true,'message'=>'Colore aggiornato.']);
     }
 
     /* ====================== HELPERS COERENZA ====================== */

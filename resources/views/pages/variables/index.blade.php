@@ -187,7 +187,7 @@ Pagina: "Variabili (Fabrics & Colors) → Mapping TESSU"
                 </div>
 
                 <div class="px-4 py-3 border-t">
-                    {{ $components->links() }}
+                    {{ $components->links('vendor.pagination.tailwind-compact') }}
                 </div>
             </div>
         </div>
@@ -203,10 +203,31 @@ Pagina: "Variabili (Fabrics & Colors) → Mapping TESSU"
                                 <th class="p-1 bg-gray-50 border">Tessuto \ Colore</th>
                                 @foreach($colors as $color)
                                     <th class="p-1 bg-gray-50 border whitespace-nowrap">
-                                        @if($color->hex)
-                                            <span class="inline-block w-3 h-3 rounded border" style="background: {{ $color->hex }}"></span>
-                                        @endif
-                                        {{ $color->name }}
+                                        @can('product-variables.update')
+                                            {{-- Nome colore cliccabile → apre modale EDIT COLORE --}}
+                                            <button type="button"
+                                                    class="underline decoration-dotted hover:decoration-solid hover:text-sky-700"
+                                                    title="Modifica colore"
+                                                    @click="$dispatch('open-edit-color-modal', {
+                                                        id: {{ $color->id }},
+                                                        name: @js($color->name),
+                                                        hex: @js($color->hex ?? null),
+                                                        active: {{ $color->active ? 'true' : 'false' }},
+                                                        surcharge_type: @js($color->surcharge_type ?? null),
+                                                        surcharge_value: @js($color->surcharge_value ?? null),
+                                                    })">
+                                                @if($color->hex)
+                                                    <span class="inline-block w-3 h-3 rounded border align-middle mr-1" style="background: {{ $color->hex }}"></span>
+                                                @endif
+                                                {{ $color->name }}
+                                                <i class="fa-solid fa-pen ml-1 opacity-50"></i>
+                                            </button>
+                                        @else
+                                            @if($color->hex)
+                                                <span class="inline-block w-3 h-3 rounded border align-middle mr-1" style="background: {{ $color->hex }}"></span>
+                                            @endif
+                                            {{ $color->name }}
+                                        @endcan
                                     </th>
                                 @endforeach
                             </tr>
@@ -214,7 +235,26 @@ Pagina: "Variabili (Fabrics & Colors) → Mapping TESSU"
                         <tbody>
                             @foreach($fabrics as $fabric)
                                 <tr>
-                                    <td class="p-1 border font-medium whitespace-nowrap">{{ $fabric->name }}</td>
+                                    <td class="p-1 border font-medium whitespace-nowrap">
+                                        @can('product-variables.update')
+                                            {{-- Nome tessuto cliccabile → apre modale EDIT TESSUTO --}}
+                                            <button type="button"
+                                                    class="underline decoration-dotted hover:decoration-solid hover:text-indigo-700"
+                                                    title="Modifica tessuto"
+                                                    @click="$dispatch('open-edit-fabric-modal', {
+                                                        id: {{ $fabric->id }},
+                                                        name: @js($fabric->name),
+                                                        active: {{ $fabric->active ? 'true' : 'false' }},
+                                                        surcharge_type: @js($fabric->surcharge_type ?? null),
+                                                        surcharge_value: @js($fabric->surcharge_value ?? null),
+                                                    })">
+                                                {{ $fabric->name }}
+                                                <i class="fa-solid fa-pen ml-1 opacity-50"></i>
+                                            </button>
+                                        @else
+                                            {{ $fabric->name }}
+                                        @endcan
+                                    </td>
                                     @foreach($colors as $color)
                                         @php $cell = $matrix[$fabric->id][$color->id] ?? null; @endphp
                                         <td class="p-1 border text-center">

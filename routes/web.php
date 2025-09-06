@@ -1516,4 +1516,24 @@ Route::middleware([
     Route::post('variables/colors', [FabricColorAdminController::class, 'storeColor'])
         ->name('variables.colors.store')
         ->middleware('permission:product-variables.create');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Modifica Tessuto (edit inline da tabella)
+    |--------------------------------------------------------------------------
+    | Permesso: product-variables.update
+    */
+    Route::put('variables/fabrics/{fabric}', [FabricColorAdminController::class, 'updateFabric'])
+        ->name('variables.fabrics.update')
+        ->middleware('permission:product-variables.update');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Modifica Colore (edit inline da tabella)
+    |--------------------------------------------------------------------------
+    | Permesso: product-variables.update
+    */
+    Route::put('variables/colors/{color}', [FabricColorAdminController::class, 'updateColor'])
+        ->name('variables.colors.update')
+        ->middleware('permission:product-variables.update');
 });
