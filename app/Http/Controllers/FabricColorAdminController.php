@@ -240,22 +240,84 @@ class FabricColorAdminController extends Controller
     }
 
     /**
-     * GET /variables/{component}
-     * Dettaglio minimale di un componente TESSU (READ ONLY)
+     * Mostra il dettaglio di un componente TESSU.
+     *
+     * - Validazione che il componente appartenga alla categoria TESSU
+     * - Calcolo coerenza descrizione ↔ mapping tessuto/colore
+     * - Individuazione di eventuali duplicati (stessa coppia fabric_id×color_id)
+     * - Impieghi in prodotti (distinta base)
      */
     public function show(Component $component): View
     {
-        // Carattere difensivo: ci assicuriamo che sia TESSU
-        $tessuCategoryId = ComponentCategory::query()
-            ->where('code', 'TESSU')
-            ->value('id');
-
+        // 1) Verifica categoria TESSU
+        $tessuCategoryId = ComponentCategory::query()->where('code', 'TESSU')->value('id');
         abort_unless($tessuCategoryId && (int)$component->category_id === (int)$tessuCategoryId, 404);
 
-        $fabric = $component->fabric_id ? Fabric::find($component->fabric_id) : null;
-        $color  = $component->color_id  ? Color::find($component->color_id)   : null;
+        // 2) Cataloghi completi (servono anche alla modale “Abbina”)
+        $fabrics = Fabric::orderBy('name')->get();
+        $colors  = Color::orderBy('name')->get();
 
-        return view('pages.variables.show', compact('component', 'fabric', 'color'));
+        // 3) Aliases & coerenza
+        [$fabricAliases, $colorAliases, $ambiguousColorTerms] = $this->buildAliases($fabrics, $colors);
+        $coherence = $this->computeCoherenceForComponent($component, $fabricAliases, $colorAliases, $ambiguousColorTerms);
+
+        // 4) Duplicati: altri TESSU con stessa coppia (escludendo questo)
+        $duplicates = Component::query()
+            ->where('category_id', $tessuCategoryId)
+            ->whereNotNull('fabric_id')->whereNotNull('color_id')
+            ->where('fabric_id', $component->fabric_id)
+            ->where('color_id',  $component->color_id)
+            ->where('id', '!=',   $component->id)
+            ->orderBy('code')
+            ->get(['id','code','description','is_active']);
+
+        // 5) Matrice attuale (per aprire la modale “Crea componenti mancanti” o “Abbina” con contesto)
+        $allTessu = Component::query()
+            ->where('category_id', $tessuCategoryId)
+            ->whereNotNull('fabric_id')->whereNotNull('color_id')
+            ->get(['id','code','fabric_id','color_id','is_active']);
+
+        $matrix = [];
+        foreach ($allTessu as $c) {
+            $matrix[$c->fabric_id][$c->color_id] = [
+                'id' => $c->id,
+                'code' => $c->code,
+                'is_active' => (bool)$c->is_active,
+            ];
+        }
+
+        // 6) Impieghi nei prodotti (distinta base)
+        // Nota: usiamo query DB per non dipendere dai nomi delle relazioni del tuo Model.
+        $usages = DB::table('product_components as pc')
+            ->join('products as p', 'p.id', '=', 'pc.product_id')
+            ->where('pc.component_id', $component->id)
+            ->select([
+                'p.id as product_id',
+                'p.sku as product_code',
+                DB::raw('COALESCE(p.name, p.description) as product_name'),
+                'pc.quantity as qty',
+            ])
+            ->orderBy('p.sku')
+            ->get();
+
+        // 7) Record di tessuto/colore (per etichette)
+        $fabric = $component->fabric_id ? $fabrics->firstWhere('id', $component->fabric_id) : null;
+        $color  = $component->color_id  ? $colors->firstWhere('id',   $component->color_id)  : null;
+
+        return view('pages.variables.show', [
+            'component'            => $component,
+            'fabric'               => $fabric,
+            'color'                => $color,
+            'coherence'            => $coherence,
+            'duplicates'           => $duplicates,
+            'usages'               => $usages,
+            'fabrics'              => $fabrics,
+            'colors'               => $colors,
+            'matrix'               => $matrix,
+            'fabricAliases'        => $fabricAliases,
+            'colorAliases'         => $colorAliases,
+            'ambiguousColorTerms'  => $ambiguousColorTerms,
+        ]);
     }
 
     /**

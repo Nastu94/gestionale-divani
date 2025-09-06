@@ -121,7 +121,14 @@ Pagina: "Variabili (Fabrics & Colors) → Mapping TESSU"
                                     $cohLabel = strtoupper($coh['status']); // OK | INFO | WARNING
                                 @endphp
                                 <tr class="border-t @if(!$mapped) bg-yellow-50 @elseif($dup) bg-red-50 @endif">
-                                    <td class="px-1 py-2 font-mono text-xs">{{ $cmp->code }}</td>
+                                    <td class="px-1 py-2 font-mono text-xs">
+                                        {{-- Link al dettaglio del componente TESSU --}}
+                                        <a href="{{ route('variables.show', $cmp->id) }}"
+                                        class="underline decoration-dotted hover:decoration-solid hover:text-indigo-700"
+                                        title="Apri dettaglio componente">
+                                            {{ $cmp->code }}
+                                        </a>
+                                    </td>
                                     <td class="px-1 py-2 text-xs">{{ $cmp->description }}</td>
                                     <td class="px-1 py-2 text-xs">
                                         @if($cmp->fabric_id)

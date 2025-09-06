@@ -1467,6 +1467,7 @@ Route::middleware([
             'index' => 'variables.index',
             'show'  => 'variables.show',
         ])
+        ->parameters(['variables' => 'component'])
         ->middleware('permission:product-variables.view');
 
     /*
