@@ -23,6 +23,10 @@ class CustomerController extends Controller
         $filter  = $request->input('filter.company');       // stringa o null
 
         $customers = Customer::query()
+            ->with(['addresses' => function ($q) {
+                // ordinamento solo per estetica nel modal
+                $q->orderByRaw("FIELD(type,'billing','shipping','other')")->orderBy('id');
+            }])
             // Join solo sugli indirizzi di tipo 'shipping'
             ->join('customer_addresses', function($join) {
                 $join->on('customers.id', '=', 'customer_addresses.customer_id')
@@ -31,6 +35,7 @@ class CustomerController extends Controller
             // Seleziono TUTTI i campi di customers + i singoli campi di spedizione
             ->select([
                 'customers.*',
+                'customer_addresses.id          AS shipping_address_id',
                 'customer_addresses.address    AS shipping_address',
                 'customer_addresses.city       AS shipping_city',
                 'customer_addresses.postal_code AS shipping_postal_code',

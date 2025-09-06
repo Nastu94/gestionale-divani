@@ -118,14 +118,17 @@
                                     $sc = $customer->shipping_city;
                                     $sp = $customer->shipping_postal_code;
                                     $sn = $customer->shipping_country;
+
+                                    // CHIAVE UNICA DI RIGA: prefisso 'row-' per evitare ambiguità con numeri
+                                    $rowKey = 'row-' . $customer->shipping_address_id;
                                 @endphp
 
                                 {{-- Riga principale --}}
                                 <tr
                                     @if($canCrud)
-                                        @click="openId = (openId === {{ $customer->id }} ? null : {{ $customer->id }})"
+                                        @click="openId = (openId === '{{ $rowKey }}' ? null : '{{ $rowKey }}')"
                                         class="cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700"
-                                        :class="openId === {{ $customer->id }} ? 'bg-gray-200 dark:bg-gray-700' : ''"
+                                        :class="openId === '{{ $rowKey }}' ? 'bg-gray-200 dark:bg-gray-700' : ''"
                                     @endif
                                 >
                                     <td class="px-6 py-2 whitespace-nowrap">{{ $loop->iteration + ($customers->currentPage()-1)*$customers->perPage() }}</td>
@@ -172,39 +175,38 @@
 
                                 {{-- Riga espansa con Modifica / Elimina / Estendi --}}
                                 @if($canCrud)
-                                <tr x-show="openId === {{ $customer->id }}" x-cloak>
-                                    <td
-                                        :colspan="extended ? 10 : 7"
-                                        class="px-6 py-3 bg-gray-200 dark:bg-gray-700"
-                                    >
-                                        <div class="flex items-center space-x-4 text-xs">
-                                            @if($canEdit)
-                                                <button
-                                                    type="button"
-                                                    @click='openEdit(@json($customer))'
-                                                    class="inline-flex items-center hover:text-yellow-600"
-                                                >
-                                                    <i class="fas fa-pencil-alt mr-1"></i> Modifica
-                                                </button>
-                                            @endif
-
-                                            @if($canDelete)
-                                                <form
-                                                    action="{{ route('customers.destroy', $customer) }}"
-                                                    method="POST"
-                                                    onsubmit="return confirm('Sei sicuro di voler eliminare questo cliente?');"
-                                                >
-                                                    @csrf
-                                                    @method('DELETE')
-                                                    <button type="submit" class="inline-flex items-center hover:text-red-600">
-                                                        <i class="fas fa-trash-alt mr-1"></i> Elimina
+                                    <tr x-show="openId === '{{ $rowKey }}'" x-cloak>
+                                        <td
+                                            :colspan="extended ? 10 : 7"
+                                            class="px-6 py-3 bg-gray-200 dark:bg-gray-700"
+                                        >
+                                            <div class="flex items-center space-x-4 text-xs">
+                                                @if($canEdit)
+                                                    <button
+                                                        type="button"
+                                                        @click='openEdit(@json($customer))'
+                                                        class="inline-flex items-center hover:text-yellow-600"
+                                                    >
+                                                        <i class="fas fa-pencil-alt mr-1"></i> Modifica
                                                     </button>
-                                                </form>
-                                            @endif
+                                                @endif
 
-                                        </div>
-                                    </td>
-                                </tr>
+                                                @if($canDelete)
+                                                    <form
+                                                        action="{{ route('customers.destroy', $customer) }}"
+                                                        method="POST"
+                                                        onsubmit="return confirm('Sei sicuro di voler eliminare questo cliente?');"
+                                                    >
+                                                        @csrf
+                                                        @method('DELETE')
+                                                        <button type="submit" class="inline-flex items-center hover:text-red-600">
+                                                            <i class="fas fa-trash-alt mr-1"></i> Elimina
+                                                        </button>
+                                                    </form>
+                                                @endif
+                                            </div>
+                                        </td>
+                                    </tr>
                                 @endif
                             @endforeach
                             @if($customers->isEmpty())

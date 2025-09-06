@@ -78,15 +78,6 @@
                             </template>
                         </div>
 
-                        {{-- Link “cliente occasionale”: disattivo di default (assegnare prezzi ad un guest non ha senso) --}}
-                        <div class="mt-1" x-show="showGuestButton && !selectedCustomer" x-cloak>
-                            <button type="button"
-                                    class="text-xs text-emerald-700 hover:underline"
-                                    @click.stop="window.dispatchEvent(new CustomEvent('open-occasional-customer-modal'))">
-                                + Nuovo cliente occasionale
-                            </button>
-                        </div>
-
                         {{-- Riepilogo cliente selezionato (uguale all’altro modale) --}}
                         <template x-if="selectedCustomer">
                             <div class="mt-2 p-2 border rounded bg-gray-50 dark:bg-gray-700">

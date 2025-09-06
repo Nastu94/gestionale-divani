@@ -22,7 +22,7 @@
 
             <div class="p-4 space-y-4">
                 <div>
-                    <label class="block text-xs text-gray-600 mb-1">Nome *</label>
+                    <label class="block text-xs text-gray-600 mb-1">Nome</label>
                     <input type="text" class="border rounded w-full px-2 py-1" x-model.trim="form.name" placeholder="Es. Lino">
                 </div>
 
@@ -49,7 +49,6 @@
                                    x-model.number="form.surcharge_value" :disabled="!form.surcharge_type">
                         </div>
                     </div>
-                    <p class="text-xs text-gray-500 mt-1">Facoltativo. Ignorato se le colonne non esistono in DB.</p>
                 </div>
 
                 <template x-if="serverError">
@@ -60,8 +59,7 @@
                 </template>
             </div>
 
-            <div class="px-4 py-3 border-t flex items-center justify-between">
-                <div class="text-xs text-gray-500">I campi * sono obbligatori.</div>
+            <div class="px-4 py-3 border-t flex items-center justify-end">
                 <div class="flex items-center gap-2">
                     <button type="button" class="px-3 py-1 rounded bg-gray-100" @click="close()">Chiudi</button>
                     <button type="button"
