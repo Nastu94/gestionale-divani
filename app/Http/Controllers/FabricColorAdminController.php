@@ -249,19 +249,22 @@ class FabricColorAdminController extends Controller
      */
     public function show(Component $component): View
     {
-        // 1) Verifica categoria TESSU
-        $tessuCategoryId = ComponentCategory::query()->where('code', 'TESSU')->value('id');
+        // 1) Verifica che sia TESSU
+        $tessuCategoryId = ComponentCategory::query()
+            ->where('code', 'TESSU')
+            ->value('id');
+
         abort_unless($tessuCategoryId && (int)$component->category_id === (int)$tessuCategoryId, 404);
 
-        // 2) Cataloghi completi (servono anche alla modale “Abbina”)
+        // 2) Cataloghi (per modale Abbina)
         $fabrics = Fabric::orderBy('name')->get();
         $colors  = Color::orderBy('name')->get();
 
-        // 3) Aliases & coerenza
+        // 3) Alias & coerenza (riutilizza i tuoi helper già definiti nel controller)
         [$fabricAliases, $colorAliases, $ambiguousColorTerms] = $this->buildAliases($fabrics, $colors);
         $coherence = $this->computeCoherenceForComponent($component, $fabricAliases, $colorAliases, $ambiguousColorTerms);
 
-        // 4) Duplicati: altri TESSU con stessa coppia (escludendo questo)
+        // 4) Duplicati: altri TESSU con stessa coppia fabric×color
         $duplicates = Component::query()
             ->where('category_id', $tessuCategoryId)
             ->whereNotNull('fabric_id')->whereNotNull('color_id')
@@ -271,7 +274,7 @@ class FabricColorAdminController extends Controller
             ->orderBy('code')
             ->get(['id','code','description','is_active']);
 
-        // 5) Matrice attuale (per aprire la modale “Crea componenti mancanti” o “Abbina” con contesto)
+        // 5) Matrice TESSU esistenti (per tooltips/modali)
         $allTessu = Component::query()
             ->where('category_id', $tessuCategoryId)
             ->whereNotNull('fabric_id')->whereNotNull('color_id')
@@ -280,19 +283,46 @@ class FabricColorAdminController extends Controller
         $matrix = [];
         foreach ($allTessu as $c) {
             $matrix[$c->fabric_id][$c->color_id] = [
-                'id' => $c->id,
-                'code' => $c->code,
-                'is_active' => (bool)$c->is_active,
+                'id'        => $c->id,
+                'code'      => $c->code,
+                'is_active' => (bool) $c->is_active,
             ];
         }
 
-        // 6) Impieghi nei prodotti (distinta base)
-        // Nota: usiamo query DB per non dipendere dai nomi delle relazioni del tuo Model.
-        $usages = DB::table('product_components as pc')
+        // 6) Impieghi NEGLI ORDINI (nuova sezione)
+        //    Mostra tutte le righe ordine che hanno usato proprio questo SKU TESSU (resolved_component_id)
+        //    NB: usiamo o.created_at come data ordine di default (portabile).
+        $orderUsages = DB::table('order_product_variables as opv')
+            ->join('order_items as oi',    'oi.id', '=', 'opv.order_item_id')
+            ->join('orders as o',          'o.id',  '=', 'oi.order_id')
+            ->leftJoin('products as p',    'p.id',  '=', 'oi.product_id')
+            ->leftJoin('customers as c',   'c.id',  '=', 'o.customer_id')
+            ->leftJoin('occasional_customers as oc', 'oc.id', '=', 'o.occasional_customer_id')
+            ->where('opv.slot', 'TESSU')
+            ->where('opv.resolved_component_id', $component->id)
+            ->orderByDesc('o.created_at') // più recenti in alto
+            ->select([
+                'o.id            as order_id',
+                'o.created_at    as ordered_at',        // data ordine (fallback portabile)
+                'oi.id           as order_item_id',
+                'oi.quantity     as qty',
+                'oi.unit_price   as unit_price',        // prezzo unitario riga (finale)
+                'p.sku           as product_code',
+                DB::raw("COALESCE(p.name, p.description) as product_name"),
+                'c.company       as customer_name',
+                'oc.company      as occasional_name',
+                'opv.surcharge_total_applied  as surcharge_total',
+                'opv.surcharge_fixed_applied  as surcharge_fixed',
+                'opv.surcharge_percent_applied as surcharge_percent',
+            ])
+            ->get();
+
+        // 7) (Lasciamo anche l'impiego NEI PRODOTTI già implementato, ma ora sarà secondario)
+        $productUsages = DB::table('product_components as pc')
             ->join('products as p', 'p.id', '=', 'pc.product_id')
             ->where('pc.component_id', $component->id)
             ->select([
-                'p.id as product_id',
+                'p.id  as product_id',
                 'p.sku as product_code',
                 DB::raw('COALESCE(p.name, p.description) as product_name'),
                 'pc.quantity as qty',
@@ -300,7 +330,7 @@ class FabricColorAdminController extends Controller
             ->orderBy('p.sku')
             ->get();
 
-        // 7) Record di tessuto/colore (per etichette)
+        // 8) Etichette tessuto/colore per il riquadro mapping
         $fabric = $component->fabric_id ? $fabrics->firstWhere('id', $component->fabric_id) : null;
         $color  = $component->color_id  ? $colors->firstWhere('id',   $component->color_id)  : null;
 
@@ -310,7 +340,8 @@ class FabricColorAdminController extends Controller
             'color'                => $color,
             'coherence'            => $coherence,
             'duplicates'           => $duplicates,
-            'usages'               => $usages,
+            'orderUsages'          => $orderUsages,     // 👈 nuova variabile per la view
+            'productUsages'        => $productUsages,   // 👈 manteniamo anche la vecchia (collassata)
             'fabrics'              => $fabrics,
             'colors'               => $colors,
             'matrix'               => $matrix,

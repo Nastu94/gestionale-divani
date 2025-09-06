@@ -1,6 +1,6 @@
 {{-- resources/views/pages/variables/show.blade.php --}}
 {{-- Vista "Dettaglio componente TESSU" --}}
-{{-- Nota importante: dentro <x-app-layout> Blade usa la variabile $component per il layout.
+{{-- Nota: dentro <x-app-layout> Blade usa la variabile $component per il layout.
      Per evitare conflitti, aliasiamo il nostro model Component in $tessu. --}}
 @php
     /** @var \App\Models\Component $component */
@@ -8,7 +8,8 @@
     /** @var \App\Models\Color|null $color */
     /** @var array $coherence */
     /** @var \Illuminate\Support\Collection $duplicates */
-    /** @var \Illuminate\Support\Collection $usages */
+    /** @var \Illuminate\Support\Collection $orderUsages */
+    /** @var \Illuminate\Support\Collection $productUsages */
     /** @var \Illuminate\Support\Collection $fabrics */
     /** @var \Illuminate\Support\Collection $colors */
     /** @var array $matrix */
@@ -18,12 +19,17 @@
 
     // 🔐 Evita conflitto con $component del layout Blade
     $tessu = $component;
+
+    // Helper locali per formattazioni
+    $fmtMoney = fn($v) => number_format((float)$v, 2, ',', '.');
+    $fmtQty   = fn($v) => rtrim(rtrim(number_format((float)($v ?? 0), 3, ',', '.'), '0'), ','); // 3 decimali, trim
 @endphp
 
 <x-app-layout>
     <x-slot name="header">
         <div class="flex items-center justify-between gap-2">
             <div>
+                {{-- h2: include codice componente --}}
                 <h2 class="font-semibold text-lg text-gray-800 dark:text-gray-200">
                     Variabili — Dettaglio componente {{ $tessu->code }}
                 </h2>
@@ -53,8 +59,9 @@
     </x-slot>
 
     <div class="py-4 grid grid-cols-12 gap-4">
-        {{-- Colonna sinistra: riepilogo --}}
+        {{-- Colonna sinistra: riepilogo + mapping + duplicati --}}
         <div class="col-span-12 lg:col-span-6 space-y-4">
+            {{-- Riepilogo --}}
             <div class="bg-white shadow rounded p-4">
                 <div class="font-semibold mb-2">Riepilogo componente</div>
                 <dl class="text-sm grid grid-cols-12 gap-y-2">
@@ -65,7 +72,7 @@
                     <dd class="col-span-8">{{ $tessu->description }}</dd>
 
                     <dt class="col-span-4 text-gray-500">Unità di misura</dt>
-                    <dd class="col-span-8">{{ $tessu->unit_of_measure ?? '—' }}</dd>
+                    <dd class="col-span-8">{{ strtoupper($tessu->unit_of_measure) ?? '—' }}</dd>
 
                     <dt class="col-span-4 text-gray-500">Attivo</dt>
                     <dd class="col-span-8">
@@ -78,6 +85,7 @@
                 </dl>
             </div>
 
+            {{-- Mapping tessuto×colore + coerenza --}}
             <div class="bg-white shadow rounded p-4">
                 <div class="font-semibold mb-2">Mapping Tessuto × Colore</div>
                 <div class="text-sm">
@@ -123,8 +131,10 @@
             </div>
         </div>
 
-        {{-- Colonna destra: duplicati e impieghi --}}
+        {{-- Colonna destra: impieghi negli ordini + (prodotti collassati) --}}
         <div class="col-span-12 lg:col-span-6 space-y-4">
+
+            {{-- Duplicati stessa coppia --}}
             <div class="bg-white shadow rounded p-4">
                 <div class="font-semibold mb-2">Duplicati (stessa coppia tessuto×colore)</div>
                 @if($tessu->fabric_id && $tessu->color_id)
@@ -166,46 +176,51 @@
                     <div class="text-sm text-gray-600">Mapping incompleto: impossibile calcolare duplicati.</div>
                 @endif
             </div>
-
+            
+            {{-- Impiego negli ordini --}}
             <div class="bg-white shadow rounded p-4">
-                <div class="font-semibold mb-2">Impiego nei prodotti</div>
-                @if($usages->isEmpty())
-                    <div class="text-sm text-gray-600">Questo componente non risulta impiegato nelle distinte base.</div>
+                <div class="font-semibold mb-2">Impiego negli ordini</div>
+                @if($orderUsages->isEmpty())
+                    <div class="text-sm text-gray-600">Nessun ordine utilizza questo componente come variante selezionata.</div>
                 @else
                     <div class="overflow-auto">
                         <table class="min-w-full text-sm">
                             <thead>
                                 <tr class="bg-gray-50 text-left">
-                                    <th class="px-2 py-1">Codice prodotto</th>
-                                    <th class="px-2 py-1">Nome/Descrizione</th>
-                                    <th class="px-2 py-1 text-right">Q.tà</th>
+                                    <th class="px-2 py-1 whitespace-nowrap">N. ordine</th>
+                                    <th class="px-2 py-1 whitespace-nowrap">Data</th>
+                                    <th class="px-2 py-1">Cliente</th>
+                                    <th class="px-2 py-1">Prodotto</th>
+                                    <th class="px-2 py-1 text-right whitespace-nowrap">Q.tà riga</th>
+                                    <th class="px-2 py-1 text-right whitespace-nowrap">Sovrapprezzo</th>
+                                    <th class="px-2 py-1 text-right whitespace-nowrap">Prezzo unit.</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                @foreach($usages as $u)
+                                @foreach($orderUsages as $u)
+                                    @php
+                                        $cust = $u->customer_name ?: $u->occasional_name ?: '—';
+                                        $prod = trim(($u->product_code ? ($u->product_code.' — ') : '').($u->product_name ?? ''));
+                                    @endphp
                                     <tr class="border-t">
-                                        <td class="px-2 py-1 font-mono">{{ $u->product_code }}</td>
-                                        <td class="px-2 py-1">{{ $u->product_name }}</td>
-                                        <td class="px-2 py-1 text-right">
-                                            {{ rtrim(rtrim(number_format((float)($u->qty ?? 1), 2, ',', '.'), '0'), ',') }}
-                                        </td>
+                                        <td class="px-2 py-1 font-mono">#{{ $u->order_id }}</td>
+                                        <td class="px-2 py-1">{{ optional($u->ordered_at)->format('d/m/Y H:i') }}</td>
+                                        <td class="px-2 py-1">{{ $cust }}</td>
+                                        <td class="px-2 py-1">{{ $prod !== '' ? $prod : '—' }}</td>
+                                        <td class="px-2 py-1 text-right">{{ $fmtQty($u->qty ?? 1) }}</td>
+                                        <td class="px-2 py-1 text-right">€ {{ $fmtMoney($u->surcharge_total ?? 0) }}</td>
+                                        <td class="px-2 py-1 text-right">€ {{ $fmtMoney($u->unit_price ?? 0) }}</td>
                                     </tr>
                                 @endforeach
                             </tbody>
                         </table>
                     </div>
-                    @if(!$tessu->is_active)
-                        <div class="mt-2 text-xs text-orange-800 bg-orange-50 border border-orange-200 rounded px-2 py-1">
-                            <i class="fa-solid fa-triangle-exclamation mr-1"></i>
-                            Questo componente è <strong>disattivo</strong> ma compare in una o più distinte base.
-                        </div>
-                    @endif
                 @endif
             </div>
         </div>
     </div>
 
-    {{-- Includo la modale "Abbina tessuto×colore" per operare direttamente dallo show --}}
+    {{-- Modale "Abbina tessuto×colore" --}}
     <x-product-variable-matching-modal
         :fabrics="$fabrics" :colors="$colors" :matrix="$matrix"
         :fabric-aliases="$fabricAliases"
