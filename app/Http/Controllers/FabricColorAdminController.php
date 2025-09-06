@@ -527,6 +527,7 @@ class FabricColorAdminController extends Controller
                 $cmp->description      = $desc;
                 $cmp->unit_of_measure  = 'm';       // i tessuti sono in metri
                 $cmp->is_active        = true;
+                $cmp->material         = $fabricNames[$fid]; // opzionale, ma coerente
                 $cmp->fabric_id        = $fid;      // mapping subito impostato
                 $cmp->color_id         = $cid;
 

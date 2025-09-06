@@ -622,6 +622,71 @@ Route::middleware([
         ->middleware('permission:products.delete');
 
     /*
+    |--------------------------------------------------------------------------
+    | Gestione Prodotti – variabili (lettura)
+    |--------------------------------------------------------------------------
+    |
+    | Restituisce in JSON le whitelist di tessuti e colori associate al prodotto.
+    | Protetta dal permesso products.update.
+    |
+    */
+    Route::get('products/{product}/variables', [ProductController::class, 'getVariables'])
+        ->name('products.variables.show')
+        ->middleware('permission:products.update|product-variables.view');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Gestione Prodotti – variabili (salvataggio)
+    |--------------------------------------------------------------------------
+    |
+    | Sincronizza le whitelist di tessuti e colori per il prodotto.
+    | Protetta dal permesso products.update.
+    |
+    */
+    Route::post('products/{product}/variables', [ProductController::class, 'updateVariables'])
+        ->name('products.variables.update')
+        ->middleware('permission:products.update|product-variables.update');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Gestione Prodotti – override (lettura)
+    |--------------------------------------------------------------------------
+    |
+    | Restituisce in JSON tutti gli override configurati per il prodotto:
+    | per tessuto, per colore e per coppia tessuto×colore.
+    | Protetta dal permesso products.update.
+    |
+    */
+    Route::get('products/{product}/variable-overrides', [ProductController::class, 'getVariableOverrides'])
+        ->name('products.variable_overrides.show')
+        ->middleware('permission:products.update|product-variables.update');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Gestione Prodotti – override (salvataggio)
+    |--------------------------------------------------------------------------
+    |
+    | Salva/aggiorna gli override (solo maggiorazioni: Δ ≥ 0).
+    | Protetta dal permesso products.update.
+    |
+    */
+    Route::post('products/{product}/variable-overrides', [ProductController::class, 'updateVariableOverrides'])
+        ->name('products.variable_overrides.update')
+        ->middleware('permission:products.update|product-variables.update');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Gestione Prodotti – variabili (opzioni)
+    |--------------------------------------------------------------------------
+    |
+    | Restituisce l’elenco di tutti i tessuti/colori attivi come sorgente per la UI.
+    | Protetta dal permesso products.update.
+    |
+    */
+    Route::get('products/variables/options', [ProductController::class, 'getVariableOptions'])
+        ->name('products.variables.options')
+        ->middleware('permission:products.update|product-variables.update');
+    /*
 |--------------------------------------------------------------------------
     | Ordini Cliente
 |--------------------------------------------------------------------------
@@ -1389,7 +1454,7 @@ Route::middleware([
 
     /*
 |--------------------------------------------------------------------------
-| Prezzi Cliente–Prodotto
+    | Prezzi Cliente–Prodotto
 |--------------------------------------------------------------------------
     |--------------------------------------------------------------------------
     | Gestione Prezzi Prodotto – solo index (visualizzazione elenco)
@@ -1453,7 +1518,7 @@ Route::middleware([
 
     /*
 |--------------------------------------------------------------------------
-| Variabili tessutoXcolore
+    | Variabili tessutoXcolore
 |--------------------------------------------------------------------------
     |-------------------------------------------------------------------------- 
     | Gestione Variabili – solo index/show (visualizzazione elenco) 

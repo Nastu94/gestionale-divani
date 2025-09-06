@@ -207,6 +207,13 @@
                                 </tr>
                                 @endif
                             @endforeach
+                            @if($customers->isEmpty())
+                                <tr>
+                                    <td :colspan="extended ? 10 : 7" x-cloak class="px-6 py-4 text-center text-gray-500">
+                                        Nessun cliente trovato.
+                                    </td>
+                                </tr>
+                            @endif
                         </tbody>
                     </table>
                 </div>

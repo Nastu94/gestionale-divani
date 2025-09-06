@@ -99,7 +99,26 @@
                 <p x-text="errors.price?.[0]" class="text-red-600 text-xs mt-1"></p>
             </div>
 
-            <hr class="my-4 border-gray-300 dark:border-gray-600" />
+            <!-- Metri tessuto necessari (per 1 unità prodotto) -->
+            <div class="col-span-12">
+                <label for="fabric_required_meters"
+                        class="block text-xs font-medium text-gray-700 dark:text-gray-300">
+                    Tessuto necessario (m)
+                </label>
+                <input
+                    id="fabric_required_meters"
+                    name="fabric_required_meters"
+                    x-model="form.fabric_required_meters"
+                    type="number" step="0.01" min="0" max="999.999"
+                    class="mt-1 block w-full px-3 py-2 border rounded-md
+                            bg-white dark:bg-gray-600 text-sm text-gray-900 dark:text-gray-100"
+                    required
+                >
+                <p class="text-xs text-gray-500 mt-1">
+                    Metri di tessuto richiesti per una singola unità del prodotto.
+                </p>
+                <p x-text="errors.fabric_required_meters?.[0]" class="text-red-600 text-xs mt-1"></p>
+            </div>
 
             {{-- Stato Prodotto --}}
             <div class="flex items-center space-x-2">
@@ -113,6 +132,8 @@
                 <label for="is_active" class="text-xs font-medium text-gray-700 dark:text-gray-300">Attivo</label>
                 <p class="text-xs text-gray-500 dark:text-gray-400">Il prodotto sarà visibile nel catalogo</p>
             </div>
+
+            <hr class="my-4 border-gray-300 dark:border-gray-600" />
 
             {{-- Sezione Dinamica: Componenti Prodotto --}}
             <div>

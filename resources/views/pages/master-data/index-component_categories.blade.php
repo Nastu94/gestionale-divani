@@ -174,6 +174,13 @@
                                 </tr>
                                 @endif
                             @endforeach
+                            @if($categories->isEmpty())
+                                <tr>
+                                    <td colspan="5" x-cloak class="px-6 py-4 text-center text-gray-500">
+                                        Nessuna categoria trovata.
+                                    </td>
+                                </tr>
+                            @endif
                         </tbody>
                     </table>
                 </div>

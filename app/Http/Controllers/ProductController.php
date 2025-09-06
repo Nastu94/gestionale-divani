@@ -4,13 +4,17 @@ namespace App\Http\Controllers;
 
 use App\Models\Product;
 use App\Models\Component;
+use App\Models\Fabric;
+use App\Models\Color;
+use App\Models\ProductFabricColorOverride;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Validation\Rule;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
 class ProductController extends Controller
 {
@@ -139,6 +143,9 @@ class ProductController extends Controller
             'components.*.quantity.required' => 'Inserisci la quantità.',
             'components.*.quantity.integer'  => 'La quantità deve essere un numero intero.',
             'components.*.quantity.min'      => 'La quantità deve essere almeno 1.',
+            'fabric_required_meters.required' => 'Indica i metri di tessuto necessari.',
+            'fabric_required_meters.numeric'  => 'I metri di tessuto devono essere numerici.',
+            'fabric_required_meters.min'      => 'I metri di tessuto non possono essere negativi.',
         ];
 
         // Regole di validazione
@@ -147,6 +154,7 @@ class ProductController extends Controller
             'name'        => ['required','string','max:255'],
             'description' => ['nullable','string'],
             'price'       => ['required','numeric','min:0'],
+            'fabric_required_meters'  => ['required', 'numeric', 'min:0', 'max:999.999'],
             'components'              => ['nullable','array'],
             'components.*.id'         => ['required_with:components','exists:components,id'],
             'components.*.quantity'   => ['required_with:components','integer','min:1'],
@@ -181,6 +189,14 @@ class ProductController extends Controller
                 }
                 $product->components()->sync($sync);
             }
+
+            /* 
+            * Inserimento/aggiornamento riga BOM "placeholder TESSU"
+            * - Seleziona il "primo" componente base (0×0) attivo.
+            * - Salva in pivot ->quantity i metri unitari (fabric_required_meters).
+            * - Imposta eventuali flag in pivot se le colonne esistono (is_variable, variable_slot).
+            */
+            $product->ensureTessuPlaceholderWithMeters((float) $data['fabric_required_meters']);
 
             DB::commit();
 
@@ -238,6 +254,7 @@ class ProductController extends Controller
             'name'        => ['required','string','max:255'],
             'description' => ['nullable','string'],
             'price'       => ['required','numeric','min:0'],
+            'fabric_required_meters'  => ['required', 'numeric', 'min:0', 'max:999.999'],
             'components'              => ['nullable','array'],
             'components.*.id'         => ['required_with:components','exists:components,id'],
             'components.*.quantity'   => ['required_with:components','integer','min:1'],
@@ -273,6 +290,12 @@ class ProductController extends Controller
             }
             $product->components()->sync($sync);
 
+            /**
+             * Inserimento/aggiornamento riga BOM "placeholder TESSU"
+             * Come in store: quantity = fabric_required_meters, flag pivot opzionali se presenti.
+             */
+            $product->ensureTessuPlaceholderWithMeters((float) $data['fabric_required_meters']);
+
             DB::commit();
 
             return redirect()
@@ -290,6 +313,327 @@ class ProductController extends Controller
                 ->withInput()
                 ->with('error', 'Errore durante l\'aggiornamento del prodotto. Controlla i log.');
         }
+    }
+
+    /**
+     * Restituisce le variabili (whitelist) attualmente associate al prodotto.
+     *
+     * @note Questo endpoint serve alla UI per popolare la modale "Variabili".
+     *       Ritorniamo sia gli ID (comodi per i checkbox), sia una lista "ricca" con nome.
+     */
+    public function getVariables(Product $product): JsonResponse
+    {
+        // Carichiamo relazioni minime necessarie, senza N+1
+        $product->loadMissing([
+            'fabrics:id,name', // presuppone colonna 'name' su fabrics
+            'colors:id,name',  // presuppone colonna 'name' su colors
+        ]);
+
+        // Struttura di risposta: ids + elenco con etichette (comodo per la UI)
+        $payload = [
+            'product_id'   => $product->id,
+            'fabric_ids'   => $product->fabrics->pluck('id')->values(),
+            'color_ids'    => $product->colors->pluck('id')->values(),
+            'fabrics'      => $product->fabrics->map(fn($f) => [
+                'id'   => $f->id,
+                'name' => $f->name,
+            ])->values(),
+            'colors'       => $product->colors->map(fn($c) => [
+                'id'   => $c->id,
+                'name' => $c->name,
+            ])->values(),
+        ];
+
+        return response()->json($payload, 200);
+    }
+    
+    /**
+     * Restituisce in JSON tutti gli override di maggiorazione per il prodotto.
+     * Struttura:
+     *  - fabrics:  [{fabric_id, surcharge_type, surcharge_value}]
+     *  - colors:   [{color_id,  surcharge_type, surcharge_value}]
+     *  - pairs:    [{fabric_id, color_id, surcharge_type, surcharge_value}]
+     *
+     * @note Δ negativo non previsto: lato UI mostriamo solo valori ≥ 0.
+     */
+    public function getVariableOverrides(Product $product): JsonResponse
+    {
+        // Carichiamo tutti gli override del prodotto
+        $rows = ProductFabricColorOverride::query()
+            ->where('product_id', $product->id)
+            ->get(['id','scope','fabric_id','color_id','surcharge_type','surcharge_value']);
+
+        $fabrics = [];
+        $colors  = [];
+        $pairs   = [];
+
+        foreach ($rows as $r) {
+            $data = [
+                'id'              => $r->id,
+                'surcharge_type'  => $r->surcharge_type,   // 'percent' | 'per_meter'
+                'surcharge_value' => (float) $r->surcharge_value, // ≥ 0
+            ];
+            if ($r->scope === 'fabric') {
+                $data['fabric_id'] = $r->fabric_id;
+                $fabrics[] = $data;
+            } elseif ($r->scope === 'color') {
+                $data['color_id'] = $r->color_id;
+                $colors[] = $data;
+            } elseif ($r->scope === 'pair') {
+                $data['fabric_id'] = $r->fabric_id;
+                $data['color_id']  = $r->color_id;
+                $pairs[] = $data;
+            }
+        }
+
+        return response()->json(compact('fabrics','colors','pairs'), 200);
+    }
+
+    /**
+     * Sincronizza le whitelist di variabili (tessuti/colori) per un prodotto.
+     *
+     * Regole:
+     *  - Accetta array di id (facoltativi) per fabrics[] e colors[].
+     *  - Valida l’esistenza e che siano attivi.
+     *  - Sincronizza le pivot product_fabrics / product_colors.
+     *  - NON tocca listini o override (step successivo).
+     */
+    public function updateVariables(Request $request, Product $product)
+    {
+        // Messaggi di errore comprensibili per l’utente finale
+        $messages = [
+            'fabrics.array'     => 'Formato non valido per i tessuti.',
+            'fabrics.*.integer' => 'ID tessuto non valido.',
+            'fabrics.*.exists'  => 'Alcuni tessuti non esistono o non sono attivi.',
+            'colors.array'      => 'Formato non valido per i colori.',
+            'colors.*.integer'  => 'ID colore non valido.',
+            'colors.*.exists'   => 'Alcuni colori non esistono o non sono attivi.',
+        ];
+
+        // Validazione: esistono e sono attivi
+        $data = $request->validate([
+            'fabrics'   => ['sometimes','array'],
+            'fabrics.*' => [
+                'integer',
+                Rule::exists('fabrics', 'id')->where(fn($q) => $q->where('active', 1)),
+            ],
+            'colors'    => ['sometimes','array'],
+            'colors.*'  => [
+                'integer',
+                Rule::exists('colors', 'id')->where(fn($q) => $q->where('active', 1)),
+            ],
+        ], $messages);
+
+        $fabricIds = array_values(array_unique($data['fabrics'] ?? []));
+        $colorIds  = array_values(array_unique($data['colors']  ?? []));
+
+        try {
+            DB::transaction(function () use ($product, $fabricIds, $colorIds) {
+
+                // -----------------------------------------------------------------
+                // NOTE IMPORTANTI:
+                // - Usciamo "puliti": sync() sostituisce l’elenco con quello passato.
+                // - Non impostiamo campi extra pivot (surcharge_type/value/is_default):
+                //   qui stiamo SOLO abilitando la selezione; gli override arrivano dopo.
+                // - Se le tabelle pivot non avessero timestamp/campi extra, va comunque bene.
+                // -----------------------------------------------------------------
+                $product->fabrics()->sync($fabricIds);
+                $product->colors()->sync($colorIds);
+            });
+
+            return back()->with('success', 'Variabili del prodotto aggiornate correttamente.');
+
+        } catch (\Throwable $e) {
+            Log::error('Errore updateVariables', [
+                'product_id' => $product->id,
+                'exception'  => $e->getMessage(),
+            ]);
+            return back()->with('error', 'Errore durante il salvataggio delle variabili.');
+        }
+    }
+
+    /**
+     * Salva/aggiorna gli override di maggiorazione (Δ ≥ 0) per il prodotto.
+     * Input atteso:
+     *  - fabrics:  array di {fabric_id, surcharge_type, surcharge_value}
+     *  - colors:   array di {color_id,  surcharge_type, surcharge_value}
+     *  - pairs:    array di {fabric_id, color_id, surcharge_type, surcharge_value}
+     *
+     * Validazioni:
+     *  - scope coerenti (fabric/color/pair)
+     *  - surcharge_type ∈ {percent, per_meter}
+     *  - surcharge_value ≥ 0 (niente sconti qui)
+     *  - gli ID devono esistere e, se vuoi, essere “whitelistati” per questo prodotto
+     */
+    public function updateVariableOverrides(Request $request, Product $product)
+    {
+        // Messaggi utente
+        $messages = [
+            'fabrics.array'                       => 'Formato non valido per override tessuti.',
+            'colors.array'                        => 'Formato non valido per override colori.',
+            'pairs.array'                         => 'Formato non valido per override coppie.',
+            '*.surcharge_type.in'                 => 'Tipo maggiorazione non valido.',
+            '*.surcharge_value.numeric'           => 'Il valore della maggiorazione deve essere numerico.',
+            '*.surcharge_value.min'               => 'Le maggiorazioni non possono essere negative.',
+            'fabrics.*.fabric_id.exists'          => 'Alcuni tessuti non esistono o non sono attivi.',
+            'colors.*.color_id.exists'            => 'Alcuni colori non esistono o non sono attivi.',
+            'pairs.*.fabric_id.exists'            => 'La coppia usa un tessuto inesistente o inattivo.',
+            'pairs.*.color_id.exists'             => 'La coppia usa un colore inesistente o inattivo.',
+        ];
+
+        // Validazione base
+        $data = $request->validate([
+            'fabrics'                     => ['sometimes','array'],
+            'fabrics.*.fabric_id'         => [
+                'required','integer',
+                Rule::exists('fabrics','id')->where(fn($q) => $q->where('active',1)),
+            ],
+            'fabrics.*.surcharge_type'    => ['required','in:percent,per_meter'],
+            'fabrics.*.surcharge_value'   => ['required','numeric','min:0'],
+
+            'colors'                      => ['sometimes','array'],
+            'colors.*.color_id'           => [
+                'required','integer',
+                Rule::exists('colors','id')->where(fn($q) => $q->where('active',1)),
+            ],
+            'colors.*.surcharge_type'     => ['required','in:percent,per_meter'],
+            'colors.*.surcharge_value'    => ['required','numeric','min:0'],
+
+            'pairs'                       => ['sometimes','array'],
+            'pairs.*.fabric_id'           => [
+                'required','integer',
+                Rule::exists('fabrics','id')->where(fn($q) => $q->where('active',1)),
+            ],
+            'pairs.*.color_id'            => [
+                'required','integer',
+                Rule::exists('colors','id')->where(fn($q) => $q->where('active',1)),
+            ],
+            'pairs.*.surcharge_type'      => ['required','in:percent,per_meter'],
+            'pairs.*.surcharge_value'     => ['required','numeric','min:0'],
+        ], $messages);
+
+        // (Opzionale consigliato) vincola override alle whitelist del prodotto:
+        // - un override fabric/color è consentito solo se quell’ID è nella whitelist del prodotto
+        // - un override pair è consentito solo se entrambi sono whitelisted
+        // Se non vuoi questo vincolo, commenta il blocco seguente.
+        $whitelistedF = $product->fabrics()->pluck('fabrics.id')->all();
+        $whitelistedC = $product->colors()->pluck('colors.id')->all();
+
+        $reject = static function(array $ids, array $whitelist): array {
+            return array_values(array_diff($ids, $whitelist));
+        };
+
+        $badF = isset($data['fabrics'])
+            ? $reject(array_column($data['fabrics'], 'fabric_id'), $whitelistedF)
+            : [];
+        $badC = isset($data['colors'])
+            ? $reject(array_column($data['colors'], 'color_id'), $whitelistedC)
+            : [];
+        $badPF = isset($data['pairs'])
+            ? $reject(array_column($data['pairs'], 'fabric_id'), $whitelistedF)
+            : [];
+        $badPC = isset($data['pairs'])
+            ? $reject(array_column($data['pairs'], 'color_id'), $whitelistedC)
+            : [];
+
+        if ($badF || $badC || $badPF || $badPC) {
+            return back()->with('error',
+                'Alcuni override non sono consentiti perché non inclusi nella whitelist del prodotto.'
+            );
+        }
+
+        // Salvataggio atomico
+        try {
+            DB::transaction(function () use ($product, $data) {
+                // FABRICS
+                foreach (($data['fabrics'] ?? []) as $row) {
+                    ProductFabricColorOverride::query()->updateOrCreate(
+                        [
+                            'product_id'  => $product->id,
+                            'scope'       => 'fabric',
+                            'fabric_id'   => $row['fabric_id'],
+                            'color_id'    => null,
+                        ],
+                        [
+                            'surcharge_type'  => $row['surcharge_type'],   // 'percent' | 'per_meter'
+                            'surcharge_value' => $row['surcharge_value'],  // >= 0
+                        ]
+                    );
+                }
+
+                // COLORS
+                foreach (($data['colors'] ?? []) as $row) {
+                    ProductFabricColorOverride::query()->updateOrCreate(
+                        [
+                            'product_id'  => $product->id,
+                            'scope'       => 'color',
+                            'fabric_id'   => null,
+                            'color_id'    => $row['color_id'],
+                        ],
+                        [
+                            'surcharge_type'  => $row['surcharge_type'],
+                            'surcharge_value' => $row['surcharge_value'],
+                        ]
+                    );
+                }
+
+                // PAIRS
+                foreach (($data['pairs'] ?? []) as $row) {
+                    ProductFabricColorOverride::query()->updateOrCreate(
+                        [
+                            'product_id'  => $product->id,
+                            'scope'       => 'pair',
+                            'fabric_id'   => $row['fabric_id'],
+                            'color_id'    => $row['color_id'],
+                        ],
+                        [
+                            'surcharge_type'  => $row['surcharge_type'],
+                            'surcharge_value' => $row['surcharge_value'],
+                        ]
+                    );
+                }
+            });
+
+            return back()->with('success', 'Override di maggiorazione salvati correttamente.');
+
+        } catch (\Throwable $e) {
+            Log::error('Errore updateVariableOverrides', [
+                'product_id' => $product->id,
+                'exception'  => $e->getMessage(),
+            ]);
+            return back()->with('error', 'Errore durante il salvataggio degli override.');
+        }
+    }
+
+    /**
+     * Restituisce l’elenco di TUTTI i tessuti/colori attivi (per popolare la UI).
+     * Struttura: { fabrics: [{id,name}], colors: [{id,name}] }.
+     */
+    public function getVariableOptions(): JsonResponse
+    {
+        // Prendiamo i campi più comuni; se 'name' non esiste/è null
+        // facciamo fallback a 'code' e infine ad "Fabric #id" / "Color #id".
+        $fabrics = Fabric::query()
+            ->where('active', 1)
+            ->orderBy('name') // se 'name' non c'è, l'ordinamento cade su default DB ma non è critico
+            ->get()
+            ->map(fn($f) => [
+                'id'   => $f->id,
+                'name' => $f->name ?? $f->code ?? ('Tessuto #'.$f->id),
+            ])
+            ->values();
+
+        $colors = Color::query()
+            ->where('active', 1)
+            ->orderBy('name')
+            ->get()
+            ->map(fn($c) => [
+                'id'   => $c->id,
+                'name' => $c->name ?? $c->code ?? ('Colore #'.$c->id),
+            ])
+            ->values();
+
+        return response()->json(compact('fabrics','colors'), 200);
     }
 
     /**

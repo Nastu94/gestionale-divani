@@ -13,7 +13,7 @@ return new class extends Migration {
         Schema::create('product_components', function (Blueprint $table) {
             $table->foreignId('product_id')->constrained()->cascadeOnDelete();
             $table->foreignId('component_id')->constrained()->cascadeOnDelete();
-            $table->integer('quantity')->comment('Numero di componenti per prodotto');
+            $table->decimal('quantity', 8, 3)->comment('Numero di componenti per prodotto');
             $table->primary(['product_id','component_id']);
         });
     }

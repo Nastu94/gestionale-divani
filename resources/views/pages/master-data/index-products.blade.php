@@ -91,6 +91,9 @@
                     <x-product-view-modal />
                 </template>
 
+                {{-- Modale Variabili Prodotto --}}
+                <x-product-variables-modal />
+
                 {{-- Tabella espandibile --}}
                 <div class="overflow-x-auto p-4">
                     <table class="table-auto min-w-full text-sm divide-y divide-gray-200 dark:divide-gray-700">
@@ -201,7 +204,7 @@
                                             @can('product-prices.view')
                                                 <button type="button"
                                                         @click='openPriceList(@json($product))'
-                                                        class="inline-flex items-center hover:text-indigo-600">
+                                                        class="inline-flex items-center hover:text-pink-600">
                                                     <i class="fas fa-list mr-1"></i> Listino
                                                 </button>
                                             @endcan
@@ -213,6 +216,16 @@
                                                     <i class="fas fa-handshake mr-1"></i> Cliente
                                                 </button>
                                             @endcanany
+                                            
+                                            @can('product-variables.update')
+                                                <button type="button"
+                                                        class="inline-flex items-center hover:text-orange-600"
+                                                        x-data
+                                                        @click="$dispatch('open-product-variables', { productId: {{ $product->id }} })">
+                                                    <!-- icona semplice -->
+                                                    <i class="fa-solid fa-swatchbook mr-1"></i> Variabili
+                                                </button>
+                                            @endcan
 
                                             @if($canDelete)
                                                 @unless($product->trashed())
@@ -251,7 +264,7 @@
                             @endforeach
                             @if($products->isEmpty())
                                 <tr>
-                                    <td :colspan="extended ? 5 : 3" class="px-6 py-4 text-center text-gray-500">
+                                    <td :colspan="extended ? 5 : 3" x-cloak class="px-6 py-4 text-center text-gray-500">
                                         Nessun prodotto trovato.
                                     </td>
                                 </tr>
@@ -289,6 +302,7 @@
                     description: '',
                     price: '',
                     components: [],
+                    fabric_required_meters: 0,
                     is_active: true,
                 },
                 errors: {},
@@ -320,6 +334,7 @@
                         name       : product.name,
                         description: product.description ?? '',
                         price      : product.price,
+                        fabric_required_meters: product.fabric_required_meters,
                         is_active  : product.is_active,
                         components : (product.components ?? []).map(c => ({
                             id         : c.id,
@@ -343,6 +358,7 @@
                         name: '',
                         description: '',
                         price: '',
+                        fabric_required_meters: 0,
                         components: [],
                         is_active: true,
                     };
@@ -355,6 +371,7 @@
                     if (!this.form.sku.trim())   { this.errors.sku  = 'Il codice è obbligatorio.'; valid = false; }
                     if (!this.form.name.trim())  { this.errors.name = 'Il nome è obbligatorio.';   valid = false; }
                     if (!this.form.price.trim()) { this.errors.price= 'Il prezzo è obbligatorio.'; valid = false; }
+                    if (!this.form.fabric_required_meters) { this.errors.fabric_required_meters= 'I metri di tessuto sono obbligatori.'; valid = false; }
                     return valid;
                 },
 
@@ -369,6 +386,7 @@
                             name        : '{{ old('name', '') }}',
                             description : '{{ old('description', '') }}',
                             price       : '{{ old('price', '') }}',
+                            fabric_required_meters: {{ old('fabric_required_meters', 0) }},
                             components  : @json(old('components', [])),
                             is_active   : {{ old('is_active', true) ? 'true' : 'false' }},
                         };
