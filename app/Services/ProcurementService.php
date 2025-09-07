@@ -29,6 +29,8 @@ class ProcurementService
     use ProcurementServiceAdjust;
     
     /**
+     * Crea ordini fornitore a partire dallo shortage di componenti.
+     *
      * @param  Collection<int, array{component_id:int, shortage:float}>  $shortage
      * @param  \Carbon\CarbonInterface|string  $deliveryDate
      * @param  int|null  $originOcId

@@ -556,13 +556,15 @@
             },
 
             editLine(i){
+                if(this.selectedProduct){
+                    alert('Completa prima la riga in modifica.'); 
+                    return;
+                }
                 const l = this.lines.splice(i,1)[0];
                 this.selectedProduct    =l.product; 
                 this.price              =l.price; 
                 this.quantity           =l.qty; 
-                this.fabric_id          = l.fabric_id ?? '';
-                this.color_id           = l.color_id  ?? '';
-                this.loadProductWhitelist(l.product.id);
+                this.loadProductWhitelist(l.product.id, l.fabric_id ?? null, l.color_id ?? null);
                 this.productSearch='';
                 this.availabilityOk = null; 
             },
@@ -656,6 +658,8 @@
                     if (!r.ok) throw new Error(r.status)
                     const o = await r.json()
 
+                    console.log('Ordine caricato', o)
+
                     /* 2️⃣  popola form  */
                     this.orderId        = o.id
                     this.order_number   = o.number      // restituito dal controller edit()
@@ -669,6 +673,10 @@
                         product  : { id:l.product_id, sku:l.sku, name:l.name },
                         qty      : l.quantity,
                         price    : Number(l.price),
+                        fabric_id: l.fabric_id,
+                        color_id : l.color_id,
+                        fabric_name : window.GD_findName(window.GD_VARIABLE_OPTIONS.fabrics, l.fabric_id),
+                        color_name  : window.GD_findName(window.GD_VARIABLE_OPTIONS.colors,  l.color_id),
                         subtotal : l.quantity * l.price
                     }))
 
@@ -736,13 +744,13 @@
              * Carica la whitelist del prodotto selezionato e popola le select.
              * Usa l'endpoint già esistente GET /products/{product}/variables
              */
-            async loadProductWhitelist(productId) {
-                if (!productId) { 
-                    this.fabricOptions=[]; 
-                    this.colorOptions=[]; 
-                    this.fabric_id=''; 
-                    this.color_id=''; 
-                    return; 
+            async loadProductWhitelist(productId, preselectFabricId = null, preselectColorId = null) {
+                if (!productId) {
+                    this.fabricOptions = [];
+                    this.colorOptions  = [];
+                    this.fabric_id     = '';
+                    this.color_id      = '';
+                    return;
                 }
 
                 try {
@@ -750,27 +758,37 @@
                     if (!r.ok) throw new Error(String(r.status));
                     const js = await r.json();
 
-                    // 2) prendo i cataloghi globali e filtro sugli ID consentiti
+                    // 1) cataloghi globali → filtro su whitelist del prodotto
                     const allF = (window.GD_VARIABLE_OPTIONS && window.GD_VARIABLE_OPTIONS.fabrics) || [];
                     const allC = (window.GD_VARIABLE_OPTIONS && window.GD_VARIABLE_OPTIONS.colors)  || [];
 
-                    const allowedF = new Set((js.fabric_ids || []).map(Number));
-                    const allowedC = new Set((js.color_ids  || []).map(Number));
+                    const allowedF = new Set((js.fabric_ids || []).map(n => Number(n)));
+                    const allowedC = new Set((js.color_ids  || []).map(n => Number(n)));
 
                     this.fabricOptions = allF.filter(f => allowedF.has(Number(f.id)));
                     this.colorOptions  = allC.filter(c => allowedC.has(Number(c.id)));
 
-                    // 3) imposto i default (solo se compresi nella whitelist)
+                    // 2) default dal backend
                     const defF = Number(js.default_fabric_id || 0);
                     const defC = Number(js.default_color_id || 0);
 
-                    this.fabric_id = (defF && allowedF.has(defF)) ? defF : (this.fabricOptions[0]?.id ?? '');
-                    this.color_id  = (defC && allowedC.has(defC)) ? defC : (this.colorOptions[0]?.id ?? '');
+                    // 3) risoluzione scelta finale: preferisci i valori passati esplicitamente
+                    const wantF = Number(preselectFabricId || 0);
+                    const wantC = Number(preselectColorId  || 0);
+
+                    const pick = (preferred, def, allowed, options) => {
+                        if (preferred && allowed.has(preferred)) return preferred;
+                        if (def && allowed.has(def))             return def;
+                        const first = options[0]?.id ?? '';
+                        return first ? Number(first) : '';
+                    };
+
+                    this.fabric_id = pick(wantF, defF, allowedF, this.fabricOptions);
+                    this.color_id  = pick(wantC, defC, allowedC, this.colorOptions);
 
                     this.reprice();
                 } catch (e) {
                     console.error('variables load failed', e);
-                    // in caso di errore, disabilita entrambe le select
                     this.fabricOptions=[]; this.colorOptions=[];
                     this.fabric_id=''; this.color_id='';
                 }

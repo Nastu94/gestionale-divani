@@ -107,6 +107,14 @@ class OrderItem extends Model
     {
         return $this->hasMany(OrderProductVariable::class);
     }
+
+    /**
+     * Variabile scelta su questa riga d'ordine (tipicamente 1: FABRIC_MAIN).
+     * Ritorna un'istanza "vuota" se non esiste.
+     */
+    public function variable() { 
+        return $this->hasOne(OrderProductVariable::class)->withDefault();
+    }
     
     /**
      * Scope per filtrare le righe che hanno quantità > 0 in una determinata fase.
