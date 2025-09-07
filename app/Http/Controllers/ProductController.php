@@ -323,28 +323,28 @@ class ProductController extends Controller
      */
     public function getVariables(Product $product): JsonResponse
     {
-        // Carichiamo relazioni minime necessarie, senza N+1
-        $product->loadMissing([
-            'fabrics:id,name', // presuppone colonna 'name' su fabrics
-            'colors:id,name',  // presuppone colonna 'name' su colors
+        $fabricIds = $product->fabrics()->pluck('fabrics.id')
+            ->map(fn($i)=>(int)$i)->values()->all();
+        
+        $colorIds  = $product->colors()->pluck('colors.id')
+            ->map(fn($i)=>(int)$i)->values()->all();
+
+        $defF = $product->defaultFabricId();
+        $defC = $product->defaultColorId();
+
+        if ($defF && !in_array($defF, $fabricIds, true)) {
+            $fabricIds[] = $defF;
+        }
+        if ($defC && !in_array($defC, $colorIds, true)) {
+            $colorIds[] = $defC;
+        }
+
+        return response()->json([
+            'fabric_ids' => $fabricIds,
+            'color_ids'  => $colorIds,
+            'default_fabric_id' => $defF,
+            'default_color_id'  => $defC,
         ]);
-
-        // Struttura di risposta: ids + elenco con etichette (comodo per la UI)
-        $payload = [
-            'product_id'   => $product->id,
-            'fabric_ids'   => $product->fabrics->pluck('id')->values(),
-            'color_ids'    => $product->colors->pluck('id')->values(),
-            'fabrics'      => $product->fabrics->map(fn($f) => [
-                'id'   => $f->id,
-                'name' => $f->name,
-            ])->values(),
-            'colors'       => $product->colors->map(fn($c) => [
-                'id'   => $c->id,
-                'name' => $c->name,
-            ])->values(),
-        ];
-
-        return response()->json($payload, 200);
     }
     
     /**

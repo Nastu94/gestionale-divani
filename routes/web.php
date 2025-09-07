@@ -25,6 +25,7 @@ use App\Http\Controllers\ComponentCategoryController;
 use App\Http\Controllers\OccasionalCustomerController;
 use App\Http\Controllers\ProductCustomerPriceController;
 use App\Http\Controllers\FabricColorAdminController;
+use App\Http\Controllers\OrderPricingController;
 use App\Http\Controllers\Api\SupplierApiController;
 use App\Http\Controllers\Api\ComponentApiController;
 use App\Http\Controllers\Api\OrderNumberApiController;
@@ -771,6 +772,18 @@ Route::middleware([
     Route::post('/occasional-customers', [OccasionalCustomerController::class, 'store'])
         ->name('occasional-customers.store')
         ->middleware('permission:orders.customer.create');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Gestione Ordini Cliente – prezzi personalizzati
+    |--------------------------------------------------------------------------
+    |
+    | Queste rotte permettono di gestire i prezzi personalizzati per cliente e prodotto
+    | Protette dal permesso product-customer-prices.manage.
+    |
+    */
+    Route::post('/orders/line-quote', [OrderPricingController::class, 'quoteLine'])
+        ->name('orders.line-quote');
 
     /*
 |--------------------------------------------------------------------------

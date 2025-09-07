@@ -67,13 +67,15 @@ class Product extends Model
         'is_active',  // Disponibilità
     ];
 
+    /* ============================== RELAZIONI ============================== */
+
     /**
      * Relazione molti a molti con Component tramite distinta base.
      */
     public function components()
     {
         return $this->belongsToMany(Component::class, 'product_components')
-                    ->withPivot('quantity');
+            ->withPivot(['quantity', 'is_variable', 'variable_slot']);
     }
 
     /**
@@ -126,54 +128,34 @@ class Product extends Model
         return $this->hasMany(ProductFabricColorOverride::class);
     }
 
+
+    /* ===================== BOM: PLACEHOLDER & VARIABILE ===================== */
+
     /**
-     * Garantisce la presenza in BOM di una riga "placeholder TESSU base (0×0)"
-     * impostando in pivot ->quantity i metri di tessuto richiesti per 1 unità di prodotto.
-     *
-     * @param  float  $meters  Metri unitari da salvare in product_components.quantity
-     * @throws \RuntimeException Se non esiste alcun componente base disponibile
+     * Garantisce una riga placeholder TESSU (0×0) in BOM con i metri unitari.
      */
     public function ensureTessuPlaceholderWithMeters(float $meters): void
     {
-        // 1) Trova il "primo" componente base TESSU (0×0) secondo le tue regole
         $placeholder = $this->findFirstBaseTessuComponent();
 
-        // 2) Prepara i dati per la pivot della BOM: quantity = metri unitari
-        $pivot = [
-            'quantity' => $meters, // <-- qui salviamo i metri richiesti per 1 unità
-        ];
+        $pivot = ['quantity' => $meters];
+        if (Schema::hasColumn('product_components', 'is_variable'))   $pivot['is_variable']   = true;
+        if (Schema::hasColumn('product_components', 'variable_slot')) $pivot['variable_slot'] = 'TESSU';
 
-        // 3) Se la pivot ha colonne opzionali, le gestiamo senza dare errore
-        if (Schema::hasColumn('product_components', 'is_variable')) {
-            $pivot['is_variable'] = true; // segna la riga come "slot variabile"
-        }
-        if (Schema::hasColumn('product_components', 'variable_slot')) {
-            $pivot['variable_slot'] = 'TESSU'; // nome slot, coerente con la tua UI/logica
-        }
-
-        // 4) Inserisce senza rimuovere altre righe ed aggiorna se già esiste
         $this->components()->syncWithoutDetaching([$placeholder->id => $pivot]);
         $this->components()->updateExistingPivot($placeholder->id, $pivot);
     }
 
     /**
-     * Individua il primo componente TESSU "base (0×0)".
-     * La logica è resiliente: usa "is_base" se disponibile, altrimenti prova
-     * a inferire la base da fabric/color con surcharge=0. In mancanza, lancia eccezione.
-     *
-     * @return \App\Models\Component
-     * @throws \RuntimeException
+     * Trova un componente base TESSU attivo (fallback euristico se non c'è flag).
      */
     protected function findFirstBaseTessuComponent(): Component
     {
         $q = Component::query()->where('is_active', true);
 
-        // Preferenza: se hai un flag "is_base" sulla tabella components lo usiamo.
         if (Schema::hasColumn('components', 'is_base')) {
             $q->where('is_base', true);
         } else {
-            // Altrimenti proviamo a dedurre "base" da relazioni fabric/color con surcharge a 0.
-            // Queste whereHas presuppongono che il Model Component abbia relazioni fabric() e color().
             if (method_exists(Component::class, 'fabric')) {
                 $q->whereHas('fabric', fn($qq) => $qq->where('surcharge_value', 0));
             }
@@ -182,21 +164,169 @@ class Product extends Model
             }
         }
 
-        // Se hai una colonna "category" (o simile) per classificare i TESSU, la applichiamo.
         if (Schema::hasColumn('components', 'category')) {
             $q->where('category', 'TESSU');
         }
 
-        /** @var Component|null $placeholder */
         $placeholder = $q->orderBy('id', 'asc')->first();
-
-        if (! $placeholder) {
+        if (!$placeholder) {
             throw new \RuntimeException(
-                'Nessun componente base TESSU (0×0) attivo trovato. ' .
-                'Crea almeno un componente base per poter salvare il prodotto.'
+                'Nessun componente base TESSU (0×0) attivo trovato.'
             );
         }
-
         return $placeholder;
+    }
+
+    /**
+     * Restituisce il componente variabile della BOM (slot).
+     */
+    public function variableComponent(?string $slot = null): ?Component
+    {
+        $q = $this->components()->wherePivot('is_variable', 1);
+
+        if ($slot !== null) {
+            $q->wherePivot('variable_slot', $slot);
+        }
+
+        // ⚠️ niente product_components.id: non esiste
+        return $q->orderBy('product_components.component_id','asc')->first();
+    }
+
+    /* ===================== DEFAULT VARIABILI (SOLO BOM) ===================== */
+
+    /**
+     * Default fabric_id preso **solo** dalla BOM (component.fabric_id).
+     */
+    public function defaultFabricId(): ?int
+    {
+        $c = $this->variableComponent();
+        return ($c && $c->fabric_id) ? (int) $c->fabric_id : null;
+    }
+
+    /**
+     * Default color_id preso **solo** dalla BOM (component.color_id).
+     */
+    public function defaultColorId(): ?int
+    {
+        $c = $this->variableComponent();
+        return ($c && $c->color_id) ? (int) $c->color_id : null;
+    }
+
+    /**
+     * ID whitelist disponibili per UI (non usati per i default).
+     */
+    public function fabricIds(): array
+    {
+        return $this->fabrics()->pluck('fabrics.id')->map(fn($i)=>(int)$i)->all();
+    }
+
+    public function colorIds(): array
+    {
+        return $this->colors()->pluck('colors.id')->map(fn($i)=>(int)$i)->all();
+    }
+
+    /* ===================== PREZZI ===================== */
+
+    /**
+     * Prezzo base effettivo con eventuale prezzo cliente.
+     */
+    public function effectiveBasePriceFor(?int $customerId): float
+    {
+        if ($customerId) {
+            $cp = $this->customerPrices()
+                ->where('customer_id', $customerId)
+                ->orderByDesc('id')
+                ->first();
+            if ($cp && $cp->price !== null) {
+                return (float) $cp->price;
+            }
+        }
+        return (float) ($this->price ?? 0);
+    }
+
+    /**
+     * Calcola il prezzo unitario per tessuto/colore (con override coppia,
+     * pivot-override e fallback ai valori di fabrics/colors se pivot è NULL).
+     *
+     * @return array{base_price:float,fabric_surcharge:float,color_surcharge:float,unit_price:float}
+     */
+    public function unitPriceFor(?int $fabricId, ?int $colorId, ?int $customerId = null): array
+    {
+        $base    = $this->effectiveBasePriceFor($customerId);
+        $fabricS = 0.0;
+        $colorS  = 0.0;
+
+        // 1) Override specifico per coppia (può impostare prezzo fisso o delta)
+        $pair = null;
+        if ($fabricId && $colorId) {
+            $pair = $this->fabricColorOverrides()
+                ->where('fabric_id', $fabricId)
+                ->where('color_id',  $colorId)
+                ->first();
+        }
+        if ($pair) {
+            if (isset($pair->unit_price) && $pair->unit_price !== null) {
+                return [
+                    'base_price'        => $base,
+                    'fabric_surcharge'  => 0.0,
+                    'color_surcharge'   => 0.0,
+                    'unit_price'        => (float) $pair->unit_price,
+                ];
+            }
+            if (isset($pair->surcharge_type, $pair->surcharge_value)) {
+                $delta = $this->applySurcharge($base, $pair->surcharge_type, $pair->surcharge_value);
+                return [
+                    'base_price'        => $base,
+                    'fabric_surcharge'  => 0.0,
+                    'color_surcharge'   => $delta, // trattato come delta coppia
+                    'unit_price'        => $base + $delta,
+                ];
+            }
+        }
+
+        // 2) Tessuto: prima pivot product_fabrics; se NULL ⇒ fallback a fabrics.*
+        if ($fabricId) {
+            /** @var Fabric|null $fabric */
+            $fabric = Fabric::find($fabricId);
+            if ($fabric) {
+                $pf = $this->fabrics()->where('fabrics.id', $fabricId)->first();
+                $type = $pf?->pivot?->surcharge_type ?? $fabric->surcharge_type ?? null;
+                $val  = $pf?->pivot?->surcharge_value ?? $fabric->surcharge_value ?? null;
+                $fabricS = $this->applySurcharge($base, $type, $val);
+            }
+        }
+
+        // 3) Colore: prima pivot product_colors; se NULL ⇒ fallback a colors.*
+        if ($colorId) {
+            /** @var Color|null $color */
+            $color = Color::find($colorId);
+            if ($color) {
+                $pc = $this->colors()->where('colors.id', $colorId)->first();
+                $type = $pc?->pivot?->surcharge_type ?? $color->surcharge_type ?? null;
+                $val  = $pc?->pivot?->surcharge_value ?? $color->surcharge_value ?? null;
+                $colorS = $this->applySurcharge($base, $type, $val);
+            }
+        }
+
+        return [
+            'base_price'        => $base,
+            'fabric_surcharge'  => $fabricS,
+            'color_surcharge'   => $colorS,
+            'unit_price'        => $base + $fabricS + $colorS,
+        ];
+    }
+
+    /**
+     * Applica un sovrapprezzo in base al tipo.
+     * Tipi supportati: percent|percentage|%  oppure fixed|amount|€|eur (default: fisso).
+     */
+    protected function applySurcharge(float $base, ?string $type, $value): float
+    {
+        $v = is_null($value) ? 0.0 : (float) $value;
+        return match ($type) {
+            'percent', 'percentage', '%' => $base * ($v / 100),
+            'fixed', 'amount', '€', 'eur', null, '' => $v,
+            default => $v,
+        };
     }
 }

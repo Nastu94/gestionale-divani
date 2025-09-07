@@ -8,6 +8,11 @@ use App\Models\OrderNumber;
 use App\Models\StockLevel;
 use App\Models\StockReservation;
 use App\Models\StockMovement;
+use App\Models\Customer;
+use App\Models\OccasionalCustomer;
+use App\Models\Product;
+use App\Models\Fabric;
+use App\Models\Color;
 use App\Services\InventoryService;
 use App\Services\ProcurementService;
 use App\Services\OrderUpdateService;
@@ -102,9 +107,32 @@ class OrderCustomerController extends Controller
 
             ->paginate(15)
             ->appends($request->query());
+        
+        // Carico le opzioni globali Tessuti/Colori attivi (id + name o code come fallback)
+        $fabrics = Fabric::query()
+            ->when(\Schema::hasColumn('fabrics','is_active'), fn($q)=>$q->where('is_active',1))
+            ->orderBy('name')
+            ->get(['id','name','code']);
+
+        $colors = Color::query()
+            ->when(\Schema::hasColumn('colors','is_active'), fn($q)=>$q->where('is_active',1))
+            ->orderBy('name')
+            ->get(['id','name','code']);
+
+        $variableOptions = [
+            'fabrics' => $fabrics->map(fn($f)=>[
+                'id'   => $f->id,
+                'name' => $f->name ?? $f->code ?? ('Tessuto #'.$f->id),
+            ])->values(),
+            'colors'  => $colors->map(fn($c)=>[
+                'id'   => $c->id,
+                'name' => $c->name ?? $c->code ?? ('Colore #'.$c->id),
+            ])->values(),
+        ];
 
         return view('pages.orders.index-customers',
-            compact('orders', 'sort', 'dir', 'filters'));
+            compact('orders', 'sort', 'dir', 'filters'))
+            ->with('variableOptions', $variableOptions);
     }
 
     /**
@@ -315,12 +343,12 @@ class OrderCustomerController extends Controller
     /**
      * Restituisce in JSON le righe dell’ordine + esploso componenti.
      *
-     * ✅ Coerenza con la nuova logica prezzi:
-     *    - Il prezzo unitario del prodotto proviene SEMPRE da $item->unit_price
-     *      (valore “congelato” salvato dallo store/update tramite resolver),
-     *      quindi NON ricalcoliamo nulla e non richiamiamo il resolver qui.
-     *    - I costi dei componenti restano informativi (come nel codice originale),
-     *      stimati sul supplier col last_cost più basso, se presente.
+     * Coerenza con la nuova logica prezzi:
+     * - Il prezzo unitario del prodotto proviene SEMPRE da $item->unit_price
+     *   (valore “congelato” salvato dallo store/update tramite resolver),
+     *   quindi NON ricalcoliamo nulla e non richiamiamo il resolver qui.
+     * - I costi dei componenti restano informativi (come nel codice originale),
+     *   stimati sul supplier col last_cost più basso, se presente.
      *
      * @param  Order  $order  (route model binding)
      * @return \Illuminate\Http\JsonResponse

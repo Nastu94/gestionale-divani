@@ -202,7 +202,7 @@
 
                 {{-- PAGINAZIONE --}}
                 <div class="mt-4">
-                    {{ $orders->links() }}
+                    {{ $orders->links('vendor.pagination.tailwind-compact') }}
                 </div>
             </div>
 
@@ -285,4 +285,5 @@
             {{-- /sidebar --}}
         </div>
     </div>
+
 </x-app-layout>
