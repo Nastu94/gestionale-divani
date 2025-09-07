@@ -13,6 +13,7 @@ use App\Models\OccasionalCustomer;
 use App\Models\Product;
 use App\Models\Fabric;
 use App\Models\Color;
+use App\Models\Component;
 use App\Services\InventoryService;
 use App\Services\ProcurementService;
 use App\Services\OrderUpdateService;
@@ -506,53 +507,98 @@ class OrderCustomerController extends Controller
      */
     public function lines(Order $order): JsonResponse
     {
-        // Eager‑load mirato: solo i campi necessari per ridurre le query.
+        // 1) Eager-load: prodotto, BOM con pivot (quantity/is_variable/slot),
+        //    suppliers dei componenti BOM, e la variabile di riga (hasOne "variable").
         $order->load([
-            // Prodotto: ci bastano id, sku, name
-            'items.product:id,sku,name',
-
-            // Componenti del prodotto: campi base + unità di misura
+            'items.product',                                // id, sku, name (ok anche senza select mirato)
+            'items.product.components.componentSuppliers',  // per last_cost indicativo
             'items.product.components' => function ($q) {
-                $q->select('components.id','components.code','components.description','components.unit_of_measure');
+                // Non stringiamo le colonne per non perdere i campi pivot.
+                // La relazione Product::components ha già withPivot(['quantity','is_variable','variable_slot'])
             },
+            'items.variable:id,order_item_id,fabric_id,color_id,resolved_component_id',
+        ]);
 
-            // Fornitori del componente: solo ciò che serve per il last_cost
-            'items.product.components.componentSuppliers:id,component_id,last_cost',
+        Log::debug('OrderCustomer@lines - lines for order', [
+            'order_id' => $order->id,
+            'lines'    => $order->items,
+        ]);
+
+        // 2) Pre-carica TUTTI i componenti risolti referenziati dalle righe ordine
+        $resolvedIds = $order->items
+            ->pluck('variable.resolved_component_id')
+            ->filter()
+            ->unique()
+            ->values();
+
+        Log::debug('OrderCustomer@lines - resolved component IDs', [
+            'order_id' => $order->id,
+            'resolved_ids' => $resolvedIds,
+        ]);
+
+        /** @var \Illuminate\Support\Collection<int,\App\Models\Component> $resolvedMap */
+        $resolvedMap = \App\Models\Component::query()
+            ->whereIn('id', $resolvedIds)
+            ->with(['componentSuppliers:id,component_id,last_cost'])
+            ->get()
+            ->keyBy('id');
+
+        Log::debug('OrderCustomer@lines - loaded resolved components', [
+            'order_id' => $order->id,
+            'components' => $resolvedMap->values(),
         ]);
 
         $rows = collect();
 
         foreach ($order->items as $item) {
-            $product    = $item->product;                // Modello Product già eager‑load
-            $qtyOrdered = (float) $item->quantity;       // Quantità ordinata
-            $priceUnit  = (float) $item->unit_price;     // ✅ Prezzo "congelato" al momento dell’ordine
-            $subtotal   = $qtyOrdered * $priceUnit;      // Subtotale riga prodotto
+            $product    = $item->product;
+            $qtyOrdered = (float) $item->quantity;
+            $priceUnit  = (float) $item->unit_price;
+            $subtotal   = $qtyOrdered * $priceUnit;
 
-            /* ──────────────── 1) Riga PRODOTTO ──────────────── */
+            /* ───────────────── 1) Riga PRODOTTO ───────────────── */
             $rows->push([
                 'code'   => $product->sku,
                 'desc'   => $product->name,
                 'qty'    => $qtyOrdered,
                 'unit'   => 'pz',
-                'price'  => $priceUnit,
+                'price'  => $priceUnit,       // prezzo congelato di vendita
                 'subtot' => $subtotal,
                 'type'   => 'product',
             ]);
 
-            /* ─────────────── 2) Righe COMPONENTI ────────────── */
+            Log::debug('OrderCustomer@lines - product row', [
+                'order_id' => $order->id,
+                'row'      => $rows->last(),
+            ]);
+
+            /* ─────────────── 2) Righe COMPONENTI ────────────────
+            Se il componente BOM è "variabile", sostituisco il placeholder
+            con il componente realmente selezionato in ordine (resolved_component_id).
+            */
+            $resolvedId = $item->variable?->resolved_component_id;
+
             foreach ($product->components as $component) {
-                // Costo indicativo: supplier con last_cost più basso (se disponibile)
+                $isVar = (bool) ($component->pivot->is_variable ?? false);
+
+                // Se variabile e ho un resolved_component_id valido → sostituisco
+                $compEff = ($isVar && $resolvedId && $resolvedMap->has($resolvedId))
+                    ? $resolvedMap->get($resolvedId)
+                    : $component;
+
+                // qty componente richiesto per la riga d’ordine
+                $qtyComp = $qtyOrdered * (float) ($component->pivot->quantity ?? 0);
+
+                // costo indicativo: supplier col last_cost più basso
                 $priceComp = optional(
-                    $component->componentSuppliers->sortBy('last_cost')->first()
+                    $compEff->componentSuppliers->sortBy('last_cost')->first()
                 )->last_cost ?? 0.0;
 
-                $qtyComp = $qtyOrdered * (float) $component->pivot->quantity; // quantità componente per l’ordine
-
                 $rows->push([
-                    'code'   => $component->code,
-                    'desc'   => $component->description,
+                    'code'   => $compEff->code,
+                    'desc'   => $compEff->description,
                     'qty'    => $qtyComp,
-                    'unit'   => $component->unit_of_measure ?? 'pz',
+                    'unit'   => $compEff->unit_of_measure ?? 'pz',
                     'price'  => (float) $priceComp,
                     'subtot' => (float) $priceComp * $qtyComp,
                     'type'   => 'component',
@@ -560,7 +606,12 @@ class OrderCustomerController extends Controller
             }
         }
 
-        // Nessun ordinamento: rimane la sequenza "prodotto → componenti"
+        Log::debug('OrderCustomer@lines - all rows', [
+            'order_id' => $order->id,
+            'rows'     => $rows,
+        ]);
+
+        // Manteniamo l’ordine "prodotto → suoi componenti"
         return response()->json($rows->values());
     }
 
@@ -658,70 +709,123 @@ class OrderCustomerController extends Controller
             'delivery_date'      => ['required','date'],
             'lines'              => ['required','array','min:1'],
 
-            // possiamo avere più righe dello stesso product con variabili diverse → niente "distinct"
+            // ❗ niente 'distinct': possiamo avere più righe stesso prodotto con variabili diverse
             'lines.*.product_id' => ['required','integer', Rule::exists('products','id')],
             'lines.*.quantity'   => ['required','numeric','min:0.01'],
 
-            // override opzionale (se permesso)
+            // prezzo opzionale (override)
             'lines.*.price'      => ['nullable','numeric','min:0'],
 
-            // variabili opzionali
+            // variabili
             'lines.*.fabric_id'  => ['nullable','integer', Rule::exists('fabrics','id')],
             'lines.*.color_id'   => ['nullable','integer', Rule::exists('colors','id')],
         ]);
 
         $customerId  = $order->customer_id; // guest → null
-        $delivery    = Carbon::parse($data['delivery_date'])->toDateString();
+        $delivery    = Carbon::parse($data['delivery_date']);
         $canOverride = $request->user()->can('orders.price.override');
 
-        // Prepara righe con prezzo definitivo + variabili validate
+        /*──────── PREPARAZIONE RIGHE (prezzo + variabili + campi applicati) ────────*/
         $prepared = collect($data['lines'])->map(function(array $l) use ($customerId, $delivery, $canOverride) {
             $productId = (int) $l['product_id'];
             $qty       = (float) $l['quantity'];
-            $fabricId  = array_key_exists('fabric_id',$l) && $l['fabric_id'] !== null ? (int)$l['fabric_id'] : null;
-            $colorId   = array_key_exists('color_id', $l) && $l['color_id']  !== null ? (int)$l['color_id']  : null;
+            $fabricId  = array_key_exists('fabric_id', $l) && $l['fabric_id'] !== null ? (int) $l['fabric_id'] : null;
+            $colorId   = array_key_exists('color_id',  $l) && $l['color_id']  !== null ? (int) $l['color_id']  : null;
 
-            /** @var \App\Models\Product $product */
+            /** @var Product $product */
             $product = Product::findOrFail($productId);
 
-            // whitelist di sicurezza
+            // whitelist sicurezza
             if ($fabricId !== null && ! in_array($fabricId, $product->fabricIds(), true)) {
-                abort(response()->json(['message'=>"Il tessuto selezionato non è consentito per il prodotto #{$productId}."], 422));
+                abort(response()->json(['message' => "Il tessuto selezionato non è consentito per il prodotto #{$productId}."], 422));
             }
             if ($colorId !== null && ! in_array($colorId, $product->colorIds(), true)) {
-                abort(response()->json(['message'=>"Il colore selezionato non è consentito per il prodotto #{$productId}."], 422));
+                abort(response()->json(['message' => "Il colore selezionato non è consentito per il prodotto #{$productId}."], 422));
             }
 
-            // breakdown: base (via CustomerPriceResolver dentro il Model) + surcharge variabili
-            $bd = $product->pricingBreakdown($fabricId, $colorId, $customerId, $delivery);
+            // prezzo
+            if ($canOverride && array_key_exists('price', $l) && $l['price'] !== null && $l['price'] !== '') {
+                $unit = (string) $l['price'];
+                $base = (float) ($product->effectiveBasePriceFor($customerId) ?? 0);
+                $fb   = ['base_price'=>$base, 'fabric_surcharge'=>0.0, 'color_surcharge'=>0.0, 'unit_price'=>(float)$unit, 'base_source'=>'override'];
+            } else {
+                $fb = $product->pricingBreakdown($fabricId, $colorId, $customerId, $delivery->toDateString());
+                if ($fb === null) {
+                    abort(response()->json(['message' => 'Prezzo non disponibile per uno dei prodotti nella data indicata.'], 422));
+                }
+                $unit = (string) $fb['unit_price'];
+            }
 
-            // prezzo finale: override se consentito e passato, altrimenti breakdown
-            $unit = ($canOverride && array_key_exists('price',$l) && $l['price'] !== null && $l['price'] !== '')
-                ? (string)$l['price']
-                : (string)$bd['unit_price'];
+            // resolved_component_id (categoria dal placeholder variabile della BOM)
+            $resolvedId = null;
+            $placeholder = $product->components()
+                ->wherePivot('is_variable', 1)->first();
+            if ($placeholder && $fabricId && $colorId) {
+                $q = Component::query()
+                    ->where('fabric_id', $fabricId)
+                    ->where('color_id',  $colorId);
+                if (Schema::hasColumn('components','category_id') && $placeholder->category_id) {
+                    $q->where('category_id', $placeholder->category_id);
+                }
+                $resolvedId = $q->value('id');
+            }
+
+            // sconti/sovrapprezzi applicati (come in store)
+            $basePrice  = (float) ($fb['base_price'] ?? 0);
+            $fDelta     = (float) ($fb['fabric_surcharge'] ?? 0);
+            $cDelta     = (float) ($fb['color_surcharge']  ?? 0);
+            $totalDelta = $fDelta + $cDelta;
+
+            $fixedApplied   = 0.0;
+            $percentApplied = 0.0;
+
+            if ($fabricId) {
+                $pf   = $product->fabrics()->where('fabrics.id', $fabricId)->first();
+                $ft   = $pf?->pivot?->surcharge_type ?? Fabric::find($fabricId)?->surcharge_type;
+                $fv   = $pf?->pivot?->surcharge_value ?? Fabric::find($fabricId)?->surcharge_value;
+                if ($ft) {
+                    if (in_array($ft, ['percent','percentage','%'])) $percentApplied += (float)$fv;
+                    else                                            $fixedApplied   += (float)$fv;
+                }
+            }
+            if ($colorId) {
+                $pc   = $product->colors()->where('colors.id', $colorId)->first();
+                $ct   = $pc?->pivot?->surcharge_type ?? Color::find($colorId)?->surcharge_type;
+                $cv   = $pc?->pivot?->surcharge_value ?? Color::find($colorId)?->surcharge_value;
+                if ($ct) {
+                    if (in_array($ct, ['percent','percentage','%'])) $percentApplied += (float)$cv;
+                    else                                            $fixedApplied   += (float)$cv;
+                }
+            }
 
             return [
+                // chiave logica per il diff (prodotto+variabili)
+                'key'        => sprintf('%d:%d:%d', $productId, $fabricId ?? 0, $colorId ?? 0),
+
+                // dati riga
                 'product_id' => $productId,
                 'quantity'   => $qty,
                 'price'      => $unit,
 
-                // variabili + metadati per persistenza
+                // variabili
                 'fabric_id'  => $fabricId,
                 'color_id'   => $colorId,
-                'resolved_component_id'    => $bd['resolved_component_id'] ?? null,
-                'surcharge_fixed_applied'  => (string)($bd['surcharge_fixed_applied']   ?? '0'),
-                'surcharge_percent_applied'=> (string)($bd['surcharge_percent_applied'] ?? '0'),
-                'surcharge_total_applied'  => (string)($bd['surcharge_total_applied']   ?? '0'),
+                'resolved_component_id'   => $resolvedId,
+
+                // applied surcharge (come nello store)
+                'surcharge_fixed_applied'   => $fixedApplied,
+                'surcharge_percent_applied' => $percentApplied,
+                'surcharge_total_applied'   => $totalDelta,
             ];
         })->values();
 
-        // delega la business logic al service
-        $svc    = app(OrderUpdateService::class);
+        /*──────── BUSINESS LOGIC ────────*/
+        $svc = app(OrderUpdateService::class);
 
         $result = $svc->handle(
             $order,
-            $prepared,            // ← payload “ricco” (product, qty, price, vars, surcharge…)
-            $delivery
+            $prepared,                        // ← include variabili + applied
+            $delivery->toDateString()
         );
 
         return response()->json($result);
