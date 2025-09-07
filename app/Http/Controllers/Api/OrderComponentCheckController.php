@@ -26,6 +26,8 @@ class OrderComponentCheckController extends Controller
             'lines'                  => ['required','array','min:1'],
             'lines.*.product_id'     => ['required','integer','exists:products,id'],
             'lines.*.quantity'       => ['required','numeric','min:0.01'],
+            'lines.*.fabric_id'       => ['nullable', 'integer', 'exists:fabrics,id'],
+            'lines.*.color_id'       => ['nullable', 'integer', 'exists:colors,id'],
         ]);
 
         /* 1️⃣ Costruisce le righe per InventoryService */
@@ -33,6 +35,8 @@ class OrderComponentCheckController extends Controller
                     ->map(fn ($l) => [
                         'product_id' => $l['product_id'],
                         'quantity'   => $l['quantity'],
+                        'fabric_id'  => (int) ($l['fabric_id'] ?? null),
+                        'color_id'   => (int) ($l['color_id']  ?? null),
                     ])
                     ->values()      // indice 0-based
                     ->all();

@@ -594,7 +594,9 @@
                     lines : this.lines.map(l => ({
                         product_id : l.product.id,
                         quantity   : l.qty,
-                        price      : l.price
+                        price      : l.price,
+                        fabric_id  : l.fabric_id || null,
+                        color_id   : l.color_id  || null,
                     }))
                 }
 
@@ -693,7 +695,9 @@
                         delivery_date : this.delivery_date,
                         lines         : this.lines.map(l => ({
                             product_id : l.product.id,
-                            quantity   : l.qty
+                            quantity   : l.qty,
+                            fabric_id  : l.fabric_id || null,
+                            color_id   : l.color_id  || null,
                         }))
                     };
 

@@ -24,6 +24,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 
 class OrderCustomerController extends Controller
@@ -154,7 +155,7 @@ class OrderCustomerController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
-        Log::info('OrderCustomer@store – richiesta ricevuta', [
+        Log::info('OrderCustomer@store – richiesta ricevuta (con variabili)', [
             'user_id' => optional($request->user())->id,
             'payload' => $request->all(),
         ]);
@@ -166,12 +167,20 @@ class OrderCustomerController extends Controller
             'customer_id'            => ['nullable', 'integer', Rule::exists('customers', 'id')],
             'delivery_date'          => ['required', 'date'],
             'shipping_address'       => ['required', 'string', 'max:255'],
+
             'lines'                  => ['required', 'array', 'min:1'],
             'lines.*.product_id'     => ['required', 'integer', Rule::exists('products', 'id')],
             'lines.*.quantity'       => ['required', 'numeric', 'min:0.01'],
-            // ⬇️ il prezzo lato client ora è facoltativo; valido solo se presente
+
+            // prezzo lato client opzionale (solo se l’utente ha permesso override)
             'lines.*.price'          => ['nullable', 'numeric', 'min:0'],
+
+            // variabili di riga
+            'lines.*.fabric_id'      => ['nullable', 'integer', Rule::exists('fabrics', 'id')],
+            'lines.*.color_id'       => ['nullable', 'integer', Rule::exists('colors', 'id')],
         ]);
+
+        Log::debug('OrderCustomer@store – dati validati', $data);
 
         /* esclusività customer_id / occasional_customer_id */
         if (! ($data['customer_id'] xor ($data['occasional_customer_id'] ?? null))) {
@@ -179,62 +188,96 @@ class OrderCustomerController extends Controller
             return response()->json(['message' => 'Indicare solo customer_id oppure occasional_customer_id.'], 422);
         }
 
+        $deliveryDate = Carbon::parse($data['delivery_date'])->toDateString();
+
         /*─────────── VERIFICA DISPONIBILITÀ (obbligatoria) ───────────*/
-        $inv = InventoryService::forDelivery($data['delivery_date'])
+        $inv = InventoryService::forDelivery($deliveryDate)
             ->check(collect($data['lines'])->map(fn($l)=>[
-                'product_id'=>$l['product_id'],
-                'quantity'  =>$l['quantity']
+                'product_id' => (int) $l['product_id'],
+                'quantity'   => (float) $l['quantity'],
+                'fabric_id'  => (int) $l['fabric_id'] ?? null,
+                'color_id'   => (int) $l['color_id'] ?? null,
             ])->values()->all());
 
         if ($inv === null) {
             return response()->json(['message'=>'Esegui prima la verifica disponibilità.'], 409);
         }
 
-        /*─────────── RISOLUZIONE PREZZI SERVER-SIDE ───────────*/
-        $customerId  = $data['customer_id'] ?? null;                  // guest → null
-        $delivery    = Carbon::parse($data['delivery_date']);
+        /*─────────── PREPARAZIONE RIGHE (validazioni variabili + prezzi) ───────────*/
+        $customerId  = $data['customer_id'] ?? null; // guest → null
         $canOverride = $request->user()->can('orders.price.override');
 
-        // Prepara righe con prezzo definitivo (override se consentito, altrimenti resolver)
-        $resolvedLines = collect($data['lines'])->map(function(array $l) use ($customerId, $delivery, $canOverride) {
-            $productId = (int) $l['product_id'];
+        $resolvedLines = collect($data['lines'])->map(function (array $l) use ($customerId, $deliveryDate, $canOverride) {
 
+            $productId = (int) $l['product_id'];
+            $qty       = (float) $l['quantity'];
+            $fabricId  = array_key_exists('fabric_id', $l) && $l['fabric_id'] !== null ? (int) $l['fabric_id'] : null;
+            $colorId   = array_key_exists('color_id',  $l) && $l['color_id']  !== null ? (int) $l['color_id']  : null;
+
+            /** @var \App\Models\Product $product */
+            $product   = Product::findOrFail($productId);
+
+            // ✅ Sicurezza: le variabili passate devono essere nella whitelist del prodotto
+            if ($fabricId !== null && ! in_array($fabricId, $product->fabricIds(), true)) {
+                abort(response()->json([
+                    'message' => "Il tessuto selezionato non è consentito per il prodotto #{$productId}."
+                ], 422));
+            }
+            if ($colorId !== null && ! in_array($colorId, $product->colorIds(), true)) {
+                abort(response()->json([
+                    'message' => "Il colore selezionato non è consentito per il prodotto #{$productId}."
+                ], 422));
+            }
+
+            // Prezzo unitario: override manuale consentito? altrimenti calcolo server-side
             if ($canOverride && array_key_exists('price', $l) && $l['price'] !== null && $l['price'] !== '') {
                 $unit = (string) $l['price'];
+                $src  = 'override';
             } else {
-                $resolved = $this->priceResolver->resolve($productId, $customerId, $delivery);
-                if ($resolved === null) {
-                    abort(response()->json([
-                        'message' => 'Prezzo non disponibile per uno dei prodotti nella data indicata.'
-                    ], 422));
-                }
-                $unit = (string) $resolved['price'];
+                // Il Model Product applica: prezzo base (resolver cliente/data) + sovrapprezzi (pivot → fallback tabella)
+                $q    = $product->pricingBreakdown($fabricId, $colorId, $customerId, $deliveryDate);
+                $unit = (string) $q['unit_price'];  // string decimale
+                $src  = ($q['base_source'] ?? 'base') . '+surcharges';
             }
+
+            Log::debug('OrderCustomer@store – pricing line resolved', [
+                'product_id' => $productId,
+                'qty'        => $qty,
+                'fabric_id'  => $fabricId,
+                'color_id'   => $colorId,
+                'unit_price' => $unit,
+                'source'     => $src,
+            ]);
 
             return [
                 'product_id' => $productId,
-                'quantity'   => (float) $l['quantity'],
-                'price'      => $unit,          // string decimal → coerente con DB
+                'quantity'   => $qty,
+                'price'      => $unit,     // string decimal → coerente con DECIMAL
+                'fabric_id'  => $fabricId,
+                'color_id'   => $colorId,
             ];
         })->values();
 
-        // Totale ordine calcolato sul prezzo definitivo risolto server-side
+        // Totale ordine calcolato con i prezzi definitivi
         $total = $resolvedLines->reduce(fn(float $s, $l) => $s + ($l['quantity'] * (float) $l['price']), 0.0);
 
         try {
-            /*────── TRANSAZIONE: salva ordine + righe ──────*/
-            $order = DB::transaction(function () use ($data, $resolvedLines, $total) {
+            /*─────────── TRANSAZIONE: salva ordine + righe + variabili ───────────*/
+            $order = DB::transaction(function () use ($data, $deliveryDate, $resolvedLines, $total) {
 
-                /* 1. blocca OrderNumber customer */
+                /* 1) blocca OrderNumber (customer) */
                 $orderNumber = OrderNumber::where('id', $data['order_number_id'])
                     ->where('order_type', 'customer')
                     ->with('order')
                     ->lockForUpdate()
                     ->firstOrFail();
 
-                if ($orderNumber->order) abort(409, 'OrderNumber già assegnato.');
+                if ($orderNumber->order) {
+                    abort(409, 'OrderNumber già assegnato.');
+                }
 
-                /* 2. header */
+                /* 2) header */
+                /** @var \App\Models\Order $order */
                 $order = Order::create([
                     'order_number_id'        => $orderNumber->id,
                     'customer_id'            => $data['customer_id']            ?? null,
@@ -242,44 +285,69 @@ class OrderCustomerController extends Controller
                     'shipping_address'       => $data['shipping_address'],
                     'total'                  => $total,
                     'ordered_at'             => now(),
-                    'delivery_date'          => $data['delivery_date'],
+                    'delivery_date'          => $deliveryDate,
                 ]);
 
-                /* 3. righe (prezzi già risolti) */
+                /* 3) righe + variabili */
                 foreach ($resolvedLines as $line) {
-                    $order->items()->create([
+                    /** @var \App\Models\OrderItem $item */
+                    $item = $order->items()->create([
                         'product_id' => $line['product_id'],
                         'quantity'   => $line['quantity'],
                         'unit_price' => $line['price'],   // ← congelato
                     ]);
+
+                    // Persisti le variabili della riga, se presenti
+                    $fabricId = $line['fabric_id'] ?? null;
+                    $colorId  = $line['color_id']  ?? null;
+
+                    if ($fabricId !== null || $colorId !== null) {
+                        // Supporta sia schema "wide" (fabric_id/color_id) sia "key/value" (name/value)
+                        $hasWide  = Schema::hasColumn('order_product_variables', 'fabric_id')
+                                || Schema::hasColumn('order_product_variables', 'color_id');
+                        $hasKV    = Schema::hasColumn('order_product_variables', 'name')
+                                && Schema::hasColumn('order_product_variables', 'value');
+
+                        if ($hasWide) {
+                            $item->variables()->create([
+                                // inserisci solo le colonne esistenti per evitare errori in caso di schema parziale
+                                ... (Schema::hasColumn('order_product_variables', 'fabric_id') ? ['fabric_id' => $fabricId] : []),
+                                ... (Schema::hasColumn('order_product_variables', 'color_id')  ? ['color_id'  => $colorId]  : []),
+                            ]);
+                        } elseif ($hasKV) {
+                            if ($fabricId !== null) {
+                                $item->variables()->create(['name' => 'fabric_id', 'value' => (string) $fabricId]);
+                            }
+                            if ($colorId !== null) {
+                                $item->variables()->create(['name' => 'color_id',  'value' => (string) $colorId]);
+                            }
+                        } else {
+                            Log::warning('OrderCustomer@store – tabella order_product_variables con schema inatteso, skip persistenza variabili');
+                        }
+                    }
                 }
 
-                // 4. Prenotazioni stock (logica esistente)
+                /* 4) Prenotazioni stock (logica esistente) */
                 $usedLines = $resolvedLines->map(fn ($l) => [
                     'product_id' => $l['product_id'],
                     'quantity'   => $l['quantity'],
+                    'fabric_id'  => $l['fabric_id'] ?? null,
+                    'color_id'   => $l['color_id']  ?? null,
                 ])->all();
 
-                $invResult = InventoryService::forDelivery(
-                    $data['delivery_date'],
-                    $order->id
-                )->check($usedLines);
+                $invResult = InventoryService::forDelivery($deliveryDate, $order->id)->check($usedLines);
 
                 InventoryServiceExtensions::reserveFreeIncoming(
                     $order,
-                    $invResult->shortage
-                        ->pluck('needed', 'component_id')
-                        ->toArray(),
-                    Carbon::parse($data['delivery_date'])
+                    $invResult->shortage->pluck('shortage', 'component_id')->toArray(),
+                    Carbon::parse($deliveryDate)
                 );
 
-                $invResult = InventoryService::forDelivery(
-                    $data['delivery_date'], $order->id
-                )->check($usedLines);
+                $invResult = InventoryService::forDelivery($deliveryDate, $order->id)->check($usedLines);
 
                 foreach ($invResult->shortage as $row) {
-                    $needed    = $row['needed'];
-                    $fromStock = min($row['available'], $needed);
+                    $missing    = $row['shortage'];
+                    $fromStock = min($row['available'], $missing);
 
                     if ($fromStock > 0) {
                         $sl = StockLevel::where('component_id', $row['component_id'])
@@ -304,12 +372,13 @@ class OrderCustomerController extends Controller
                 Log::info('OrderCustomer@store – ordine e righe salvati', [
                     'order_id' => $order->id,
                     'lines'    => $resolvedLines->count(),
+                    'total'    => $total,
                 ]);
 
                 return $order;
             });
 
-            /*─────────── CREA / MERGE PO + prenotazioni ───────────*/
+            /*─────────── CREA / MERGE PO se servono ───────────*/
             $poNumbers = [];
             if (! $inv->ok && $request->user()->can('orders.supplier.create')) {
                 $shortCol = ProcurementService::buildShortageCollection($inv->shortage);
@@ -325,7 +394,7 @@ class OrderCustomerController extends Controller
         } catch (\Throwable $e) {
             Log::error('OrderCustomer@store – eccezione', [
                 'error' => $e->getMessage(),
-                'trace' => substr($e->getTraceAsString(), 0, 1024),
+                'trace' => substr($e->getTraceAsString(), 0, 2048),
             ]);
 
             return response()->json(['message' => 'Errore interno durante il salvataggio dell’ordine.'], 500);
@@ -425,6 +494,7 @@ class OrderCustomerController extends Controller
         /* ── Eager-load con i campi che servono alla UI ── */
         $order->load([
             'items.product:id,sku,name,price',
+            'items.variable',
             'customer:id,company,email,vat_number,tax_code',
             'customer.shippingAddress:id,customer_id,address,city,postal_code,country',
             'occasionalCustomer:id,company,email,vat_number,tax_code,address,postal_code,city,province,country',
@@ -476,6 +546,8 @@ class OrderCustomerController extends Controller
                 'name'       => $it->product->name,
                 'quantity'   => $it->quantity,
                 'price'      => $it->unit_price,
+                'fabric_id'  => $it->variable?->fabric_id,
+                'color_id'   => $it->variable?->color_id,
             ]),
         ]);
     }
