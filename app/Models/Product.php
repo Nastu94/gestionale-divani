@@ -10,6 +10,7 @@ use Spatie\Activitylog\LogOptions;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
 
 use App\Models\Component;
 use App\Models\Fabric;
@@ -172,10 +173,16 @@ class Product extends Model
 
     /**
      * Ritorna il dettaglio prezzo per (tessuto, colore, cliente, data).
+     * Regole:
+     * - percentuale → calcolata su prezzo base prodotto
+     * - fisso       → calcolato come €/m × metri tessuto del prodotto
+     *
      * Ordine di applicazione:
-     * 1) Override coppia tessuto×colore: unit_price oppure surcharge rispetto al base.
-     * 2) Altrimenti, surcharge tessuto → da pivot; se NULL, fallback ai campi su 'fabrics'.
-     * 3) Poi surcharge colore → da pivot; se NULL, fallback ai campi su 'colors'.
+     * 1) Override coppia tessuto×colore (se presente):
+     *      - unit_price → prezzo finale diretto
+     *      - surcharge_type/value → unico delta rispetto a base (con regola percent/fixed sopra)
+     * 2) Altrimenti surcharge TESSUTO → prima da pivot prodotto (se valorizzato), altrimenti da tabella 'fabrics'
+     * 3) Poi surcharge COLORE → prima da pivot prodotto (se valorizzato), altrimenti da tabella 'colors'
      *
      * @return array{
      *   base_price:float,
@@ -193,12 +200,15 @@ class Product extends Model
         ?int $customerId = null,
         $atDate = null
     ): array {
-        // 0) Base effettivo dal resolver (con meta opzionale per debug/UI)
-        $meta = $this->basePriceMetaFor($customerId, $atDate);
-        $base = $this->effectiveBasePriceFor($customerId, $atDate);
+        // 0) Base effettivo (listino/cliente) + fonte (per eventuale UI/debug)
+        $meta       = $this->basePriceMetaFor($customerId, $atDate);
+        $base       = $this->effectiveBasePriceFor($customerId, $atDate);
         $baseSource = $meta['source'] ?? null;
 
-        // 1) Override di coppia (se configurato)
+        // Metri di tessuto da usare per il calcolo dei "fixed"
+        $meters = $this->resolveBaseFabricMeters();
+
+        // 1) Override di COPPIA (se configurato)
         if ($fabricId && $colorId) {
             $pair = $this->fabricColorOverrides()
                 ->where('fabric_id', $fabricId)
@@ -206,6 +216,7 @@ class Product extends Model
                 ->first();
 
             if ($pair) {
+                // 1a) unit_price diretto: bypassa ogni calcolo
                 if (isset($pair->unit_price) && $pair->unit_price !== null) {
                     return [
                         'base_price'        => $base,
@@ -218,8 +229,11 @@ class Product extends Model
                     ];
                 }
 
+                // 1b) surcharge_type/value: percent su base, fixed su metri
                 if (isset($pair->surcharge_type, $pair->surcharge_value)) {
-                    $delta = $this->applySurcharge($base, $pair->surcharge_type, $pair->surcharge_value);
+                    $delta = $this->applySurchargeWithContext($base, $pair->surcharge_type, $pair->surcharge_value, $meters);
+
+                    // Manteniamo la shape storica: mettiamo il delta in color_surcharge e segnaliamo la fonte
                     return [
                         'base_price'        => $base,
                         'base_source'       => $baseSource,
@@ -233,8 +247,8 @@ class Product extends Model
             }
         }
 
-        // 2) Sovrapprezzo TESSUTO: pivot → fallback tabella fabrics
-        $fabricS = 0.0;
+        // 2) Sovrapprezzo TESSUTO: pivot → fallback 'fabrics'
+        $fabricS  = 0.0;
         $fabricSrc = null;
 
         if ($fabricId) {
@@ -244,8 +258,9 @@ class Product extends Model
             if ($pf) {
                 $type = $pf->pivot->surcharge_type ?? null;
                 $val  = $pf->pivot->surcharge_value ?? null;
+
                 if (!is_null($type) || !is_null($val)) {
-                    $fabricS  = $this->applySurcharge($base, $type, $val);
+                    $fabricS  = $this->applySurchargeWithContext($base, $type, $val, $meters);
                     $fabricSrc = 'pivot';
                 }
             }
@@ -253,7 +268,7 @@ class Product extends Model
             if ($fabricSrc === null) {
                 $fab = $pf ?: Fabric::find($fabricId); // se non già caricato
                 if ($fab && (Schema::hasColumn('fabrics', 'surcharge_type') || Schema::hasColumn('fabrics', 'surcharge_value'))) {
-                    $fabricS  = $this->applySurcharge($base, $fab->surcharge_type ?? null, $fab->surcharge_value ?? null);
+                    $fabricS  = $this->applySurchargeWithContext($base, $fab->surcharge_type ?? null, $fab->surcharge_value ?? null, $meters);
                     $fabricSrc = 'fabric';
                 } else {
                     $fabricS  = 0.0;
@@ -262,8 +277,8 @@ class Product extends Model
             }
         }
 
-        // 3) Sovrapprezzo COLORE: pivot → fallback tabella colors
-        $colorS = 0.0;
+        // 3) Sovrapprezzo COLORE: pivot → fallback 'colors'
+        $colorS  = 0.0;
         $colorSrc = null;
 
         if ($colorId) {
@@ -273,8 +288,9 @@ class Product extends Model
             if ($pc) {
                 $type = $pc->pivot->surcharge_type ?? null;
                 $val  = $pc->pivot->surcharge_value ?? null;
+
                 if (!is_null($type) || !is_null($val)) {
-                    $colorS  = $this->applySurcharge($base, $type, $val);
+                    $colorS  = $this->applySurchargeWithContext($base, $type, $val, $meters);
                     $colorSrc = 'pivot';
                 }
             }
@@ -282,7 +298,7 @@ class Product extends Model
             if ($colorSrc === null) {
                 $col = $pc ?: Color::find($colorId);
                 if ($col && (Schema::hasColumn('colors', 'surcharge_type') || Schema::hasColumn('colors', 'surcharge_value'))) {
-                    $colorS  = $this->applySurcharge($base, $col->surcharge_type ?? null, $col->surcharge_value ?? null);
+                    $colorS  = $this->applySurchargeWithContext($base, $col->surcharge_type ?? null, $col->surcharge_value ?? null, $meters);
                     $colorSrc = 'color';
                 } else {
                     $colorS  = 0.0;
@@ -320,6 +336,58 @@ class Product extends Model
             'unit_price'       => $b['unit_price'],
         ];
     }
+
+    /**
+     * Ricava i metri di tessuto usati dal prodotto (quantità della riga TESSU in distinta).
+     *
+     * Ordine di risoluzione:
+     * 1) Se il model ha una colonna/attributo 'base_fabric_qty_m' → usa quella.
+     * 2) Altrimenti, cerca nella distinta del prodotto (product_components)
+     *    la riga il cui componente appartiene alla categoria 'TESSU' e legge la quantità.
+     *
+     * @return float Metri (0.0 se non trovati)
+     */
+    protected function resolveBaseFabricMeters(): float
+    {
+        // 1) Attributo diretto (se esiste nella tabella products)
+        if (array_key_exists('base_fabric_qty_m', $this->attributes ?? []) && !is_null($this->base_fabric_qty_m)) {
+            return (float) $this->base_fabric_qty_m;
+        }
+
+        // 2) Fallback: leggi dalla distinta (product_components → components → component_categories)
+        $qty = DB::table('product_components as pc')
+            ->join('components as c', 'c.id', '=', 'pc.component_id')
+            ->join('component_categories as cc', 'cc.id', '=', 'c.category_id')
+            ->where('pc.product_id', $this->id)
+            ->where('cc.code', 'TESSU')
+            ->value('pc.quantity');
+
+        return (float) ($qty ?? 0.0);
+    }
+
+    /**
+     * Calcola il sovrapprezzo con contesto:
+     * - 'percent' → percentuale del prezzo base prodotto
+     * - 'fixed'   → importo €/m * metri di tessuto del prodotto
+     *
+     * @param  float       $base    Prezzo base prodotto (unitario)
+     * @param  string|null $type    'percent'|'percentage'|'%'  oppure 'fixed'|'amount'|'€'|'eur'|null
+     * @param  mixed       $value   Valore percentuale o €/m
+     * @param  float       $meters  Metri di tessuto da applicare nel caso 'fixed'
+     * @return float                Delta (€) calcolato
+     */
+    protected function applySurchargeWithContext(float $base, ?string $type, $value, float $meters): float
+    {
+        $v = is_null($value) ? 0.0 : (float) $value;
+        $t = is_null($type) ? null : strtolower(trim($type));
+
+        return match ($t) {
+            'percent', 'percentage', '%' => $base * ($v / 100),     // % sul prezzo base
+            'fixed', 'amount', '€', 'eur', null, '' => $v * max($meters, 0.0), // €/m × metri
+            default => $v * max($meters, 0.0),                       // fallback: tratta come fisso €/m
+        };
+    }
+
 
     /* ───────────────────────── Utility placeholder TESSU (opzionale tua logica) ───────────────────────── */
 
