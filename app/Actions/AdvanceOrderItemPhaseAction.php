@@ -21,6 +21,7 @@
 namespace App\Actions;
 
 use App\Enums\ProductionPhase;
+use App\Models\Component;
 use App\Models\OrderItem;
 use App\Models\OrderItemPhaseEvent;
 use App\Models\StockLevel;
@@ -68,6 +69,7 @@ final readonly class AdvanceOrderItemPhaseAction
             $item = OrderItem::whereKey($this->item->id)   // = WHERE id = 342
                 ->lockForUpdate()
                 ->firstOrFail();
+            $item->loadMissing('variable', 'product.components.category.phaseLinks');
 
             Log::debug('[AdvanceOrderItemPhaseAction] item locked', [
                 'item' => $item->id,
@@ -174,8 +176,9 @@ final readonly class AdvanceOrderItemPhaseAction
                         ->contains(fn ($p) => $p->value === $toPhase);
 
                     if ($belongs) {
-                        $componentsQty[$comp->id] = ($componentsQty[$comp->id] ?? 0)
-                            + $comp->pivot->quantity * $this->quantity;
+                        $effective = $this->effectiveComponentForItem($item, $comp);
+                        $qty = (float) $comp->pivot->quantity * $this->quantity;
+                        $componentsQty[$effective->id] = ($componentsQty[$effective->id] ?? 0) + $qty;
                     }
                 }
 
@@ -279,6 +282,8 @@ final readonly class AdvanceOrderItemPhaseAction
      *───────────────────────────────────────────────────────────────────────*/
     private function checkReservations(OrderItem $item, int $destPhase): array
     {
+        $item->loadMissing('variable', 'product.components.category.phaseLinks');
+
         $components = $item->product?->components()
             ->with('category.phaseLinks')
             ->get()
@@ -291,12 +296,15 @@ final readonly class AdvanceOrderItemPhaseAction
         $missing = [];
 
         foreach ($components as $comp) {
-            $needed   = $comp->pivot->quantity * $this->quantity;
+
+            $effective = $this->effectiveComponentForItem($item, $comp);
+
+            $needed   = (float) $comp->pivot->quantity * $this->quantity;
 
             $reserved = DB::table('stock_reservations as sr')
                 ->join('stock_levels as sl', 'sl.id', '=', 'sr.stock_level_id')
                 ->where('sr.order_id',     $item->order_id)
-                ->where('sl.component_id', $comp->id)
+                ->where('sl.component_id', $effective->id)
                 ->sum('sr.quantity');
             
             Log::debug('[AdvanceOrderItemPhaseAction] check reservations', [
@@ -305,11 +313,46 @@ final readonly class AdvanceOrderItemPhaseAction
                 'reserved'  => $reserved,
             ]);
 
-            if ($reserved < $needed) {
-                $missing[] = $comp->code;
+            if ($reserved + 1e-6 < $needed) {
+                $missing[] = $effective->code;
             }
         }
 
         return $missing;
     }
+
+    /**
+     * Restituisce il componente effettivo per l'item, rispettando le variabili.
+     * - se la BOM non è variabile → ritorna il placeholder
+     * - se esiste resolved_component_id → usa quello
+     * - fallback: cerca per category + fabric/color dell'item
+     */
+    private function effectiveComponentForItem(OrderItem $item, $bomComponent)
+    {
+        if (!($bomComponent->pivot?->is_variable)) {
+            return $bomComponent;
+        }
+
+        $resolvedId = $item->variable?->resolved_component_id;
+        if ($resolvedId) {
+            $x = Component::find($resolvedId);
+            if ($x) return $x;
+            Log::warning('[AdvanceOrderItemPhaseAction] resolved_component_id non trovato – fallback ricerca FC', [
+                'order_item_id' => $item->id,
+                'resolved_id'   => $resolvedId,
+            ]);
+        }
+
+        $fabricId = $item->variable?->fabric_id;
+        $colorId  = $item->variable?->color_id;
+
+        $cand = Component::query()
+            ->where('category_id', $bomComponent->category_id)
+            ->when($fabricId, fn($q) => $q->where('fabric_id', $fabricId))
+            ->when($colorId,  fn($q) => $q->where('color_id',  $colorId))
+            ->first();
+
+        return $cand ?: $bomComponent;
+    }
+
 }

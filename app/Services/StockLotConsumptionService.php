@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Component;
 use App\Models\OrderItem;
+use App\Models\StockLevel;
 use App\Models\StockLevelLot;
 use App\Models\StockMovement;
 use App\Models\StockReservation;
@@ -54,18 +55,18 @@ class StockLotConsumptionService
 
             /* ── 2. PRE-CHECK stock_reservations -------------------------- */
             foreach ($components as $c) {
-                $need = $c->pivot->quantity * $qtyPieces;
+                $effective = $this->effectiveComponentForItem($item, $c); // 👈
+
+                $need = (float) $c->pivot->quantity * $qtyPieces;
 
                 $reserved = StockReservation::query()
                     ->where('order_id', $item->order_id)
-                    ->whereHas('stockLevel',
-                        fn ($q) => $q->where('component_id', $c->id))
+                    ->whereHas('stockLevel', fn ($q) => $q->where('component_id', $effective->id)) // 👈
                     ->sum('quantity');
 
                 if ($reserved + 1e-6 < $need) {
-                    // ⬇️ qualsiasi eccezione fa rollback automatico
                     throw ValidationException::withMessages([
-                        'stock' => "Componenti insufficienti per {$c->code}: "
+                        'stock' => "Componenti insufficienti per {$effective->code}: "
                                 ."necessari {$need}, giacenza riservata {$reserved}.",
                     ]);
                 }
@@ -74,26 +75,37 @@ class StockLotConsumptionService
             /* ── 3. consumo lotti & rilascio reservation ------------------ */
             foreach ($components as $c) {
 
-                $needed = $c->pivot->quantity * $qtyPieces;
+                $effective = $this->effectiveComponentForItem($item, $c); // 👈
+                $needed    = (float) $c->pivot->quantity * $qtyPieces;
 
-                $lots = StockLevelLot::query()
-                    ->where('stock_level_id', $c->stockLevels()->value('id'))
-                    ->where('quantity', '>', 0)
+                // ⬇️ scorri tutti gli stock level del componente effettivo (FIFO su created_at)
+                $stockLevels = StockLevel::query()
+                    ->where('component_id', $effective->id)
                     ->orderBy('created_at')
                     ->lockForUpdate()
                     ->get();
 
-                foreach ($lots as $lot) {
+                foreach ($stockLevels as $sl) {
                     if ($needed <= 0) break;
-                    $needed = $this->consumeLot($lot, $needed, $item, $fromPhase);
+
+                    $lots = StockLevelLot::query()
+                        ->where('stock_level_id', $sl->id)
+                        ->where('quantity', '>', 0)
+                        ->orderBy('created_at')
+                        ->lockForUpdate()
+                        ->get();
+
+                    foreach ($lots as $lot) {
+                        if ($needed <= 0) break;
+                        $needed = $this->consumeLot($lot, $needed, $item, $fromPhase);
+                    }
                 }
 
                 if ($needed > 0) {
-                    // lancerà eccezione → tutta la transazione si annulla
                     throw ValidationException::withMessages([
                         'stock' => "Consumo lotti interrotto: "
                                 .number_format($needed,2,'.','')
-                                ." mancanti di {$c->code}.",
+                                ." mancanti di {$effective->code}.",
                     ]);
                 }
             }
@@ -208,4 +220,33 @@ class StockLotConsumptionService
             'qty_released'   => $qtyToRelease,
         ]);
     }
+
+    private function effectiveComponentForItem(OrderItem $item, $bomComponent)
+    {
+        if (!($bomComponent->pivot?->is_variable)) {
+            return $bomComponent;
+        }
+
+        $resolvedId = $item->variable?->resolved_component_id;
+        if ($resolvedId) {
+            $x = Component::find($resolvedId);
+            if ($x) return $x;
+            Log::warning('[StockLotConsumptionService] resolved_component_id non trovato – fallback ricerca FC', [
+                'order_item_id' => $item->id,
+                'resolved_id'   => $resolvedId,
+            ]);
+        }
+
+        $fabricId = $item->variable?->fabric_id;
+        $colorId  = $item->variable?->color_id;
+
+        $cand = Component::query()
+            ->where('category_id', $bomComponent->category_id)
+            ->when($fabricId, fn($q) => $q->where('fabric_id', $fabricId))
+            ->when($colorId,  fn($q) => $q->where('color_id',  $colorId))
+            ->first();
+
+        return $cand ?: $bomComponent;
+    }
+
 }
