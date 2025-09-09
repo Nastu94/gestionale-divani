@@ -298,12 +298,12 @@ class FabricColorAdminController extends Controller
             ->leftJoin('products as p',    'p.id',  '=', 'oi.product_id')
             ->leftJoin('customers as c',   'c.id',  '=', 'o.customer_id')
             ->leftJoin('occasional_customers as oc', 'oc.id', '=', 'o.occasional_customer_id')
-            ->where('opv.slot', 'TESSU')
+            ->where('opv.slot', 'FABRIC_MAIN')
             ->where('opv.resolved_component_id', $component->id)
             ->orderByDesc('o.created_at') // più recenti in alto
             ->select([
                 'o.id            as order_id',
-                'o.created_at    as ordered_at',        // data ordine (fallback portabile)
+                DB::raw("DATE_FORMAT(o.created_at, '%d/%m/%Y') as ordered_at_fmt"),        // data ordine (fallback portabile)
                 'oi.id           as order_item_id',
                 'oi.quantity     as qty',
                 'oi.unit_price   as unit_price',        // prezzo unitario riga (finale)

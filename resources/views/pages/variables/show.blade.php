@@ -187,12 +187,12 @@
                         <table class="min-w-full text-sm">
                             <thead>
                                 <tr class="bg-gray-50 text-left">
-                                    <th class="px-2 py-1 whitespace-nowrap">N. ordine</th>
+                                    <th class="px-2 py-1 whitespace-nowrap">#</th>
                                     <th class="px-2 py-1 whitespace-nowrap">Data</th>
                                     <th class="px-2 py-1">Cliente</th>
                                     <th class="px-2 py-1">Prodotto</th>
-                                    <th class="px-2 py-1 text-right whitespace-nowrap">Q.tà riga</th>
-                                    <th class="px-2 py-1 text-right whitespace-nowrap">Sovrapprezzo</th>
+                                    <th class="px-2 py-1 text-right whitespace-nowrap">Q.tà</th>
+                                    <th class="px-2 py-1 text-right whitespace-nowrap">Sovrappr.</th>
                                     <th class="px-2 py-1 text-right whitespace-nowrap">Prezzo unit.</th>
                                 </tr>
                             </thead>
@@ -200,16 +200,15 @@
                                 @foreach($orderUsages as $u)
                                     @php
                                         $cust = $u->customer_name ?: $u->occasional_name ?: '—';
-                                        $prod = trim(($u->product_code ? ($u->product_code.' — ') : '').($u->product_name ?? ''));
                                     @endphp
                                     <tr class="border-t">
-                                        <td class="px-2 py-1 font-mono">#{{ $u->order_id }}</td>
-                                        <td class="px-2 py-1">{{ optional($u->ordered_at)->format('d/m/Y H:i') }}</td>
-                                        <td class="px-2 py-1">{{ $cust }}</td>
-                                        <td class="px-2 py-1">{{ $prod !== '' ? $prod : '—' }}</td>
-                                        <td class="px-2 py-1 text-right">{{ $fmtQty($u->qty ?? 1) }}</td>
-                                        <td class="px-2 py-1 text-right">€ {{ $fmtMoney($u->surcharge_total ?? 0) }}</td>
-                                        <td class="px-2 py-1 text-right">€ {{ $fmtMoney($u->unit_price ?? 0) }}</td>
+                                        <td class="px-2 py-1 font-mono text-xs">{{ $u->order_id }}</td>
+                                        <td class="px-2 py-1 text-xs">{{ $u->ordered_at_fmt }}</td>
+                                        <td class="px-2 py-1 text-xs">{{ $cust }}</td>
+                                        <td class="px-2 py-1 text-xs">{{ $u->product_name !== '' ? $u->product_name : '—' }}</td>
+                                        <td class="px-2 py-1 text-xs text-right">{{ $fmtQty($u->qty ?? 1) }}</td>
+                                        <td class="px-2 py-1 text-xs text-right">€ {{ $fmtMoney($u->surcharge_total ?? 0) }}</td>
+                                        <td class="px-2 py-1 text-xs text-right">€ {{ $fmtMoney($u->unit_price ?? 0) }}</td>
                                     </tr>
                                 @endforeach
                             </tbody>
