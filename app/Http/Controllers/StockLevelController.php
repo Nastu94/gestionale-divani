@@ -375,7 +375,7 @@ class StockLevelController extends Controller
         $data = $request->validate([
             'order_id'          => 'nullable|exists:orders,id',
             'component_code'    => 'required|string|exists:components,code',
-            'qty_received'      => 'required|numeric|min:0.01',
+            'qty_received'      => 'required|numeric|min:0',
             'lot_supplier'      => 'nullable|string|max:50',
             'internal_lot_code' => 'required|string|max:50',
         ], [
@@ -699,7 +699,7 @@ class StockLevelController extends Controller
         $payload = $request->validate([
             'lots'                => ['required','array','min:1'],
             'lots.*.id'           => ['nullable','exists:stock_level_lots,id'],
-            'lots.*.qty'          => ['required','numeric','min:0.01'],
+            'lots.*.qty'          => ['required','numeric','min:0'],
             'lots.*.lot_supplier' => ['nullable','string','max:50'],
             'allow_shortfall'     => ['sometimes','boolean'],
         ], [
@@ -708,7 +708,7 @@ class StockLevelController extends Controller
             'lots.*.id'            => 'ID lotto mancante.',
             'lots.*.id.exists'     => 'Lotto non trovato.',
             'lots.*.qty.required'  => 'Quantità mancante.',
-            'lots.*.qty.min'       => 'La quantità deve essere almeno 0.01.',
+            'lots.*.qty.min'       => 'La quantità deve essere almeno 0.',
             'lots.*.lot_supplier.max' => 'Il lotto fornitore non può superare i 50 caratteri.',
         ]);
 

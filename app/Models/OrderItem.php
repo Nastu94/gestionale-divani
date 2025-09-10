@@ -27,7 +27,8 @@ class OrderItem extends Model
         'generated_by_order_customer_id', // ID dell'ordine cliente che ha generato questa riga, se applicabile
         'current_phase', // Fase di produzione corrente
         'qty_completed', // Quantità completata nella fase corrente
-        'phase_updated_at' // Timestamp dell'ultimo aggiornamento della fase
+        'phase_updated_at', // Timestamp dell'ultimo aggiornamento della fase
+        'discount',
     ];
 
     /**
@@ -40,6 +41,7 @@ class OrderItem extends Model
         'current_phase' => ProductionPhase::class,
         'qty_completed' => 'float',
         'phase_updated_at' => 'datetime',
+        'discount' => 'array',
     ];
 
     /**

@@ -132,6 +132,15 @@
                         <input type="text" :value="formatCurrency(total)" class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
                                text-sm text-gray-900 dark:text-gray-100" readonly>
                     </div>
+                    {{-- Flag anonimo "#" (orders.hash_flag) - checkbox senza label visibile --}}
+                    <div class="flex items-center justify-end">
+                        {{-- Checkbox senza label testuale; manteniamo solo tooltip e un badge # quando attivo --}}
+                        <input  id="hash_flag"
+                                type="checkbox"
+                                x-model="hash_flag"
+                                title="Flag #"
+                                class="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500 cursor-pointer" />
+                    </div>
                 </div>
             </div>
 
@@ -271,7 +280,7 @@
                     </div>
                 </div>
 
-                {{-- [AGGIUNTA] Selezione variabili per la riga corrente --}}
+                {{-- Selezione variabili per la riga corrente --}}
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
                     {{-- Tessuto --}}
                     <div>
@@ -308,6 +317,49 @@
                     </div>
                 </div>
 
+                {{-- Sconti riga multipli (order_items.discount) --}}
+                <div class="md:col-span-3 mt-2">
+                    <div class="flex items-center justify-start space-x-2">
+                        <label class="block text-sm font-medium">Sconti riga</label>
+                        <button type="button"
+                                class="text-xs text-emerald-700 hover:underline"
+                                @click="discountsDraft.push({ type: 'percent', value: '' })">
+                            + Aggiungi sconto
+                        </button>
+                    </div>
+
+                    <template x-for="(d, i) in discountsDraft" :key="'disc'+i">
+                        <div class="mt-2 flex items-center gap-2">
+                            {{-- Tipo sconto: percentuale o fisso --}}
+                            <select x-model="d.type"
+                                    class="px-2 py-1 border rounded bg-gray-50 dark:bg-gray-700 text-xs">
+                                <option value="percent">%</option>
+                                <option value="fixed">Fisso</option>
+                            </select>
+
+                            {{-- Valore sconto --}}
+                            <input  type="number" step="0.01" min="0"
+                                    x-model.number="d.value"
+                                    placeholder="valore"
+                                    class="px-2 py-1 border rounded bg-gray-50 dark:bg-gray-700 text-xs w-24" />
+
+                            {{-- Rappresentazione token che andrà salvata (es. "10%" o "25") --}}
+                            <span class="text-[11px] text-gray-600"
+                                x-text="d.type === 'percent' && d.value !== '' ? (Number(d.value) + '%') : (d.value ?? '')">
+                            </span>
+
+                            {{-- Rimuovi riga --}}
+                            <button type="button" class="text-xs text-red-600"
+                                    @click="discountsDraft.splice(i, 1)">
+                                Rimuovi
+                            </button>
+                        </div>
+                    </template>
+
+                    {{-- Nota: nel DB salveremo un array di stringhe ["10%","25"] --}}
+                </div>
+
+
                 <div class="flex justify-end">
                     <button type="button"
                             class="mt-3 inline-flex items-center justify-center
@@ -318,7 +370,17 @@
                         <i class="fas fa-plus-square mr-1"></i> Aggiungi prodotto
                     </button>
                 </div>
+            </div>
 
+            {{-- Note ordine (orders.note) --}}
+            <div class="border-t pt-4 mt-4">
+                <label class="block text-sm font-medium">Note ordine</label>
+                <textarea x-model="note"
+                        rows="3"
+                        placeholder="Annotazioni interne…"
+                        class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
+                                text-sm text-gray-900 dark:text-gray-100"></textarea>
+                {{-- Le note saranno salvate in orders.note e mostrate nella sidebar "Visualizza" --}}
             </div>
 
             {{-- ========= SALVA ========= --}}
@@ -384,6 +446,8 @@
             delivery_date    : '',
             order_number_id  : null,
             order_number     : '—',
+            hash_flag        : false,
+            note             : '',
 
             /* ==== Cliente ==== */
             customerSearch   : '',
@@ -398,6 +462,7 @@
             selectedProduct  : null,
             price            : 0,
             quantity         : 1,
+            discountsDraft : [],
 
             /* ==== Variabili di riga (nuove) ==== */
             fabricOptions : [],   // opzioni tessuto filtrate dalla whitelist prodotto
@@ -465,6 +530,9 @@
                 this.checking       = false;
                 this.fabricOptions=[]; this.colorOptions=[];
                 this.fabric_id=''; this.color_id='';
+                this.discountsDraft = [];
+                this.hash_flag = false;
+                this.note = '';
             },
 
             /* ==== Prenota progressivo ==== */
@@ -539,6 +607,11 @@
                 if(!this.selectedProduct || this.quantity<=0) return;
                 const qty  = Number(this.quantity || 1);
                 const unit = Number(this.price || 0);
+
+                // Trasforma il repeater in array di stringhe: "N%" per percentuale, "N" per fisso
+                const discountTokens = (this.discountsDraft || [])
+                    .filter(d => d && d.value !== '' && !Number.isNaN(Number(d.value)))
+                    .map(d => d.type === 'percent' ? `${Number(d.value)}%` : `${Number(d.value)}`);
                 this.lines.push({
                     product  : this.selectedProduct,
                     qty      : qty,
@@ -548,11 +621,18 @@
                     color_id    : this.color_id  || null,
                     fabric_name : window.GD_findName(window.GD_VARIABLE_OPTIONS.fabrics, this.fabric_id),
                     color_name  : window.GD_findName(window.GD_VARIABLE_OPTIONS.colors,  this.color_id),
+                    discount    : discountTokens,
                 });
                 this.availabilityOk = null; 
                 this.total = this.lines.reduce((s,l)=>s+(l.subtotal||0),0);
                 // reset input riga
-                this.selectedProduct=null; this.productSearch=''; this.price=0; this.quantity=1; this.fabric_id=null; this.color_id=null;
+                this.selectedProduct=null; 
+                this.productSearch=''; 
+                this.price=0; 
+                this.quantity=1; 
+                this.fabric_id=null; 
+                this.color_id=null;
+                this.discountsDraft  = [];
             },
 
             editLine(i){
@@ -567,6 +647,13 @@
                 this.loadProductWhitelist(l.product.id, l.fabric_id ?? null, l.color_id ?? null);
                 this.productSearch='';
                 this.availabilityOk = null; 
+                this.discountsDraft = Array.isArray(l.discount)
+                    ? l.discount.map(tok => {
+                        const isPerc = typeof tok === 'string' && tok.trim().endsWith('%');
+                        const val = parseFloat(isPerc ? tok.slice(0, -1) : tok);
+                        return { type: isPerc ? 'percent' : 'fixed', value: Number.isFinite(val) ? val : '' };
+                    })
+                    : [];
             },
 
             removeLine(i){ this.lines.splice(i,1); this.availabilityOk = null; },
@@ -592,6 +679,8 @@
                     occasional_customer_id : this.occasional_customer_id ?? null,
                     delivery_date   : this.delivery_date,
                     shipping_address: this.selectedCustomer.shipping_address,
+                    hash_flag       : this.hash_flag ? 1 : 0,
+                    note            : (this.note && String(this.note).trim().length) ? this.note.trim() : null,
                     /* righe */
                     lines : this.lines.map(l => ({
                         product_id : l.product.id,
@@ -599,6 +688,7 @@
                         price      : l.price,
                         fabric_id  : l.fabric_id || null,
                         color_id   : l.color_id  || null,
+                        discount   : Array.isArray(l.discount) ? l.discount : [],
                     }))
                 }
 
@@ -668,6 +758,8 @@
                     this.selectedCustomer = o.customer ?? o.occ_customer      // oggetto completo
                     this.selectedCustomer.shipping_address = o.shipping_address ?? '' // indirizzo spedizione
                     this.customerSearch   = this.selectedCustomer?.company ?? ''   // → input popolato
+                    this.hash_flag = !!o.hash_flag;
+                    this.note      = o.note ?? '';
 
                     this.lines = o.lines.map(l => ({
                         product  : { id:l.product_id, sku:l.sku, name:l.name },
@@ -677,7 +769,8 @@
                         color_id : l.color_id,
                         fabric_name : window.GD_findName(window.GD_VARIABLE_OPTIONS.fabrics, l.fabric_id),
                         color_name  : window.GD_findName(window.GD_VARIABLE_OPTIONS.colors,  l.color_id),
-                        subtotal : l.quantity * l.price
+                        subtotal : l.quantity * l.price,
+                        discount  : Array.isArray(l.discount) ? l.discount : [],
                     }))
 
                     /* reset campi “nuova riga” */

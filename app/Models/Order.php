@@ -39,6 +39,11 @@ class Order extends Model
         'bill_number', // Numero bolla di consegna
         'shipping_address', // Indirizzo di spedizione
         'min_phase', // Fase minima di produzione
+        'stato',       // Stato dell'ordine (completato o meno)
+        'note',        // Note aggiuntive
+        'reason',      // Motivo dell'ordine
+        'confirmed_at', // Data di conferma dell'ordine
+        'hash_flag',   // Flag di hash per identificazione univoca
     ];
 
     protected static $logName = 'order';
@@ -73,7 +78,12 @@ class Order extends Model
         'registration_date', // Data registrazione magazzino
         'bill_number', // Numero bolla di consegna
         'shipping_address',
-        'min_phase' // Fase minima di produzione
+        'min_phase', // Fase minima di produzione
+        'stato',
+        'note',
+        'reason',
+        'confirmed_at',
+        'hash_flag',
     ];
 
     /**
@@ -84,6 +94,11 @@ class Order extends Model
         'delivery_date'     => 'date:d/m/Y',
         'registration_date' => 'date:d/m/Y',
         'has_shortfall' => 'bool',
+        'hash_flag'    => 'boolean',
+        'stato'        => 'boolean',
+        'note'         => 'string',
+        'reason'       => 'string',
+        'confirmed_at' => 'datetime',
     ];
 
     /**
@@ -144,6 +159,16 @@ class Order extends Model
         )
         ->withTimestamps()
         ->with('stockLevel');
+    }
+
+    
+    /**
+     * Relazione: Ordine -> molti ProductStockLevels (prodotti finiti da reso rivendibili).
+     * Utile per verificare priorità di disponibilità prima di andare su componenti/PO.
+     */
+    public function productStockLevels()
+    {
+        return $this->hasMany(ProductStockLevel::class, 'order_id');
     }
 
     /**

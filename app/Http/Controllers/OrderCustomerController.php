@@ -218,35 +218,35 @@ class OrderCustomerController extends Controller
             if ($type === 'percent') { $percentSum += $v; return $base * ($v / 100); }
             $fixedSum += $v; return $v;
         };
-        $resolveResolvedComponentId = function (\App\Models\Product $product, ?int $fabricId, ?int $colorId): ?int {
+        $resolveResolvedComponentId = function (Product $product, ?int $fabricId, ?int $colorId): ?int {
             $placeholder = $product->variableComponent();    // riga BOM “slot”
             if (! $placeholder) return null;
-            $qid = \App\Models\Component::query()
+            $qid = Component::query()
                 ->where('category_id', $placeholder->category_id)
                 ->when($fabricId, fn($q)=>$q->where('fabric_id', $fabricId))
                 ->when($colorId,  fn($q)=>$q->where('color_id',  $colorId))
                 ->value('id');
             return $qid ?: $placeholder->id; // fallback prudente allo slot, se vuoi metti null
         };
-        $fabricMeta = function (\App\Models\Product $product, ?int $fabricId): array {
+        $fabricMeta = function (Product $product, ?int $fabricId): array {
             if (!$fabricId) return ['type'=>null,'value'=>null];
             $pf = $product->fabrics()->where('fabrics.id', $fabricId)->first();
             $type  = $pf?->pivot?->surcharge_type;
             $value = $pf?->pivot?->surcharge_value;
             if ($type === null || $value === null) { // fallback alla tabella fabrics
-                $fab   = \App\Models\Fabric::select('surcharge_type','surcharge_value')->find($fabricId);
+                $fab   = Fabric::select('surcharge_type','surcharge_value')->find($fabricId);
                 $type  = $fab?->surcharge_type;
                 $value = $fab?->surcharge_value;
             }
             return ['type'=>$type, 'value'=>$value];
         };
-        $colorMeta = function (\App\Models\Product $product, ?int $colorId): array {
+        $colorMeta = function (Product $product, ?int $colorId): array {
             if (!$colorId) return ['type'=>null,'value'=>null];
             $pc = $product->colors()->where('colors.id', $colorId)->first();
             $type  = $pc?->pivot?->surcharge_type;
             $value = $pc?->pivot?->surcharge_value;
             if ($type === null || $value === null) { // fallback alla tabella colors
-                $col   = \App\Models\Color::select('surcharge_type','surcharge_value')->find($colorId);
+                $col   = Color::select('surcharge_type','surcharge_value')->find($colorId);
                 $type  = $col?->surcharge_type;
                 $value = $col?->surcharge_value;
             }
