@@ -382,12 +382,15 @@ class Product extends Model
         $t = is_null($type) ? null : strtolower(trim($type));
 
         return match ($t) {
-            'percent', 'percentage', '%' => $base * ($v / 100),     // % sul prezzo base
-            'fixed', 'amount', '€', 'eur', null, '' => $v * max($meters, 0.0), // €/m × metri
-            default => $v * max($meters, 0.0),                       // fallback: tratta come fisso €/m
+            'percent', 'percentage', '%' => $base * ($v / 100),
+
+            // FIX: se non ho metri (o non hanno senso per quella regola), tratto come importo assoluto
+            'fixed', 'amount', '€', 'eur', null, '' =>
+                ($meters > 0.0 ? $v * $meters : $v),
+
+            default => ($meters > 0.0 ? $v * $meters : $v),
         };
     }
-
 
     /* ───────────────────────── Utility placeholder TESSU (opzionale tua logica) ───────────────────────── */
 

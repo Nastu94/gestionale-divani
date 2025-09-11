@@ -105,6 +105,7 @@ class OrderUpdateService
                     $existing->update([
                         'quantity'   => (float) $line['quantity'],
                         'unit_price' => (string) $line['price'],
+                        'discount'   => $line['discount'] ?? [],
                     ]);
 
                     $existing->variable()->updateOrCreate(
@@ -124,6 +125,7 @@ class OrderUpdateService
                         'product_id' => (int) $line['product_id'],
                         'quantity'   => (float) $line['quantity'],
                         'unit_price' => (string) $line['price'],
+                        'discount'   => $line['discount'] ?? [],
                     ]);
 
                     $item->variable()->create([
@@ -221,45 +223,56 @@ class OrderUpdateService
     protected function reserveFromStockFirst(Order $order, Collection $shortageRows, array &$remaining): void
     {
         foreach ($shortageRows as $row) {
-            $cid       = (int) $row['component_id'];
-            $needLeft  = (float) ($remaining[$cid] ?? 0);
+            $cid      = (int) $row['component_id'];
+            $needLeft = (float) ($remaining[$cid] ?? 0);
             if ($needLeft <= 0) continue;
 
-            $available = (float) ($row['available'] ?? 0);
-            $fromStock = min($available, $needLeft);
+            // Quanta qty posso teoricamente prendere dallo stock fisico (cap a available)
+            $canTakeFromStock = min((float) ($row['available'] ?? 0), $needLeft);
+            if ($canTakeFromStock <= 0) continue;
 
-            if ($fromStock > 0) {
-                // FIFO sui lotti del componente
-                StockLevel::where('component_id', $cid)
-                    ->orderBy('created_at')
-                    ->each(function (StockLevel $sl) use ($order, &$fromStock) {
-                        if ($fromStock <= 0) return false;
+            $toTake = $canTakeFromStock;
 
-                        $already = $sl->stockReservations()->sum('quantity');
-                        $free    = $sl->quantity - $already;
-                        if ($free <= 0) return true;
+            // FIFO sui lotti del componente, con lock per concorrenza
+            $levels = StockLevel::query()
+                ->where('component_id', $cid)
+                ->orderBy('created_at')
+                ->lockForUpdate()
+                ->get();
 
-                        $take = min($free, $fromStock);
+            foreach ($levels as $sl) {
+                if ($toTake <= 0) break;
 
-                        StockReservation::create([
-                            'stock_level_id' => $sl->id,
-                            'order_id'       => $order->id,
-                            'quantity'       => $take,
-                        ]);
+                // qty già prenotata su questo stock level
+                $already = StockReservation::query()
+                    ->where('stock_level_id', $sl->id)
+                    ->sum('quantity');
 
-                        StockMovement::create([
-                            'stock_level_id' => $sl->id,
-                            'type'           => 'reserve',
-                            'quantity'       => $take,
-                            'note'           => "Prenotazione stock per OC #{$order->id} (update)",
-                        ]);
+                $free = (float) $sl->quantity - (float) $already;
+                if ($free <= 0) continue;
 
-                        $fromStock -= $take;
-                        return $fromStock > 0;
-                    });
+                $take = min($free, $toTake);
+                if ($take <= 0) continue;
 
-                $remaining[$cid] = max(0.0, $needLeft - (float)$row['available']);
+                StockReservation::create([
+                    'stock_level_id' => $sl->id,
+                    'order_id'       => $order->id,
+                    'quantity'       => $take,
+                ]);
+
+                StockMovement::create([
+                    'stock_level_id' => $sl->id,
+                    'type'           => 'reserve',
+                    'quantity'       => $take,
+                    'note'           => "Prenotazione stock per OC #{$order->id} (update)",
+                ]);
+
+                $toTake -= $take;
             }
+
+            // 💡 Correzione: aggiorniamo il residuo per questo componente
+            $actuallyTaken   = $canTakeFromStock - $toTake;  // quanto sono riuscito davvero a prenotare
+            $remaining[$cid] = max(0.0, $needLeft - $actuallyTaken);
         }
     }
 

@@ -15,7 +15,7 @@
     x-cloak
     class="fixed inset-0 z-50 flex items-center justify-center"
     {{-- ascolta l’evento lanciato dalla toolbar della lista --}}
-    x-init="window.addEventListener('open-customer-order-modal', e => open(e.detail?.orderId));"
+    x-init="setupWatches(); window.addEventListener('open-customer-order-modal', e => open(e.detail?.orderId));"
 >
     {{-- BACKDROP --}}
     <div class="absolute inset-0 bg-black opacity-75" @click="close"></div>
@@ -332,25 +332,25 @@
                         <div class="mt-2 flex items-center gap-2">
                             {{-- Tipo sconto: percentuale o fisso --}}
                             <select x-model="d.type"
-                                    class="px-2 py-1 border rounded bg-gray-50 dark:bg-gray-700 text-xs">
+                                    class="px-2 py-1 border rounded bg-gray-50 dark:bg-gray-700 text-xs" @change="reprice()">
                                 <option value="percent">%</option>
                                 <option value="fixed">Fisso</option>
                             </select>
 
                             {{-- Valore sconto --}}
                             <input  type="number" step="0.01" min="0"
-                                    x-model.number="d.value"
+                                    x-model.number="d.value" @input.debounce.250="reprice()"
                                     placeholder="valore"
                                     class="px-2 py-1 border rounded bg-gray-50 dark:bg-gray-700 text-xs w-24" />
 
                             {{-- Rappresentazione token che andrà salvata (es. "10%" o "25") --}}
                             <span class="text-[11px] text-gray-600"
-                                x-text="d.type === 'percent' && d.value !== '' ? (Number(d.value) + '%') : (d.value ?? '')">
+                                x-text="'-' + (d.type === 'percent' && d.value !== '' ? (Number(d.value) + '%') : ((d.value + '€') ?? ''))">
                             </span>
 
                             {{-- Rimuovi riga --}}
                             <button type="button" class="text-xs text-red-600"
-                                    @click="discountsDraft.splice(i, 1)">
+                                    @click="discountsDraft.splice(i, 1); reprice()">
                                 Rimuovi
                             </button>
                         </div>
@@ -474,6 +474,16 @@
             shortage       : [],       // array componenti mancanti
             poLinks        : [],       // ordini fornitore creati
             checking       : false,    // spinner Verifica
+
+            setupWatches() {
+                // Ogni volta che cambia fab/colore/qty → ricalcola
+                this.$watch('fabric_id',  () => this.reprice());
+                this.$watch('color_id',   () => this.reprice());
+                this.$watch('quantity',   () => this.reprice());
+
+                // Ricalcola anche mentre l’utente cambia gli sconti
+                this.$watch('discountsDraft', () => this.reprice(), { deep: true });
+            },
 
             /* --- nuovo metodo --- */
             handleGuest(guest) {
@@ -603,36 +613,34 @@
             },
 
             /* ==== Gestione righe ==== */
-            addLine(){
-                if(!this.selectedProduct || this.quantity<=0) return;
+            addLine() {
+                if (!this.selectedProduct || this.quantity <= 0) return;
+
+                // Usa SEMPRE this.price, che reprice() imposta al netto
                 const qty  = Number(this.quantity || 1);
                 const unit = Number(this.price || 0);
 
-                // Trasforma il repeater in array di stringhe: "N%" per percentuale, "N" per fisso
+                // Trasforma i draft sconti in token "N%" / "N"
                 const discountTokens = (this.discountsDraft || [])
                     .filter(d => d && d.value !== '' && !Number.isNaN(Number(d.value)))
                     .map(d => d.type === 'percent' ? `${Number(d.value)}%` : `${Number(d.value)}`);
+
                 this.lines.push({
-                    product  : this.selectedProduct,
-                    qty      : qty,
-                    price    : unit,
-                    subtotal : unit * qty,
+                    product     : this.selectedProduct,
+                    qty         : qty,
+                    price       : unit,                // prezzo unitario NETTO
+                    subtotal    : unit * qty,          // subtotale NETTO
                     fabric_id   : this.fabric_id || null,
                     color_id    : this.color_id  || null,
                     fabric_name : window.GD_findName(window.GD_VARIABLE_OPTIONS.fabrics, this.fabric_id),
                     color_name  : window.GD_findName(window.GD_VARIABLE_OPTIONS.colors,  this.color_id),
-                    discount    : discountTokens,
+                    discount    : discountTokens,      // i token che salverai su DB
                 });
-                this.availabilityOk = null; 
-                this.total = this.lines.reduce((s,l)=>s+(l.subtotal||0),0);
+
                 // reset input riga
-                this.selectedProduct=null; 
-                this.productSearch=''; 
-                this.price=0; 
-                this.quantity=1; 
-                this.fabric_id=null; 
-                this.color_id=null;
-                this.discountsDraft  = [];
+                this.availabilityOk = null;
+                this.selectedProduct=null; this.productSearch=''; this.price=0; this.quantity=1;
+                this.fabric_id=null; this.color_id=null; this.discountsDraft=[];
             },
 
             editLine(i){
@@ -895,12 +903,17 @@
                     if (this._priceAbort) this._priceAbort.abort();
                     this._priceAbort = new AbortController();
 
+                    const discounts = (this.discountsDraft || [])
+                        .filter(d => d && d.value !== '' && !Number.isNaN(Number(d.value)))
+                        .map(d => d.type === 'percent' ? `${Number(d.value)}%` : `${Number(d.value)}`);
+
                     const body = {
                         product_id: this.selectedProduct.id,
                         qty: this.quantity || 1,
                         fabric_id: this.fabric_id || null,
                         color_id:  this.color_id  || null,
                         customer_id: this.occasional_customer_id ? null : (this.selectedCustomer?.id ?? null),
+                        discounts  : discounts,                        
                     };
 
                     const r = await fetch('/orders/line-quote', {
@@ -916,8 +929,14 @@
                     if (!r.ok) throw new Error('pricing_failed');
                     const q = await r.json();
 
-                    this.price = Number(q.unit_price ?? q.effective_price ?? 0);
-                    this.total = this.lines.reduce((s,l)=>s+(l.subtotal||0),0) + this.price * (this.quantity||1);
+                    // [AGGIUNTA SCONTI] usa il prezzo unitario scontato se presente, altrimenti quello lordo
+                    const unitNet = Number(q.discounted_unit_price ?? q.unit_price ?? q.effective_price ?? 0);
+
+                    // Manteniamo l’input Prezzo (€) allineato al netto (richiesta: sconti dopo variabili)
+                    this.price = unitNet;
+
+                    // Totale momentaneo = totale righe già inserite + riga in editing
+                    this.total = this.lines.reduce((s,l)=>s+(l.subtotal||0),0) + unitNet * (this.quantity||1);
                 } catch(e) {
                     if (e.name === 'AbortError') return; // ignoriamo richieste precedenti
                 }

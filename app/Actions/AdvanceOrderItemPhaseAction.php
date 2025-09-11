@@ -308,7 +308,7 @@ final readonly class AdvanceOrderItemPhaseAction
                 ->sum('sr.quantity');
             
             Log::debug('[AdvanceOrderItemPhaseAction] check reservations', [
-                'component' => $comp->code,
+                'component' => $effective->code,
                 'needed'    => $needed,
                 'reserved'  => $reserved,
             ]);

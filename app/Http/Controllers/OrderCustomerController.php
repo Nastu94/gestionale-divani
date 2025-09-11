@@ -26,6 +26,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 class OrderCustomerController extends Controller
@@ -156,18 +157,22 @@ class OrderCustomerController extends Controller
      */
     public function store(Request $request): JsonResponse
     {
-        Log::info('OrderCustomer@store – richiesta ricevuta (con variabili)', [
+        Log::info('OrderCustomer@store – richiesta ricevuta (con variabili + sconti)', [
             'user_id' => optional($request->user())->id,
             'payload' => $request->all(),
         ]);
 
-        /*─────────── VALIDAZIONE ───────────*/
+        /*──────────────── VALIDAZIONE ────────────────*/
         $data = $request->validate([
             'order_number_id'        => ['required', 'integer', Rule::exists('order_numbers', 'id')],
             'occasional_customer_id' => ['nullable', 'integer', Rule::exists('occasional_customers', 'id')],
             'customer_id'            => ['nullable', 'integer', Rule::exists('customers', 'id')],
             'delivery_date'          => ['required', 'date'],
             'shipping_address'       => ['required', 'string', 'max:255'],
+
+            // NEW: flag "#" (ordine nero) e note ordine
+            'hash_flag'              => ['sometimes', 'boolean'],
+            'note'                   => ['nullable', 'string'],
 
             'lines'                  => ['required', 'array', 'min:1'],
             'lines.*.product_id'     => ['required', 'integer', Rule::exists('products', 'id')],
@@ -179,6 +184,10 @@ class OrderCustomerController extends Controller
             // variabili di riga
             'lines.*.fabric_id'      => ['nullable', 'integer', Rule::exists('fabrics', 'id')],
             'lines.*.color_id'       => ['nullable', 'integer', Rule::exists('colors', 'id')],
+
+            // NEW: sconti riga come token "N%" o "N"
+            'lines.*.discount'       => ['sometimes', 'array'],
+            'lines.*.discount.*'     => ['string','regex:/^\d+(\.\d+)?%?$/'],
         ]);
 
         Log::debug('OrderCustomer@store – dati validati', $data);
@@ -191,33 +200,22 @@ class OrderCustomerController extends Controller
 
         $deliveryDate = Carbon::parse($data['delivery_date'])->toDateString();
 
-        /*─────────── VERIFICA DISPONIBILITÀ (obbligatoria) ───────────*/
-        $inv = InventoryService::forDelivery($deliveryDate)
-            ->check(collect($data['lines'])->map(fn($l)=>[
-                'product_id' => (int) $l['product_id'],
-                'quantity'   => (float) $l['quantity'],
-                'fabric_id'  => array_key_exists('fabric_id', $l) && $l['fabric_id'] !== null ? (int) $l['fabric_id'] : null, // NEW
-                'color_id'   => array_key_exists('color_id',  $l) && $l['color_id']  !== null ? (int) $l['color_id']  : null, // NEW
-            ])->values()->all());
+        /*──────────────── HELPER LOCALI (closure) ────────────────*/
 
-        if ($inv === null) {
-            return response()->json(['message'=>'Esegui prima la verifica disponibilità.'], 409);
-        }
-
-        /*─────────── PREPARAZIONE RIGHE (validazioni variabili + prezzi) ───────────*/
-        $customerId  = $data['customer_id'] ?? null; // guest → null
-        $canOverride = $request->user()->can('orders.price.override');
-
-        // helper locali per gestire tipi/value dei sovrapprezzi e calcolare importi
+        // Normalizza tipo surcharge (per logging/meta).
         $normType = function (?string $t): string {
             $t = strtolower((string)$t);
             return in_array($t, ['percent','percentage','%'], true) ? 'percent' : 'fixed';
         };
+
+        // Somma importi surcharge per meta (solo diagnostica/meta, NON influenza il prezzo).
         $appliedAmount = function (float $base, string $type, ?float $value, float &$fixedSum, float &$percentSum): float {
             $v = (float)($value ?? 0);
             if ($type === 'percent') { $percentSum += $v; return $base * ($v / 100); }
             $fixedSum += $v; return $v;
         };
+
+        // Risolve il componente effettivo dello slot variabile (per meta di tracciabilità).
         $resolveResolvedComponentId = function (Product $product, ?int $fabricId, ?int $colorId): ?int {
             $placeholder = $product->variableComponent();    // riga BOM “slot”
             if (! $placeholder) return null;
@@ -226,8 +224,10 @@ class OrderCustomerController extends Controller
                 ->when($fabricId, fn($q)=>$q->where('fabric_id', $fabricId))
                 ->when($colorId,  fn($q)=>$q->where('color_id',  $colorId))
                 ->value('id');
-            return $qid ?: $placeholder->id; // fallback prudente allo slot, se vuoi metti null
+            return $qid ?: $placeholder->id; // fallback prudente allo slot
         };
+
+        // Meta surcharge tessuto/colore (prende pivot, fallback tabella).
         $fabricMeta = function (Product $product, ?int $fabricId): array {
             if (!$fabricId) return ['type'=>null,'value'=>null];
             $pf = $product->fabrics()->where('fabrics.id', $fabricId)->first();
@@ -253,10 +253,48 @@ class OrderCustomerController extends Controller
             return ['type'=>$type, 'value'=>$value];
         };
 
+        // NEW: applica i token sconto ("N%" o "N" in €) in sequenza sul prezzo lordo unitario.
+        $applyDiscountTokens = function (float $unitGross, array $tokens): array {
+            $price = $unitGross;
+            foreach ($tokens as $tok) {
+                if (!is_string($tok) || $tok === '') continue;
+                $tok = trim($tok);
+                if (str_ends_with($tok, '%')) {
+                    $p = (float) substr($tok, 0, -1);
+                    $price = $price * max(0.0, (100.0 - $p)) / 100.0;
+                } else {
+                    $f = (float) $tok;
+                    $price = $price - max(0.0, $f);
+                }
+            }
+            $unitNet = max(0.0, round($price, 2));
+            $discVal = round($unitGross - $unitNet, 2);
+            return [$unitNet, $discVal];
+        };
+
+        /*──────────────── VERIFICA DISPONIBILITÀ (flusso attuale) ────────────────*/
+        // NOTA: come da tue indicazioni future, questo flusso sarà spostato alla CONFERMA cliente.
+        $inv = InventoryService::forDelivery($deliveryDate)
+            ->check(collect($data['lines'])->map(fn($l)=>[
+                'product_id' => (int) $l['product_id'],
+                'quantity'   => (float) $l['quantity'],
+                'fabric_id'  => array_key_exists('fabric_id', $l) && $l['fabric_id'] !== null ? (int) $l['fabric_id'] : null,
+                'color_id'   => array_key_exists('color_id',  $l) && $l['color_id']  !== null ? (int) $l['color_id']  : null,
+            ])->values()->all());
+
+        if ($inv === null) {
+            return response()->json(['message'=>'Esegui prima la verifica disponibilità.'], 409);
+        }
+
+        /*──────────────── PREPARAZIONE RIGHE (variabili + pricing + sconti) ────────────────*/
+        $customerId  = $data['customer_id'] ?? null; // guest → null
+        $canOverride = $request->user()->can('orders.price.override');
+
         $resolvedLines = collect($data['lines'])->map(function (array $l) use (
             $customerId, $deliveryDate, $canOverride,
-            $normType, $appliedAmount, $resolveResolvedComponentId, $fabricMeta, $colorMeta) {
-
+            $normType, $appliedAmount, $resolveResolvedComponentId, $fabricMeta, $colorMeta,
+            $applyDiscountTokens
+        ) {
             $productId = (int) $l['product_id'];
             $qty       = (float) $l['quantity'];
             $fabricId  = array_key_exists('fabric_id', $l) && $l['fabric_id'] !== null ? (int) $l['fabric_id'] : null;
@@ -265,31 +303,31 @@ class OrderCustomerController extends Controller
             /** @var \App\Models\Product $product */
             $product   = Product::findOrFail($productId);
 
-            // ✅ Sicurezza: le variabili passate devono essere nella whitelist del prodotto
+            // Sicurezza: variabili scelte DEVONO essere in whitelist prodotto
             if ($fabricId !== null && ! in_array($fabricId, $product->fabricIds(), true)) {
-                abort(response()->json([
-                    'message' => "Il tessuto selezionato non è consentito per il prodotto #{$productId}."
-                ], 422));
+                abort(response()->json(['message' => "Il tessuto selezionato non è consentito per il prodotto #{$productId}."], 422));
             }
             if ($colorId !== null && ! in_array($colorId, $product->colorIds(), true)) {
-                abort(response()->json([
-                    'message' => "Il colore selezionato non è consentito per il prodotto #{$productId}."
-                ], 422));
+                abort(response()->json(['message' => "Il colore selezionato non è consentito per il prodotto #{$productId}."], 422));
             }
 
-            // Prezzo unitario
+            // NEW: token sconto riga (array di stringhe "N%" o "N")
+            $tokens = array_key_exists('discount', $l) && is_array($l['discount']) ? array_map('strval', $l['discount']) : [];
+
+            // 1) Calcola SEMPRE il LORDO unitario (base + sovrapprezzi tessuto/colore)
+            $breakdown = $product->pricingBreakdown($fabricId, $colorId, $customerId, $deliveryDate);
+            $unitGross = (float) ($breakdown['unit_price'] ?? 0.0);
+
+            // 2) NETTO unitario: override (se consentito) oppure applicazione sconti dopo i sovrapprezzi
             if ($canOverride && array_key_exists('price', $l) && $l['price'] !== null && $l['price'] !== '') {
-                $unit = (string) $l['price'];
-                $base = (float) $product->effectiveBasePriceForDate($customerId, $deliveryDate); // per calcolare % applicate in modo coerente
-                $breakdown = ['base_price'=>$base,'fabric_surcharge'=>0.0,'color_surcharge'=>0.0]; // placeholder
+                $unitNet  = (float) $l['price'];                // il valore passato È già il NETTO
+                $discUnit = round($unitGross - $unitNet, 2);    // solo diagnostica
             } else {
-                $breakdown = $product->pricingBreakdown($fabricId, $colorId, $customerId, $deliveryDate);
-                $unit = (string) $breakdown['unit_price']; // decimale
+                [$unitNet, $discUnit] = $applyDiscountTokens($unitGross, $tokens);
             }
 
-            // ── calcolo metadati sovrapprezzi da salvare (tipi+importi) ──  // NEW
-            $base = (float) ($breakdown['base_price'] ?? $product->effectiveBasePriceForDate($customerId, $deliveryDate));
-
+            // 3) Meta surcharge (facoltativi, per tracciabilità)
+            $base = (float) ($breakdown['base_price'] ?? $product->effectiveBasePriceFor($customerId, $deliveryDate));
             $fixedSum   = 0.0;
             $percentSum = 0.0;
 
@@ -299,27 +337,26 @@ class OrderCustomerController extends Controller
             if ($fm['type'] !== null) {
                 $fabricType = $normType($fm['type']);
                 $fabricAmt  = $appliedAmount($base, $fabricType, (float)$fm['value'], $fixedSum, $percentSum);
-            } else {
-                $fabricType = null; $fabricAmt = 0.0;
-            }
+            } else { $fabricType = null; $fabricAmt = 0.0; }
+
             if ($cm['type'] !== null) {
                 $colorType  = $normType($cm['type']);
                 $colorAmt   = $appliedAmount($base, $colorType, (float)$cm['value'], $fixedSum, $percentSum);
-            } else {
-                $colorType = null; $colorAmt = 0.0;
-            }
+            } else { $colorType = null; $colorAmt = 0.0; }
 
             $surchargeTotalApplied = $fabricAmt + $colorAmt;
 
-            // componente effettivo risolto (per lo slot variabile)                 // NEW
+            // componente effettivo risolto (per slot variabile)
             $resolvedComponentId = $resolveResolvedComponentId($product, $fabricId, $colorId);
 
-            Log::debug('OrderCustomer@store – pricing line resolved', [
+            Log::debug('OrderCustomer@store – pricing line resolved (lordo/netto + meta)', [
                 'product_id' => $productId,
                 'qty'        => $qty,
                 'fabric_id'  => $fabricId,
                 'color_id'   => $colorId,
-                'unit_price' => $unit,
+                'unit_gross' => $unitGross,
+                'unit_net'   => $unitNet,
+                'discount_tokens' => $tokens,
                 'base_price' => $base,
                 'surch_fixed'=> $fixedSum,
                 'surch_pct'  => $percentSum,
@@ -330,23 +367,29 @@ class OrderCustomerController extends Controller
             return [
                 'product_id' => $productId,
                 'quantity'   => $qty,
-                'price'      => $unit,     // string decimal
+
+                // NEW: persistiamo il NETTO come stringa decimale
+                'price'      => number_format($unitNet, 2, '.', ''),
+
                 'fabric_id'  => $fabricId,
                 'color_id'   => $colorId,
 
-                // NEW → persistiamo già i meta da passare alla transaction
+                // NEW: token sconto da salvare su order_items.discount
+                'discount'   => $tokens,
+
+                // meta facoltativi (già presenti nella tua logica)
                 'resolved_component_id'     => $resolvedComponentId,
                 'surcharge_fixed_applied'   => $fixedSum,
-                'surcharge_percent_applied' => $percentSum,      // somma dei punti % applicati (es. 10 + 5 = 15)
-                'surcharge_total_applied'   => $surchargeTotalApplied, // € complessivi dovuti ai sovrapprezzi
+                'surcharge_percent_applied' => $percentSum,
+                'surcharge_total_applied'   => $surchargeTotalApplied,
             ];
         })->values();
 
-        // Totale ordine calcolato con i prezzi definitivi
+        // Totale ordine calcolato sul NETTO (quantity * unit_price)
         $total = $resolvedLines->reduce(fn(float $s, $l) => $s + ($l['quantity'] * (float) $l['price']), 0.0);
 
         try {
-            /*─────────── TRANSAZIONE: salva ordine + righe + variabili ───────────*/
+            /*──────────────── TRANSAZIONE: salva ordine + righe + variabili ────────────────*/
             $order = DB::transaction(function () use ($data, $deliveryDate, $resolvedLines, $total) {
 
                 /* 1) blocca OrderNumber (customer) */
@@ -370,6 +413,14 @@ class OrderCustomerController extends Controller
                     'total'                  => $total,
                     'ordered_at'             => now(),
                     'delivery_date'          => $deliveryDate,
+
+                    // NEW: campi header aggiunti
+                    'hash_flag'              => (bool) ($data['hash_flag'] ?? false),
+                    'note'                   => $data['note'] ?? null,
+
+                    // NB: se 'stato' ha default DB a 0, non serve impostarlo esplicitamente.
+                    // 'stato'               => false,
+                    // 'reason'              => null,
                 ]);
 
                 /* 3) righe + variabili */
@@ -378,7 +429,10 @@ class OrderCustomerController extends Controller
                     $item = $order->items()->create([
                         'product_id' => $line['product_id'],
                         'quantity'   => $line['quantity'],
-                        'unit_price' => $line['price'],   // congelato
+                        'unit_price' => $line['price'],           // NETTO congelato
+
+                        // NEW: salviamo i token in TEXT (cast array sul model → JSON)
+                        'discount'   => $line['discount'] ?? [],
                     ]);
 
                     // Persisti le variabili della riga (se presenti)
@@ -386,21 +440,19 @@ class OrderCustomerController extends Controller
                     $colorId  = $line['color_id']  ?? null;
 
                     if ($fabricId !== null || $colorId !== null) {
-
                         $payload = [];
-
                         if (Schema::hasColumn('order_product_variables', 'fabric_id'))  { $payload['fabric_id']  = $fabricId; }
                         if (Schema::hasColumn('order_product_variables', 'color_id'))   { $payload['color_id']   = $colorId; }
-                        if (Schema::hasColumn('order_product_variables', 'resolved_component_id')) { // NEW
+                        if (Schema::hasColumn('order_product_variables', 'resolved_component_id')) {
                             $payload['resolved_component_id'] = $line['resolved_component_id'] ?? null;
                         }
-                        if (Schema::hasColumn('order_product_variables', 'surcharge_fixed_applied')) { // NEW
+                        if (Schema::hasColumn('order_product_variables', 'surcharge_fixed_applied')) {
                             $payload['surcharge_fixed_applied'] = $line['surcharge_fixed_applied'] ?? 0;
                         }
-                        if (Schema::hasColumn('order_product_variables', 'surcharge_percent_applied')) { // NEW
+                        if (Schema::hasColumn('order_product_variables', 'surcharge_percent_applied')) {
                             $payload['surcharge_percent_applied'] = $line['surcharge_percent_applied'] ?? 0;
                         }
-                        if (Schema::hasColumn('order_product_variables', 'surcharge_total_applied')) { // NEW
+                        if (Schema::hasColumn('order_product_variables', 'surcharge_total_applied')) {
                             $payload['surcharge_total_applied'] = $line['surcharge_total_applied'] ?? 0;
                         }
 
@@ -410,7 +462,7 @@ class OrderCustomerController extends Controller
                     }
                 }
 
-                /* 4) Prenotazioni stock */
+                /* 4) Prenotazioni stock (flusso attuale) */
                 $usedLines = $resolvedLines->map(fn ($l) => [
                     'product_id' => $l['product_id'],
                     'quantity'   => $l['quantity'],
@@ -418,19 +470,20 @@ class OrderCustomerController extends Controller
                     'color_id'   => $l['color_id']  ?? null,
                 ])->all();
 
-                $invResult = InventoryService::forDelivery($deliveryDate, $order->id)->check($usedLines);
+                // ✅ FABbisogno per componente (senza check iniziale)
+                $componentsNeeded = InventoryServiceExtensions::explodeBomArray($usedLines);
 
                 InventoryServiceExtensions::reserveFreeIncoming(
                     $order,
-                    $invResult->shortage->pluck('shortage', 'component_id')->toArray(),
+                    $componentsNeeded,
                     Carbon::parse($deliveryDate)
                 );
 
                 $invResult = InventoryService::forDelivery($deliveryDate, $order->id)->check($usedLines);
 
                 foreach ($invResult->shortage as $row) {
-                    $missing    = $row['shortage'];
-                    $fromStock = min($row['available'], $missing);
+                    $missing  = $row['shortage'];
+                    $fromStock= min($row['available'], $missing);
 
                     if ($fromStock > 0) {
                         $sl = StockLevel::where('component_id', $row['component_id'])
@@ -461,12 +514,12 @@ class OrderCustomerController extends Controller
                 return $order;
             });
 
-            /*─────────── CREA / MERGE PO se servono ───────────*/
+            /*────────── CREA / MERGE PO se servono ──────────*/
             $poNumbers = [];
             if (! $inv->ok && $request->user()->can('orders.supplier.create')) {
-                $shortCol = ProcurementService::buildShortageCollection($inv->shortage);
-                $proc     = ProcurementService::fromShortage($shortCol, $order->id);
-                $poNumbers= $proc['po_numbers']->all();
+                $shortCol  = ProcurementService::buildShortageCollection($inv->shortage);
+                $proc      = ProcurementService::fromShortage($shortCol, $order->id);
+                $poNumbers = $proc['po_numbers']->all();
             }
 
             return response()->json([
@@ -635,7 +688,7 @@ class OrderCustomerController extends Controller
             'occasionalCustomer:id,company,email,vat_number,tax_code,address,postal_code,city,province,country',
         ]);
 
-        /* 2️⃣ helper per formattare l’indirizzo */
+        /* 1️⃣ formatter indirizzo di spedizione */
         $fmt = function ($addr = null) {
             if (!$addr) return null;
 
@@ -647,24 +700,24 @@ class OrderCustomerController extends Controller
             ])->filter()->join(', ');
         };
 
-        /* 3️⃣ serializza cliente “standard” */
+        /* 2️⃣ serializza cliente “standard” */
         $cust = $order->customer ? [
-            'id'              => $order->customer->id,
-            'company'         => $order->customer->company,
-            'email'           => $order->customer->email,
-            'vat_number'      => $order->customer->vat_number,
-            'tax_code'        => $order->customer->tax_code,
-            'shipping_address'=> $fmt($order->customer->shippingAddress),
+            'id'               => $order->customer->id,
+            'company'          => $order->customer->company,
+            'email'            => $order->customer->email,
+            'vat_number'       => $order->customer->vat_number,
+            'tax_code'         => $order->customer->tax_code,
+            'shipping_address' => $fmt($order->customer->shippingAddress),
         ] : null;
 
-        /* 4️⃣ serializza cliente occasionale */
+        /* 3️⃣ serializza cliente occasionale */
         $occ  = $order->occasionalCustomer ? [
-            'id'              => $order->occasionalCustomer->id,
-            'company'         => $order->occasionalCustomer->company,
-            'email'           => $order->occasionalCustomer->email,
-            'vat_number'      => $order->occasionalCustomer->vat_number,
-            'tax_code'        => $order->occasionalCustomer->tax_code,
-            'shipping_address'=> $fmt($order->occasionalCustomer),   // stesso record
+            'id'               => $order->occasionalCustomer->id,
+            'company'          => $order->occasionalCustomer->company,
+            'email'            => $order->occasionalCustomer->email,
+            'vat_number'       => $order->occasionalCustomer->vat_number,
+            'tax_code'         => $order->occasionalCustomer->tax_code,
+            'shipping_address' => $fmt($order->occasionalCustomer),   // stesso record
         ] : null;
 
         Log::debug('OrderCustomer@edit - lines for order', [
@@ -672,25 +725,54 @@ class OrderCustomerController extends Controller
             'lines'    => $order->items,
         ]);
 
-        return response()->json([
-            'id'              => $order->id,
-            'number'          => $order->number,
-            'order_number_id' => $order->order_number_id,
-            'delivery_date'   => $order->delivery_date->format('Y-m-d'),
-            'customer'        => $cust,
-            'occ_customer'    => $occ,
-            'shipping_address'=> $order->shipping_address,
-            'lines'           => $order->items->map(fn ($it) => [
-                'product_id' => $it->product_id,
-                'sku'        => $it->product->sku,
-                'name'       => $it->product->name,
-                'quantity'   => $it->quantity,
-                'price'      => $it->unit_price,
-                'fabric_id'  => $it->variable->fabric_id,
-                'color_id'   => $it->variable->color_id,
+        /* 4️⃣ serializza righe:
+        *    - price = unit_price NETTO salvato
+        *    - discount = array token ("N%" | "N") → se nel DB è TEXT JSON, normalizzo
+        *    - variabili con null-safety (->variable?->…)
+        */
+        $lines = $order->items->map(function ($it) {
+            // Normalizza tokens sconto qualunque sia il cast del model
+            $raw = $it->discount;
+            if (is_array($raw)) {
+                $tokens = array_values(array_map('strval', $raw));
+            } elseif (is_string($raw) && $raw !== '') {
+                $decoded = json_decode($raw, true);
+                $tokens  = is_array($decoded) ? array_values(array_map('strval', $decoded)) : [];
+            } else {
+                $tokens = [];
+            }
+
+            return [
+                'product_id'  => $it->product_id,
+                'sku'         => $it->product?->sku,
+                'name'        => $it->product?->name,
+                'quantity'    => $it->quantity,
+                'price'       => $it->unit_price,              // NETTO congelato
+                'discount'    => $tokens,                      // ← necessario per editLine
+
+                // Variabili (null-safe)
+                'fabric_id'   => $it->variable?->fabric_id,
+                'color_id'    => $it->variable?->color_id,
                 'fabric_name' => $it->variable?->fabric?->name,
                 'color_name'  => $it->variable?->color?->name,
-            ]),
+            ];
+        })->values();
+
+        /* 5️⃣ risposta JSON per fetchOrder */
+        return response()->json([
+            'id'               => $order->id,
+            'number'           => $order->number,
+            'order_number_id'  => $order->order_number_id,
+            'delivery_date'    => $order->delivery_date?->format('Y-m-d'),
+            'customer'         => $cust,
+            'occ_customer'     => $occ,
+            'shipping_address' => $order->shipping_address,
+
+            // NEW: campi header aggiunti/attesi dalla UI
+            'hash_flag'        => (bool) ($order->hash_flag ?? false),
+            'note'             => $order->note ?? null,
+
+            'lines'            => $lines,
         ]);
     }
 
@@ -707,33 +789,139 @@ class OrderCustomerController extends Controller
         /*──────── VALIDAZIONE ────────*/
         $data = $request->validate([
             'delivery_date'      => ['required','date'],
-            'lines'              => ['required','array','min:1'],
 
-            // ❗ niente 'distinct': possiamo avere più righe stesso prodotto con variabili diverse
+            // header extra
+            'hash_flag'          => ['sometimes','boolean'],
+            'note'               => ['nullable','string'],
+
+            // righe
+            'lines'              => ['required','array','min:1'],
             'lines.*.product_id' => ['required','integer', Rule::exists('products','id')],
             'lines.*.quantity'   => ['required','numeric','min:0.01'],
 
-            // prezzo opzionale (override)
+            // prezzo opzionale (override finale NETTO)
             'lines.*.price'      => ['nullable','numeric','min:0'],
 
             // variabili
             'lines.*.fabric_id'  => ['nullable','integer', Rule::exists('fabrics','id')],
             'lines.*.color_id'   => ['nullable','integer', Rule::exists('colors','id')],
+
+            // sconti multi-token (array di stringhe "N%" | "N")
+            'lines.*.discount'   => ['nullable','array'],
+            'lines.*.discount.*' => ['nullable','string'],
         ]);
 
         $customerId  = $order->customer_id; // guest → null
         $delivery    = Carbon::parse($data['delivery_date']);
         $canOverride = $request->user()->can('orders.price.override');
 
-        /*──────── PREPARAZIONE RIGHE (prezzo + variabili + campi applicati) ────────*/
-        $prepared = collect($data['lines'])->map(function(array $l) use ($customerId, $delivery, $canOverride) {
+        /*──────── Header: aggiorno hash_flag e note subito (fuori transazione principale) ────────*/
+        $order->fill([
+            // se non presenti nella request, non li tocco
+            ...(array_key_exists('hash_flag', $data) ? ['hash_flag' => (bool)$data['hash_flag']] : []),
+            ...(array_key_exists('note', $data)      ? ['note'      => $data['note']]           : []),
+        ]);
+        $order->save();
+
+        /*──────── Helper sconti (stessa logica dello store) ────────*/
+
+        // Normalizza i token sconto in stringhe "N%" o "N"
+        $normalizeDiscountTokens = function ($raw): array {
+            if (is_string($raw) && $raw !== '') {
+                $decoded = json_decode($raw, true);
+                $raw = is_array($decoded) ? $decoded : [$raw];
+            }
+            if (!is_array($raw)) return [];
+
+            $out = [];
+            foreach ($raw as $tok) {
+                if ($tok === null || $tok === '') continue;
+                $s = Str::of((string)$tok)->trim();
+                if ($s->endsWith('%')) {
+                    $n = (float)str_replace('%','',(string)$s);
+                    $out[] = rtrim(rtrim(number_format($n, 4, '.', ''), '0'), '.') . '%';
+                } else {
+                    $n = (float)$s;
+                    $out[] = rtrim(rtrim(number_format($n, 4, '.', ''), '0'), '.');
+                }
+            }
+            return $out;
+        };
+
+        // Applica gli sconti sequenzialmente al lordo → netto
+        $applyDiscounts = function (float $unitGross, array $tokens): float {
+            $net = $unitGross;
+            foreach ($tokens as $t) {
+                if (str_ends_with($t, '%')) {
+                    $p = (float)str_replace('%','',$t);
+                    $net -= $net * ($p / 100);
+                } else {
+                    $net -= (float)$t;
+                }
+            }
+            return max(0.0, $net);
+        };
+
+        /*──────── Helper sovrapprezzi (copiati da store per coerenza) ────────*/
+        $normType = function (?string $t): string {
+            $t = strtolower((string)$t);
+            return in_array($t, ['percent','percentage','%'], true) ? 'percent' : 'fixed';
+        };
+        $appliedAmount = function (float $base, string $type, ?float $value, float &$fixedSum, float &$percentSum): float {
+            $v = (float)($value ?? 0);
+            if ($type === 'percent') { $percentSum += $v; return $base * ($v / 100); }
+            $fixedSum += $v; return $v;
+        };
+        $fabricMeta = function (Product $product, ?int $fabricId): array {
+            if (!$fabricId) return ['type'=>null,'value'=>null];
+            $pf = $product->fabrics()->where('fabrics.id', $fabricId)->first();
+            $type  = $pf?->pivot?->surcharge_type;
+            $value = $pf?->pivot?->surcharge_value;
+            if ($type === null || $value === null) {
+                $fab   = Fabric::select('surcharge_type','surcharge_value')->find($fabricId);
+                $type  = $fab?->surcharge_type;
+                $value = $fab?->surcharge_value;
+            }
+            return ['type'=>$type, 'value'=>$value];
+        };
+        $colorMeta = function (Product $product, ?int $colorId): array {
+            if (!$colorId) return ['type'=>null,'value'=>null];
+            $pc = $product->colors()->where('colors.id', $colorId)->first();
+            $type  = $pc?->pivot?->surcharge_type;
+            $value = $pc?->pivot?->surcharge_value;
+            if ($type === null || $value === null) {
+                $col   = Color::select('surcharge_type','surcharge_value')->find($colorId);
+                $type  = $col?->surcharge_type;
+                $value = $col?->surcharge_value;
+            }
+            return ['type'=>$type, 'value'=>$value];
+        };
+        $resolveResolvedComponentId = function (Product $product, ?int $fabricId, ?int $colorId): ?int {
+            $placeholder = $product->variableComponent();    // riga BOM “slot”
+            if (! $placeholder) return null;
+
+            $qid = Component::query()
+                ->where('category_id', $placeholder->category_id)
+                ->when($fabricId, fn($q)=>$q->where('fabric_id', $fabricId))
+                ->when($colorId,  fn($q)=>$q->where('color_id',  $colorId))
+                ->value('id');
+            return $qid ?: $placeholder->id;
+        };
+
+        /*──────── PREPARAZIONE RIGHE (prezzo + sconti + variabili + meta) ────────*/
+        $prepared = collect($data['lines'])->map(function(array $l) use (
+            $customerId, $delivery, $canOverride,
+            $normalizeDiscountTokens, $applyDiscounts,
+            $normType, $appliedAmount, $fabricMeta, $colorMeta, $resolveResolvedComponentId
+        ) {
             $productId = (int) $l['product_id'];
             $qty       = (float) $l['quantity'];
             $fabricId  = array_key_exists('fabric_id', $l) && $l['fabric_id'] !== null ? (int) $l['fabric_id'] : null;
             $colorId   = array_key_exists('color_id',  $l) && $l['color_id']  !== null ? (int) $l['color_id']  : null;
+            $tokens    = $normalizeDiscountTokens($l['discount'] ?? []);
 
             /** @var Product $product */
-            $product = Product::findOrFail($productId);
+            $product   = Product::findOrFail($productId);
 
             // whitelist sicurezza
             if ($fabricId !== null && ! in_array($fabricId, $product->fabricIds(), true)) {
@@ -743,88 +931,72 @@ class OrderCustomerController extends Controller
                 abort(response()->json(['message' => "Il colore selezionato non è consentito per il prodotto #{$productId}."], 422));
             }
 
-            // prezzo
+            // Breakdown prezzo da modello (lordo variabili)
+            $fb = $product->pricingBreakdown($fabricId, $colorId, $customerId, $delivery->toDateString());
+            if ($fb === null) {
+                abort(response()->json(['message' => 'Prezzo non disponibile per uno dei prodotti nella data indicata.'], 422));
+            }
+            $unitGross = (float) $fb['unit_price'];
+
+            // Override prezzo: se consentito e passato, consideralo NETTO finale (ignoro ricalcolo sconti)
             if ($canOverride && array_key_exists('price', $l) && $l['price'] !== null && $l['price'] !== '') {
-                $unit = (string) $l['price'];
-                $base = (float) ($product->effectiveBasePriceFor($customerId) ?? 0);
-                $fb   = ['base_price'=>$base, 'fabric_surcharge'=>0.0, 'color_surcharge'=>0.0, 'unit_price'=>(float)$unit, 'base_source'=>'override'];
+                $unitNet = (float) $l['price'];
             } else {
-                $fb = $product->pricingBreakdown($fabricId, $colorId, $customerId, $delivery->toDateString());
-                if ($fb === null) {
-                    abort(response()->json(['message' => 'Prezzo non disponibile per uno dei prodotti nella data indicata.'], 422));
-                }
-                $unit = (string) $fb['unit_price'];
+                // Applica sconti sul lordo (post variabili)
+                $unitNet = $applyDiscounts($unitGross, $tokens);
             }
 
-            // resolved_component_id (categoria dal placeholder variabile della BOM)
-            $resolvedId = null;
-            $placeholder = $product->components()
-                ->wherePivot('is_variable', 1)->first();
-            if ($placeholder && $fabricId && $colorId) {
-                $q = Component::query()
-                    ->where('fabric_id', $fabricId)
-                    ->where('color_id',  $colorId);
-                if (Schema::hasColumn('components','category_id') && $placeholder->category_id) {
-                    $q->where('category_id', $placeholder->category_id);
-                }
-                $resolvedId = $q->value('id');
-            }
+            // Meta sovrapprezzi applicati (come in store: somme “logiche”)
+            $base = (float) ($fb['base_price'] ?? 0.0);
 
-            // sconti/sovrapprezzi applicati (come in store)
-            $basePrice  = (float) ($fb['base_price'] ?? 0);
-            $fDelta     = (float) ($fb['fabric_surcharge'] ?? 0);
-            $cDelta     = (float) ($fb['color_surcharge']  ?? 0);
-            $totalDelta = $fDelta + $cDelta;
+            $fixedSum   = 0.0;
+            $percentSum = 0.0;
 
-            $fixedApplied   = 0.0;
-            $percentApplied = 0.0;
+            $fm = $fabricMeta($product, $fabricId);
+            $cm = $colorMeta($product,  $colorId);
 
-            if ($fabricId) {
-                $pf   = $product->fabrics()->where('fabrics.id', $fabricId)->first();
-                $ft   = $pf?->pivot?->surcharge_type ?? Fabric::find($fabricId)?->surcharge_type;
-                $fv   = $pf?->pivot?->surcharge_value ?? Fabric::find($fabricId)?->surcharge_value;
-                if ($ft) {
-                    if (in_array($ft, ['percent','percentage','%'])) $percentApplied += (float)$fv;
-                    else                                            $fixedApplied   += (float)$fv;
-                }
+            $fabricAmt = 0.0; $colorAmt = 0.0;
+            if ($fm['type'] !== null) {
+                $fabricType = $normType($fm['type']);
+                $fabricAmt  = $appliedAmount($base, $fabricType, (float)$fm['value'], $fixedSum, $percentSum);
             }
-            if ($colorId) {
-                $pc   = $product->colors()->where('colors.id', $colorId)->first();
-                $ct   = $pc?->pivot?->surcharge_type ?? Color::find($colorId)?->surcharge_type;
-                $cv   = $pc?->pivot?->surcharge_value ?? Color::find($colorId)?->surcharge_value;
-                if ($ct) {
-                    if (in_array($ct, ['percent','percentage','%'])) $percentApplied += (float)$cv;
-                    else                                            $fixedApplied   += (float)$cv;
-                }
+            if ($cm['type'] !== null) {
+                $colorType  = $normType($cm['type']);
+                $colorAmt   = $appliedAmount($base, $colorType, (float)$cm['value'], $fixedSum, $percentSum);
             }
+            $surchargeTotalApplied = $fabricAmt + $colorAmt;
+
+            // componente effettivo risolto (slot variabile BOM)
+            $resolvedComponentId = $resolveResolvedComponentId($product, $fabricId, $colorId);
 
             return [
-                // chiave logica per il diff (prodotto+variabili)
+                // chiave logica per diff (prodotto+variabili)
                 'key'        => sprintf('%d:%d:%d', $productId, $fabricId ?? 0, $colorId ?? 0),
 
                 // dati riga
                 'product_id' => $productId,
                 'quantity'   => $qty,
-                'price'      => $unit,
+                'price'      => (string) $unitNet,  // NETTO post sconti (congelato)
+                'discount'   => $tokens,            // ← salva i token
 
                 // variabili
                 'fabric_id'  => $fabricId,
                 'color_id'   => $colorId,
-                'resolved_component_id'   => $resolvedId,
+                'resolved_component_id'     => $resolvedComponentId,
 
-                // applied surcharge (come nello store)
-                'surcharge_fixed_applied'   => $fixedApplied,
-                'surcharge_percent_applied' => $percentApplied,
-                'surcharge_total_applied'   => $totalDelta,
+                // meta sovrapprezzi applicati (come nello store)
+                'surcharge_fixed_applied'   => $fixedSum,
+                'surcharge_percent_applied' => $percentSum,
+                'surcharge_total_applied'   => $surchargeTotalApplied,
             ];
         })->values();
 
-        /*──────── BUSINESS LOGIC ────────*/
+        /*──────── BUSINESS LOGIC: upsert righe + prenotazioni (service) ────────*/
         $svc = app(OrderUpdateService::class);
 
         $result = $svc->handle(
             $order,
-            $prepared,                        // ← include variabili + applied
+            $prepared,                        // include variabili + sconti + applied
             $delivery->toDateString()
         );
 

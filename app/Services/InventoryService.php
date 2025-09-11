@@ -119,7 +119,7 @@ class InventoryService
     }
 
     /** esplode righe prodotto → fabbisogno componenti */
-    protected function explodeBom(array $orderLines): Collection
+    public function explodeBom(array $orderLines): Collection
     {
         Log::debug('explodeBom – input', $orderLines);
 
@@ -235,30 +235,27 @@ class InventoryService
      */
     protected function incomingPurchase(Collection $componentIds): Collection
     {
+        $exclude = $this->excludeOrderId;
+
         return DB::table('orders as o')
             ->join('order_numbers as onr', 'onr.id', '=', 'o.order_number_id')
-            ->join('order_items  as oi',  'oi.order_id', '=', 'o.id')
+            ->join('order_items  as oi',   'oi.order_id', '=', 'o.id')
             ->leftJoin('po_reservations as pr', 'pr.order_item_id', '=', 'oi.id')
             ->where('onr.order_type', 'supplier')
             ->whereNull('o.bill_number')
             ->whereIn('oi.component_id', $componentIds)
             ->whereBetween('o.delivery_date', [now()->startOfDay(), $this->deliveryDate])
-            // se sto modificando questo OC, devo escludere le sue stesse prenotazioni
-            ->when($this->excludeOrderId, function ($q) {
-                $q->where(function ($q) {
-                    $q->whereNull('pr.order_customer_id')
-                    ->orWhere('pr.order_customer_id', '!=', $this->excludeOrderId);
-                });
-            })
-            ->groupBy('oi.id', 'oi.component_id')                      // una riga per ogni PO-line
+            ->groupBy('oi.id', 'oi.component_id')
             ->selectRaw('
                 oi.component_id,
-                GREATEST(oi.quantity - COALESCE(SUM(pr.quantity),0), 0) as free
-            ')
-            ->having('free', '>', 0)                                   // solo se c’è margine
-            ->pluck('free', 'oi.component_id');                        // [component_id => qty_free]
+                GREATEST(
+                    oi.quantity - COALESCE(SUM(CASE WHEN ? IS NOT NULL AND pr.order_customer_id = ? THEN 0 ELSE pr.quantity END), 0),
+                    0
+                ) as free
+            ', [$exclude, $exclude])
+            ->having('free', '>', 0)
+            ->pluck('free', 'oi.component_id');
     }
-
 
     /** quantità prenotata su PO per QUESTO OC (solo informativa) */
     protected function myIncoming(Collection $componentIds): Collection
