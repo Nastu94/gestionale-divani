@@ -54,17 +54,17 @@ final class CustomerPriceResolver
      */
     public function resolve(int $productId, ?int $customerId, Carbon|string|null $date = null): ?array
     {
-        // Log ingresso
+        /* Log ingresso
         Log::debug('PriceResolver START', [
             'trace'       => $this->trace,
             'product_id'  => $productId,
             'customer_id' => $customerId,
             'date_raw'    => $date instanceof Carbon ? $date->toDateTimeString() : $date,
-        ]);
+        ]);*/
 
         // Normalizzazione data
         $d = $this->normalizeDate($date);
-        Log::debug('PriceResolver date normalized', ['trace' => $this->trace, 'date' => $d]);
+        //Log::debug('PriceResolver date normalized', ['trace' => $this->trace, 'date' => $d]);
 
         // Chiavi memo/cache
         $memoKey  = "{$productId}:" . ($customerId ?? 'null') . ":{$d}";
@@ -92,10 +92,10 @@ final class CustomerPriceResolver
             return $cached;
         }
         if ($cached === null) {   // 🟡 ignora i null cacheati (non bloccare il calcolo)
-            Log::debug('PriceResolver CACHE HIT (null ignored, will compute)', [
+            /*Log::debug('PriceResolver CACHE HIT (null ignored, will compute)', [
                 'trace'    => $this->trace,
                 'cacheKey' => $cacheKey,
-            ]);
+            ]);*/
         }
 
         $result = null;
@@ -108,12 +108,12 @@ final class CustomerPriceResolver
                 ->where('customer_id', $customerId)
                 ->count();
 
-            Log::debug('PriceResolver rows for (product,customer)', [
+            /*Log::debug('PriceResolver rows for (product,customer)', [
                 'trace'       => $this->trace,
                 'product_id'  => $productId,
                 'customer_id' => $customerId,
                 'rows'        => $countAll,
-            ]);
+            ]);*/
 
             $row = CustomerProductPrice::query()
                 ->where('product_id', $productId)
@@ -126,13 +126,13 @@ final class CustomerPriceResolver
                 ->first();
 
             if ($row) {
-                Log::debug('PriceResolver MATCH customer version', [
+                /*Log::debug('PriceResolver MATCH customer version', [
                     'trace'      => $this->trace,
                     'row_id'     => $row->id,
                     'price'      => (string) $row->price,
                     'valid_from' => $this->toDateString($row->valid_from),
                     'valid_to'   => $this->toDateString($row->valid_to),
-                ]);
+                ]);*/
 
                 $result = [
                     'price'      => (string) $row->price,
@@ -156,10 +156,10 @@ final class CustomerPriceResolver
             $product = Product::query()->select(['id', 'price'])->find($productId);
 
             if ($product && $product->price !== null) {
-                Log::debug('PriceResolver FALLBACK to base price', [
+                /*Log::debug('PriceResolver FALLBACK to base price', [
                     'trace' => $this->trace,
                     'price' => (string) $product->price,
-                ]);
+                ]);*/
 
                 $result = [
                     'price'      => (string) $product->price,
@@ -182,10 +182,10 @@ final class CustomerPriceResolver
             Cache::put($cacheKey, $result, now()->addSeconds(60));
         }
 
-        Log::debug('PriceResolver END', [
+        /*Log::debug('PriceResolver END', [
             'trace'  => $this->trace,
             'result' => $this->safeResultForLog($result),
-        ]);
+        ]);*/
 
         return $result;
     }

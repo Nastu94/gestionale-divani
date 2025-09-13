@@ -232,27 +232,26 @@ class InventoryService
      * Incoming non riservato da altri OC (qty ancora “libera” sui PO)
      *
      * @return Collection<int,float>  component_id => qty
-     */
+    */
     protected function incomingPurchase(Collection $componentIds): Collection
     {
-        $exclude = $this->excludeOrderId;
-
+        // FIX: non escludere le mie reservation dal conteggio e sommare per component_id
         return DB::table('orders as o')
             ->join('order_numbers as onr', 'onr.id', '=', 'o.order_number_id')
-            ->join('order_items  as oi',   'oi.order_id', '=', 'o.id')
+            ->join('order_items as oi', 'oi.order_id', '=', 'o.id')
             ->leftJoin('po_reservations as pr', 'pr.order_item_id', '=', 'oi.id')
             ->where('onr.order_type', 'supplier')
             ->whereNull('o.bill_number')
             ->whereIn('oi.component_id', $componentIds)
             ->whereBetween('o.delivery_date', [now()->startOfDay(), $this->deliveryDate])
-            ->groupBy('oi.id', 'oi.component_id')
+            ->groupBy('oi.component_id')
             ->selectRaw('
                 oi.component_id,
                 GREATEST(
-                    oi.quantity - COALESCE(SUM(CASE WHEN ? IS NOT NULL AND pr.order_customer_id = ? THEN 0 ELSE pr.quantity END), 0),
+                    SUM(oi.quantity) - COALESCE(SUM(pr.quantity), 0),
                     0
                 ) as free
-            ', [$exclude, $exclude])
+            ')
             ->having('free', '>', 0)
             ->pluck('free', 'oi.component_id');
     }

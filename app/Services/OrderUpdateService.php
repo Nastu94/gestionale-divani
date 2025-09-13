@@ -8,6 +8,7 @@ use App\Models\StockLevel;
 use App\Models\StockMovement;
 use App\Models\StockReservation;
 use App\Models\PoReservation;
+use App\Services\Traits\InventoryServiceExtensions;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -15,82 +16,135 @@ use Carbon\Carbon;
 
 class OrderUpdateService
 {
-    public function handle(Order $order, Collection $payload, ?string $newDate = null): array
-    {
-        Log::info('OC update – start', [
-            'order_id'    => $order->id,
-            'payload_cnt' => $payload->count(),
-            'new_date'    => $newDate,
-        ]);
+    /**
+     * Aggiorna un ordine cliente esistente (header + righe + variabili).
+     * Gestisce le differenze di quantità (aumento/diminuzione) e
+     * l'eventuale variazione della data di consegna.
+     *
+     * @param Order $order Ordine cliente esistente
+     * @param Collection $payload Collezione di righe con chiave composita 'key' = product:fabric:color
+     *                            e campi: product_id, quantity, price, fabric_id, color_id,
+     *                            resolved_component_id, surcharge_fixed_applied,
+     *                            surcharge_percent_applied, surcharge_total_applied
+     * @param string|null $newDate Nuova data di consegna (Y-m-d) o null per nessuna modifica
+     * @return array ['message' => string, 'po_numbers' => array]
+     */
+// App\Services\OrderUpdateService.php
 
-        /* 1) Stato attuale (key = product:fabric:color) */
-        $order->load(['items.variable']); // variable = hasOne
-        $current = collect();
-        foreach ($order->items as $it) {
-            $f = $it->variable?->fabric_id ?? null;
-            $c = $it->variable?->color_id  ?? null;
-            $key = sprintf('%d:%d:%d', $it->product_id, $f ?? 0, $c ?? 0);
-            $current[$key] = [
-                'order_item_id' => $it->id,
-                'product_id'    => $it->product_id,
-                'quantity'      => (float) $it->quantity,
-                'price'         => (float) $it->unit_price,
-                'fabric_id'     => $f,
-                'color_id'      => $c,
-            ];
+public function handle(Order $order, Collection $payload, ?string $newDate = null): array
+{
+    $t0 = microtime(true);
+
+    Log::info('OC update – start', [
+        'order_id'    => $order->id,
+        'payload_cnt' => $payload->count(),
+        'new_date'    => $newDate,
+    ]);
+
+    /* 1) Stato attuale (key = product:fabric:color) */
+    $order->load(['items.variable']); // variable = hasOne
+
+    $current = collect();
+    foreach ($order->items as $it) {
+        $f   = $it->variable?->fabric_id ?? null;
+        $c   = $it->variable?->color_id  ?? null;
+        $key = sprintf('%d:%d:%d', $it->product_id, $f ?? 0, $c ?? 0);
+
+        $current[$key] = [
+            'order_item_id' => $it->id,
+            'product_id'    => $it->product_id,
+            'quantity'      => (float) $it->quantity,
+            'price'         => (float) $it->unit_price,
+            'fabric_id'     => $f,
+            'color_id'      => $c,
+        ];
+    }
+    Log::debug('OC update – current snapshot', [
+        'order_id'     => $order->id,
+        'current_cnt'  => $current->count(),
+        'current_keys' => $current->keys()->values(),
+    ]);
+
+    /* 2) Incoming (già prezzato e con variabili dal controller) */
+    $incoming = $payload->keyBy('key');
+    Log::debug('OC update – incoming snapshot', [
+        'order_id'      => $order->id,
+        'incoming_cnt'  => $incoming->count(),
+        'incoming_keys' => $incoming->keys()->values(),
+    ]);
+
+    /* 3) Diff per chiave composita */
+    $allKeys  = $current->keys()->merge($incoming->keys())->unique();
+    $increase = collect(); // delta > 0
+    $decrease = collect(); // delta < 0
+
+    foreach ($allKeys as $k) {
+        $before = (float) ($current[$k]['quantity'] ?? 0);
+        $after  = (float) ($incoming[$k]['quantity'] ?? 0);
+        $delta  = $after - $before;
+
+        if ($delta > 0) {
+            $increase->push([
+                'product_id' => (int) $incoming[$k]['product_id'],
+                'quantity'   => $delta,
+                'fabric_id'  => $incoming[$k]['fabric_id'] ?? null,
+                'color_id'   => $incoming[$k]['color_id'] ?? null,
+            ]);
+        } elseif ($delta < 0) {
+            $decrease->push([
+                'product_id' => (int) ($current[$k]['product_id'] ?? $incoming[$k]['product_id']),
+                'quantity'   => abs($delta),
+                'fabric_id'  => $current[$k]['fabric_id'] ?? null,
+                'color_id'   => $current[$k]['color_id'] ?? null,
+            ]);
         }
+    }
 
-        /* 2) Incoming (già prezzato e con variabili dal controller) */
-        $incoming = $payload->keyBy('key');
+    $changedDate = $newDate && $newDate !== $order->delivery_date->format('Y-m-d');
+    Log::info('OC update – diff computed', [
+        'order_id'     => $order->id,
+        'increase_cnt' => $increase->count(),
+        'decrease_cnt' => $decrease->count(),
+        'changed_date' => (bool) $changedDate,
+        'elapsed_ms'   => (int) ((microtime(true) - $t0) * 1000),
+    ]);
 
-        /* 3) Diff per chiave composita */
-        $allKeys  = $current->keys()->merge($incoming->keys())->unique();
-        $increase = collect();  // delta > 0
-        $decrease = collect();  // delta < 0
-        foreach ($allKeys as $k) {
-            $before = (float) ($current[$k]['quantity'] ?? 0);
-            $after  = (float) ($incoming[$k]['quantity'] ?? 0);
-            $delta  = $after - $before;
+    if ($increase->isEmpty() && $decrease->isEmpty() && !$changedDate) {
+        Log::info('OC update – nothing to do', ['order_id' => $order->id]);
+        return ['message' => 'Nessuna modifica'];
+    }
 
-            if ($delta > 0) {
-                $increase->push([
-                    'product_id' => (int) $incoming[$k]['product_id'],
-                    'quantity'   => $delta,
-                    'fabric_id'  => $incoming[$k]['fabric_id'] ?? null,
-                    'color_id'   => $incoming[$k]['color_id']  ?? null,
-                ]);
-            } elseif ($delta < 0) {
-                $decrease->push([
-                    'product_id' => (int) ($current[$k]['product_id'] ?? $incoming[$k]['product_id']),
-                    'quantity'   => abs($delta),
-                    'fabric_id'  => $current[$k]['fabric_id'] ?? null,
-                    'color_id'   => $current[$k]['color_id']  ?? null,
-                ]);
-            }
-        }
+    try {
+        Log::debug('OC update – TX begin', ['order_id' => $order->id]);
 
-        $changedDate = $newDate && $newDate !== $order->delivery_date->format('Y-m-d');
-        if ($increase->isEmpty() && $decrease->isEmpty() && ! $changedDate) {
-            return ['message' => 'Nessuna modifica'];
-        }
-
-        /* 4) Transazione principale */
-        return DB::transaction(function () use ($order, $current, $incoming, $increase, $decrease, $newDate, $changedDate) {
-
+        $result = DB::transaction(function () use (
+            $order, $current, $incoming, $increase, $decrease, $newDate, $changedDate, $t0
+        ) {
             /* 4.1 Header */
             if ($changedDate) {
+                Log::debug('OC update – header update (delivery_date)', [
+                    'order_id' => $order->id,
+                    'from'     => optional($order->delivery_date)->format('Y-m-d'),
+                    'to'       => $newDate,
+                ]);
                 $order->update(['delivery_date' => $newDate]);
             }
 
             /* 4.2 Delete righe scomparse */
             $incomingKeys = $incoming->keys()->all();
+            $deletedCnt   = 0;
             foreach ($current as $k => $cur) {
                 if (!in_array($k, $incomingKeys, true)) {
-                    OrderItem::where('id', $cur['order_item_id'])->delete(); // variables: cascade o via relazione
+                    $deletedCnt += OrderItem::where('id', $cur['order_item_id'])->delete(); // variables: cascade
                 }
             }
+            Log::debug('OC update – deleted missing rows', [
+                'order_id'   => $order->id,
+                'deletedCnt' => $deletedCnt,
+            ]);
 
-            /* 4.3 Upsert righe + variabili (con campi surcharge/resolved_component) */
+            /* 4.3 Upsert righe + variabili */
+            $upCnt = 0; $insCnt = 0;
             foreach ($incoming as $k => $line) {
                 $existing = OrderItem::query()
                     ->where('order_id', $order->id)
@@ -107,18 +161,24 @@ class OrderUpdateService
                         'unit_price' => (string) $line['price'],
                         'discount'   => $line['discount'] ?? [],
                     ]);
-
                     $existing->variable()->updateOrCreate(
                         ['order_item_id' => $existing->id],
                         [
                             'fabric_id'                 => $line['fabric_id'] ?? null,
-                            'color_id'                  => $line['color_id']  ?? null,
+                            'color_id'                  => $line['color_id'] ?? null,
                             'resolved_component_id'     => $line['resolved_component_id'] ?? null,
-                            'surcharge_fixed_applied'   => $line['surcharge_fixed_applied'] ?? 0,
+                            'surcharge_fixed_applied'   => $line['surcharge_fixed_applied']   ?? 0,
                             'surcharge_percent_applied' => $line['surcharge_percent_applied'] ?? 0,
-                            'surcharge_total_applied'   => $line['surcharge_total_applied'] ?? 0,
+                            'surcharge_total_applied'   => $line['surcharge_total_applied']   ?? 0,
                         ]
                     );
+                    $upCnt++;
+                    Log::debug('OC update – row updated', [
+                        'order_id'  => $order->id,
+                        'key'       => $k,
+                        'product_id'=> $line['product_id'],
+                        'qty'       => (float) $line['quantity'],
+                    ]);
                 } else {
                     /** @var OrderItem $item */
                     $item = $order->items()->create([
@@ -127,30 +187,61 @@ class OrderUpdateService
                         'unit_price' => (string) $line['price'],
                         'discount'   => $line['discount'] ?? [],
                     ]);
-
                     $item->variable()->create([
                         'fabric_id'                 => $line['fabric_id'] ?? null,
-                        'color_id'                  => $line['color_id']  ?? null,
+                        'color_id'                  => $line['color_id'] ?? null,
                         'resolved_component_id'     => $line['resolved_component_id'] ?? null,
-                        'surcharge_fixed_applied'   => $line['surcharge_fixed_applied'] ?? 0,
+                        'surcharge_fixed_applied'   => $line['surcharge_fixed_applied']   ?? 0,
                         'surcharge_percent_applied' => $line['surcharge_percent_applied'] ?? 0,
-                        'surcharge_total_applied'   => $line['surcharge_total_applied'] ?? 0,
+                        'surcharge_total_applied'   => $line['surcharge_total_applied']   ?? 0,
+                    ]);
+                    $insCnt++;
+                    Log::debug('OC update – row inserted', [
+                        'order_id'  => $order->id,
+                        'key'       => $k,
+                        'product_id'=> $line['product_id'],
+                        'qty'       => (float) $line['quantity'],
                     ]);
                 }
             }
+            Log::info('OC update – upsert summary', [
+                'order_id' => $order->id,
+                'updated'  => $upCnt,
+                'inserted' => $insCnt,
+            ]);
 
             /* 4.4 Release prenotazioni per diminuzioni */
             if ($decrease->isNotEmpty()) {
-                $componentsDec = InventoryService::explodeBomArray($decrease->all());
+                Log::debug('OC update – decrease present, releasing reservations', [
+                    'order_id'   => $order->id,
+                    'dec_cnt'    => $decrease->count(),
+                    'dec_sample' => $decrease->take(3)->values(),
+                ]);
+
+                $componentsDec = \App\Services\Traits\InventoryServiceExtensions::explodeBomArray($decrease->all());
+                Log::debug('OC update – decrease exploded to components', [
+                    'order_id' => $order->id,
+                    'comp_cnt' => count($componentsDec),
+                    'comp_top' => array_slice($componentsDec, 0, 5, true),
+                ]);
+
                 $leftovers = InventoryService::forDelivery($order->delivery_date, $order->id)
                     ->releaseReservations($order, $componentsDec);
 
+                Log::debug('OC update – release leftovers', [
+                    'order_id'  => $order->id,
+                    'leftovers' => $leftovers,
+                ]);
+
                 if (!empty($leftovers)) {
                     (new ProcurementService())->adjustAfterDecrease($order, $leftovers);
+                    Log::debug('OC update – PO adjusted after decrease', ['order_id' => $order->id]);
                 }
+            } else {
+                Log::debug('OC update – no decrease, skip release', ['order_id' => $order->id]);
             }
 
-            /* 4.5 Snapshot finale righe → availability iniziale */
+            /* 4.5 Snapshot righe attuali → fabbisogno completo per componente */
             $order->load(['items.variable']);
             $usedLines = $order->items->map(function ($it) {
                 return [
@@ -161,41 +252,116 @@ class OrderUpdateService
                 ];
             })->values()->all();
 
-            $inv = InventoryService::forDelivery($order->delivery_date, $order->id)->check($usedLines);
+            Log::debug('OC update – usedLines for coverage', [
+                'order_id'  => $order->id,
+                'lines_cnt' => count($usedLines),
+                'lines'     => $usedLines,
+            ]);
 
-            // Mappa residuo per componente (partiamo dalla “shortage” calcolata)
-            $remaining = collect($inv->shortage)->mapWithKeys(function ($row) {
-                return [(int)$row['component_id'] => (float)$row['shortage']];
-            })->all();
+            // Fabbisogno per TUTTI i componenti (non solo shortage)
+            $required = \App\Services\Traits\InventoryServiceExtensions::explodeBomArray($usedLines);
+            $componentIds = array_keys($required);
 
-            /* 4.6 1️⃣ GIACENZA LIBERA → prenota dallo stock fisico prima */
-            if (!empty($remaining)) {
-                $this->reserveFromStockFirst($order, $inv->shortage, $remaining);
+            // Prenotazioni MIE su STOCK (component_id => qty)
+            $myStock = DB::table('stock_reservations as sr')
+                ->join('stock_levels as sl', 'sl.id', '=', 'sr.stock_level_id')
+                ->where('sr.order_id', $order->id)
+                ->whereIn('sl.component_id', $componentIds)
+                ->selectRaw('sl.component_id, SUM(sr.quantity) as qty')
+                ->groupBy('sl.component_id')
+                ->pluck('qty', 'sl.component_id')
+                ->map(fn($q) => (float)$q)
+                ->toArray();
+
+            // Prenotazioni MIE su PO (component_id => qty) entro la delivery
+            $myIncoming = DB::table('po_reservations as pr')
+                ->join('order_items as oi', 'oi.id', '=', 'pr.order_item_id')
+                ->join('orders as o', 'o.id', '=', 'oi.order_id')
+                ->join('order_numbers as onr', 'onr.id', '=', 'o.order_number_id')
+                ->where('onr.order_type','supplier')
+                ->where('pr.order_customer_id', $order->id)
+                ->whereIn('oi.component_id', $componentIds)
+                ->whereNull('o.bill_number')
+                ->whereBetween('o.delivery_date', [now()->startOfDay(), \Carbon\Carbon::parse($order->delivery_date)])
+                ->selectRaw('oi.component_id, SUM(pr.quantity) as qty')
+                ->groupBy('oi.component_id')
+                ->pluck('qty', 'oi.component_id')
+                ->map(fn($q) => (float)$q)
+                ->toArray();
+
+            // GAP da coprire con azioni (stock → incoming → nuovi PO)
+            $remaining = [];
+            foreach ($required as $cid => $need) {
+                $mineStock = $myStock[$cid]    ?? 0.0;
+                $minePO    = $myIncoming[$cid] ?? 0.0;
+                $remaining[$cid] = max(0.0, (float)$need - $mineStock - $minePO);
             }
 
-            /* 4.7 2️⃣ ORDINI ESISTENTI CON QTY LIBERE → usa free_qty su qualsiasi PO-line */
-            if (!empty($remaining)) {
+            Log::info('OC update – coverage map', [
+                'order_id'    => $order->id,
+                'required'    => array_slice($required, 0, 8, true),
+                'my_stock'    => array_slice($myStock, 0, 8, true),
+                'my_incoming' => array_slice($myIncoming, 0, 8, true),
+                'remaining'   => array_slice($remaining, 0, 8, true),
+            ]);
+
+            /* 4.6  STOCK fisico → prenota (copre anche componenti senza shortage) */
+            if (!empty(array_filter($remaining, fn($q)=>$q>1e-9))) {
+                Log::debug('OC update – ENTER reserveFromStock', [
+                    'order_id' => $order->id,
+                    'remain'   => $remaining,
+                ]);
+                $this->reserveFromStock($order, $remaining);
+                Log::debug('OC update – EXIT reserveFromStock', [
+                    'order_id' => $order->id,
+                    'remain'   => $remaining,
+                ]);
+            }
+
+            /* 4.7  PO esistenti → prenota qty libere */
+            if (!empty(array_filter($remaining, fn($q)=>$q>1e-9))) {
+                Log::debug('OC update – ENTER allocateFromExistingIncoming', [
+                    'order_id' => $order->id,
+                    'remain'   => $remaining,
+                ]);
                 $this->allocateFromExistingIncoming(
                     $order,
-                    $remaining, // by reference-like logic: la funzione aggiorna il residuo via return
-                    Carbon::parse($order->delivery_date)
+                    $remaining, // verrà ridotto in place
+                    \Carbon\Carbon::parse($order->delivery_date)
                 );
+                Log::debug('OC update – EXIT allocateFromExistingIncoming', [
+                    'order_id' => $order->id,
+                    'remain'   => $remaining,
+                ]);
             }
 
-            /* 4.8 3️⃣ NUOVI ORDINI → per l’eventuale residuo crea nuovi PO (no aumento PO esistenti) */
+            /* 4.8  Nuovi PO per l’eventuale residuo */
             $poNumbers = [];
             $stillShort = collect($remaining)
                 ->filter(fn ($q) => $q > 1e-9)
-                ->map(fn ($q, $cid) => ['component_id' => (int)$cid, 'shortage' => (float)$q])
+                ->map(fn ($q, $cid) => ['component_id' => (int) $cid, 'shortage' => (float) $q])
                 ->values();
 
+            Log::debug('OC update – stillShort (after stock+incoming allocation)', [
+                'order_id' => $order->id,
+                'cnt'      => $stillShort->count(),
+                'head'     => $stillShort->take(8)->values(),
+            ]);
+
             if ($stillShort->isNotEmpty()) {
-                $shortCol = ProcurementService::buildShortageCollection($stillShort);
-                $proc     = ProcurementService::fromShortage($shortCol, $order->id);
+                Log::info('OC update – creating new POs for residual shortage', [
+                    'order_id' => $order->id,
+                    'rows'     => $stillShort,
+                ]);
+
+                $shortCol  = ProcurementService::buildShortageCollection($stillShort);
+                $proc      = ProcurementService::fromShortage($shortCol, $order->id);
                 $poNumbers = $proc['po_numbers']->all();
 
-                // dopo la creazione dei PO, il residuo teorico va a zero perché le po_reservations sono state create
-                $remaining = [];
+                Log::info('OC update – new POs created', [
+                    'order_id'   => $order->id,
+                    'po_numbers' => $poNumbers,
+                ]);
             }
 
             /* 4.9 Totale ordine */
@@ -209,72 +375,82 @@ class OrderUpdateService
                 'order_id'   => $order->id,
                 'total'      => $total,
                 'po_numbers' => $poNumbers,
+                'elapsed_ms' => (int) ((microtime(true) - $t0) * 1000),
             ]);
 
             return ['message' => 'Ordine aggiornato', 'po_numbers' => $poNumbers];
         });
+
+        Log::debug('OC update – TX commit', ['order_id' => $order->id]);
+        return $result;
+    } catch (\Throwable $e) {
+        Log::error('OC update – exception', [
+            'order_id' => $order->id,
+            'error'    => $e->getMessage(),
+            'trace'    => substr($e->getTraceAsString(), 0, 2048),
+        ]);
+        throw $e; // gestore globale/HTTP
     }
+}
 
     /**
      * 1) Prenota dallo STOCK FISICO prima di tutto.
      * Usa 'available' e 'shortage' dal primo AvailabilityResult.
      * Aggiorna $remaining per componente.
      */
-    protected function reserveFromStockFirst(Order $order, Collection $shortageRows, array &$remaining): void
-    {
-        foreach ($shortageRows as $row) {
-            $cid      = (int) $row['component_id'];
-            $needLeft = (float) ($remaining[$cid] ?? 0);
-            if ($needLeft <= 0) continue;
+// App\Services\OrderUpdateService.php
+// Sostituisce il vecchio reserveFromStockFirst(...).
+// Prova a coprire "in place" il fabbisogno residuo consultando i lotti e creando StockReservation.
+protected function reserveFromStock(Order $order, array &$remaining): void
+{
+    foreach ($remaining as $cid => $needLeft) {
+        $needLeft = (float) $needLeft;
+        if ($needLeft <= 0) continue;
 
-            // Quanta qty posso teoricamente prendere dallo stock fisico (cap a available)
-            $canTakeFromStock = min((float) ($row['available'] ?? 0), $needLeft);
-            if ($canTakeFromStock <= 0) continue;
+        // FIFO sui lotti del componente, con lock per concorrenza
+        $levels = StockLevel::query()
+            ->where('component_id', (int)$cid)
+            ->orderBy('created_at')
+            ->lockForUpdate()
+            ->get();
 
-            $toTake = $canTakeFromStock;
+        $takenTot = 0.0;
 
-            // FIFO sui lotti del componente, con lock per concorrenza
-            $levels = StockLevel::query()
-                ->where('component_id', $cid)
-                ->orderBy('created_at')
-                ->lockForUpdate()
-                ->get();
+        foreach ($levels as $sl) {
+            if ($needLeft <= 0) break;
 
-            foreach ($levels as $sl) {
-                if ($toTake <= 0) break;
+            // qty già prenotata su questo stock level (tutti gli ordini)
+            $already = StockReservation::query()
+                ->where('stock_level_id', $sl->id)
+                ->sum('quantity');
 
-                // qty già prenotata su questo stock level
-                $already = StockReservation::query()
-                    ->where('stock_level_id', $sl->id)
-                    ->sum('quantity');
+            $free = (float) $sl->quantity - (float) $already;
+            if ($free <= 0) continue;
 
-                $free = (float) $sl->quantity - (float) $already;
-                if ($free <= 0) continue;
+            $take = min($free, $needLeft);
+            if ($take <= 0) continue;
 
-                $take = min($free, $toTake);
-                if ($take <= 0) continue;
+            StockReservation::create([
+                'stock_level_id' => $sl->id,
+                'order_id'       => $order->id,
+                'quantity'       => $take,
+            ]);
 
-                StockReservation::create([
-                    'stock_level_id' => $sl->id,
-                    'order_id'       => $order->id,
-                    'quantity'       => $take,
-                ]);
+            StockMovement::create([
+                'stock_level_id' => $sl->id,
+                'type'           => 'reserve',
+                'quantity'       => $take,
+                'note'           => "Prenotazione stock per OC #{$order->id} (update)",
+            ]);
 
-                StockMovement::create([
-                    'stock_level_id' => $sl->id,
-                    'type'           => 'reserve',
-                    'quantity'       => $take,
-                    'note'           => "Prenotazione stock per OC #{$order->id} (update)",
-                ]);
-
-                $toTake -= $take;
-            }
-
-            // 💡 Correzione: aggiorniamo il residuo per questo componente
-            $actuallyTaken   = $canTakeFromStock - $toTake;  // quanto sono riuscito davvero a prenotare
-            $remaining[$cid] = max(0.0, $needLeft - $actuallyTaken);
+            $needLeft -= $take;
+            $takenTot += $take;
         }
+
+        // aggiorna residuo per il componente
+        $remaining[$cid] = max(0.0, (float)$remaining[$cid] - $takenTot);
     }
+}
 
     /**
      * 2) Usa quantità libere su PO esistenti (supplier) tra oggi e deliveryDate.

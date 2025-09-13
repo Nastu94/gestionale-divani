@@ -131,62 +131,56 @@ trait InventoryServiceExtensions
     public function reserveOrCheck(Order $order, array $componentsQty): AvailabilityResult
     {
         Log::info('reserveOrCheck – start', [
-            'order_id'   => $order->id,
+            'order_id' => $order->id,
             'components' => $componentsQty,
         ]);
 
-        $check = $this->check(
-            collect($componentsQty)->map(fn($q,$cid)=>[
-                'product_id'=>$cid,
-                'quantity'  =>$q
-            ])->values()->all()
-        );
+        // FIX: verifica direttamente per componenti, non convertire in finti "product_id"
+        $check = $this->checkComponents($componentsQty);
 
         Log::debug('reserveOrCheck – availability', [
-            'ok'       => $check->ok,
+            'ok' => $check->ok,
             'shortage' => $check->shortage,
         ]);
 
         if ($check->ok) {
-
             foreach ($componentsQty as $cid => $qty) {
                 $left = $qty;
 
-                /* scorri TUTTI i lotti di quel componente                        */
+                /* scorri TUTTI i lotti di quel componente */
                 StockLevel::where('component_id', $cid)
-                    ->orderBy('created_at')           // FIFO
+                    ->orderBy('created_at') // FIFO
                     ->each(function (StockLevel $sl) use ($order, &$left) {
-
                         // quanto di quel lotto è già prenotato?
                         $already = $sl->stockReservations()->sum('quantity');
-                        $free    = $sl->quantity - $already;
-
-                        if ($free <= 0) return $left > 0;   // passa al prossimo lotto
+                        $free = $sl->quantity - $already;
+                        if ($free <= 0) return $left > 0; // passa al prossimo lotto
 
                         $take = min($free, $left);
 
                         StockReservation::create([
                             'stock_level_id' => $sl->id,
-                            'order_id'       => $order->id,
-                            'quantity'       => $take,
+                            'order_id' => $order->id,
+                            'quantity' => $take,
                         ]);
 
                         StockMovement::create([
                             'stock_level_id' => $sl->id,
-                            'type'           => 'reserve',
-                            'quantity'       => $take,
-                            'note'           => "Prenotazione stock per OC #{$order->id}",
+                            'type' => 'reserve',
+                            'quantity' => $take,
+                            'note' => "Prenotazione stock per OC #{$order->id}",
                         ]);
 
                         $left -= $take;
-                        if ($left <= 0) return false;       // chiude il each()
+
+                        if ($left <= 0) return false; // chiude il each()
                     });
             }
         }
 
         Log::info('reserveOrCheck – end', [
             'order_id' => $order->id,
-            'status'   => $check->ok ? 'reserved' : 'shortage',
+            'status' => $check->ok ? 'reserved' : 'shortage',
         ]);
 
         return $check;
