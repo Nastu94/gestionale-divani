@@ -5,27 +5,30 @@ namespace App\Http\Controllers;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\OrderNumber;
-use App\Models\StockLevel;
-use App\Models\StockReservation;
-use App\Models\StockMovement;
-use App\Models\Customer;
-use App\Models\OccasionalCustomer;
 use App\Models\Product;
+use App\Models\Component;
 use App\Models\Fabric;
 use App\Models\Color;
-use App\Models\Component;
+use App\Models\StockLevel;
+use App\Models\StockMovement;
+use App\Models\StockReservation;
+use App\Models\Customer;
+use App\Models\OccasionalCustomer;
+use App\Policies\OrderPolicy;
 use App\Services\InventoryService;
 use App\Services\ProcurementService;
 use App\Services\OrderUpdateService;
 use App\Services\OrderDeleteService;
 use App\Services\Traits\InventoryServiceExtensions;
 use App\Support\Pricing\CustomerPriceResolver;
+use App\Mail\Orders\OrderConfirmationRequestMail;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
@@ -147,13 +150,13 @@ class OrderCustomerController extends Controller
     }
 
     /**
-     * Memorizza un nuovo ordine cliente.
+     * Salva un nuovo ordine cliente.
      *
-     * • Prezzo unitario riga risolto server-side con CustomerPriceResolver
-     *   (customer_id + product_id + delivery_date). Se l’utente possiede il
-     *   permesso "orders.price.override" ed invia un prezzo, prevale l’override.
-     * • Il prezzo viene sempre "congelato" sulla riga (storico coerente).
-     * • Logica esistente (reservation/PO) invariata.
+     * Regole:
+     * - OCCASIONALE: conferma automatica (status=1) e si esegue SUBITO il flusso attuale:
+     *   verifica → prenota → PO per shortfall. La "verifica disponibilità" lato FE è obbligatoria.
+     * - STANDARD: allo store NON si toccano materiali/PO. Si genera un token di conferma e si invierà la mail
+     *   (Step 4). I PO saranno valutati SOLO dopo conferma cliente e SOLO se delivery_date - confirmed_at < 30 gg.
      */
     public function store(Request $request): JsonResponse
     {
@@ -199,6 +202,7 @@ class OrderCustomerController extends Controller
         }
 
         $deliveryDate = Carbon::parse($data['delivery_date'])->toDateString();
+        $isOccasional = !empty($data['occasional_customer_id']); // NEW: ramo cliente occasionale
 
         /*──────────────── HELPER LOCALI (closure) ────────────────*/
 
@@ -253,7 +257,7 @@ class OrderCustomerController extends Controller
             return ['type'=>$type, 'value'=>$value];
         };
 
-        // NEW: applica i token sconto ("N%" o "N" in €) in sequenza sul prezzo lordo unitario.
+        // applica i token sconto ("N%" o "N" in €) in sequenza sul prezzo lordo unitario.
         $applyDiscountTokens = function (float $unitGross, array $tokens): array {
             $price = $unitGross;
             foreach ($tokens as $tok) {
@@ -272,18 +276,21 @@ class OrderCustomerController extends Controller
             return [$unitNet, $discVal];
         };
 
-        /*──────────────── VERIFICA DISPONIBILITÀ (flusso attuale) ────────────────*/
-        // NOTA: come da tue indicazioni future, questo flusso sarà spostato alla CONFERMA cliente.
-        $inv = InventoryService::forDelivery($deliveryDate)
-            ->check(collect($data['lines'])->map(fn($l)=>[
-                'product_id' => (int) $l['product_id'],
-                'quantity'   => (float) $l['quantity'],
-                'fabric_id'  => array_key_exists('fabric_id', $l) && $l['fabric_id'] !== null ? (int) $l['fabric_id'] : null,
-                'color_id'   => array_key_exists('color_id',  $l) && $l['color_id']  !== null ? (int) $l['color_id']  : null,
-            ])->values()->all());
+        /*──────────────── VERIFICA DISPONIBILITÀ ────────────────*/
+        // NEW: la pre-verifica (dry-run) è OBBLIGATORIA SOLO per gli OCCASIONALI.
+        $inv = null;
+        if ($isOccasional) {
+            $inv = InventoryService::forDelivery($deliveryDate)
+                ->check(collect($data['lines'])->map(fn($l)=>[
+                    'product_id' => (int) $l['product_id'],
+                    'quantity'   => (float) $l['quantity'],
+                    'fabric_id'  => array_key_exists('fabric_id', $l) && $l['fabric_id'] !== null ? (int) $l['fabric_id'] : null,
+                    'color_id'   => array_key_exists('color_id',  $l) && $l['color_id']  !== null ? (int) $l['color_id']  : null,
+                ])->values()->all());
 
-        if ($inv === null) {
-            return response()->json(['message'=>'Esegui prima la verifica disponibilità.'], 409);
+            if ($inv === null) {
+                return response()->json(['message'=>'Esegui prima la verifica disponibilità.'], 409);
+            }
         }
 
         /*──────────────── PREPARAZIONE RIGHE (variabili + pricing + sconti) ────────────────*/
@@ -368,13 +375,13 @@ class OrderCustomerController extends Controller
                 'product_id' => $productId,
                 'quantity'   => $qty,
 
-                // NEW: persistiamo il NETTO come stringa decimale
+                // Persistiamo il NETTO come stringa decimale
                 'price'      => number_format($unitNet, 2, '.', ''),
 
                 'fabric_id'  => $fabricId,
                 'color_id'   => $colorId,
 
-                // NEW: token sconto da salvare su order_items.discount
+                // token sconto da salvare su order_items.discount
                 'discount'   => $tokens,
 
                 // meta facoltativi (già presenti nella tua logica)
@@ -390,7 +397,8 @@ class OrderCustomerController extends Controller
 
         try {
             /*──────────────── TRANSAZIONE: salva ordine + righe + variabili ────────────────*/
-            $order = DB::transaction(function () use ($data, $deliveryDate, $resolvedLines, $total) {
+            /** @var \App\Models\Order $order */
+            $order = DB::transaction(function () use ($data, $deliveryDate, $resolvedLines, $total, $isOccasional) {
 
                 /* 1) blocca OrderNumber (customer) */
                 $orderNumber = OrderNumber::where('id', $data['order_number_id'])
@@ -404,7 +412,6 @@ class OrderCustomerController extends Controller
                 }
 
                 /* 2) header */
-                /** @var \App\Models\Order $order */
                 $order = Order::create([
                     'order_number_id'        => $orderNumber->id,
                     'customer_id'            => $data['customer_id']            ?? null,
@@ -414,13 +421,9 @@ class OrderCustomerController extends Controller
                     'ordered_at'             => now(),
                     'delivery_date'          => $deliveryDate,
 
-                    // NEW: campi header aggiunti
+                    // campi header aggiunti
                     'hash_flag'              => (bool) ($data['hash_flag'] ?? false),
                     'note'                   => $data['note'] ?? null,
-
-                    // NB: se 'stato' ha default DB a 0, non serve impostarlo esplicitamente.
-                    // 'stato'               => false,
-                    // 'reason'              => null,
                 ]);
 
                 /* 3) righe + variabili */
@@ -430,9 +433,7 @@ class OrderCustomerController extends Controller
                         'product_id' => $line['product_id'],
                         'quantity'   => $line['quantity'],
                         'unit_price' => $line['price'],           // NETTO congelato
-
-                        // NEW: salviamo i token in TEXT (cast array sul model → JSON)
-                        'discount'   => $line['discount'] ?? [],
+                        'discount'   => $line['discount'] ?? [],  // token sconto in JSON
                     ]);
 
                     // Persisti le variabili della riga (se presenti)
@@ -462,61 +463,97 @@ class OrderCustomerController extends Controller
                     }
                 }
 
-                /* 4) Prenotazioni stock (flusso attuale) */
-                $usedLines = $resolvedLines->map(fn ($l) => [
-                    'product_id' => $l['product_id'],
-                    'quantity'   => $l['quantity'],
-                    'fabric_id'  => $l['fabric_id'] ?? null,
-                    'color_id'   => $l['color_id']  ?? null,
-                ])->all();
-
-                // ✅ FABbisogno per componente (senza check iniziale)
-                $componentsNeeded = InventoryServiceExtensions::explodeBomArray($usedLines);
-
-                InventoryServiceExtensions::reserveFreeIncoming(
-                    $order,
-                    $componentsNeeded,
-                    Carbon::parse($deliveryDate)
-                );
-
-                $invResult = InventoryService::forDelivery($deliveryDate, $order->id)->check($usedLines);
-
-                foreach ($invResult->shortage as $row) {
-                    $missing  = $row['shortage'];
-                    $fromStock= min($row['available'], $missing);
-
-                    if ($fromStock > 0) {
-                        $sl = StockLevel::where('component_id', $row['component_id'])
-                            ->orderBy('quantity')
-                            ->first();
-
-                        StockReservation::create([
-                            'stock_level_id' => $sl->id,
-                            'order_id'       => $order->id,
-                            'quantity'       => $fromStock,
-                        ]);
-
-                        StockMovement::create([
-                            'stock_level_id' => $sl->id,
-                            'type'           => 'reserve',
-                            'quantity'       => $fromStock,
-                            'note'           => "Prenotazione stock per OC #{$order->id}",
-                        ]);
+                /* 3.bis) gestione stato per tipo cliente */
+                if ($isOccasional) {
+                    // 🟢 OCCASIONALE → conferma automatica
+                    if ((int) $order->status === 0) {
+                        $order->status       = 1;
+                        $order->confirmed_at = now();
+                        $order->reason       = null;
+                        $order->save();
                     }
+                } else {
+                    // 🔵 STANDARD → prepara token e marca richiesta (niente Response qui!)
+                    $order->confirm_token             = (string) Str::uuid();
+                    $order->confirmation_requested_at = now();
+                    $order->confirm_locale            = app()->getLocale();
+                    $order->save();
                 }
 
-                Log::info('OrderCustomer@store – ordine e righe salvati', [
-                    'order_id' => $order->id,
-                    'lines'    => $resolvedLines->count(),
-                    'total'    => $total,
-                ]);
-
-                return $order;
+                return $order; // IMPORTANT: restituiamo il Model, non una Response
             });
 
-            /*────────── CREA / MERGE PO se servono ──────────*/
+            // === Branching post-transazione ===
+
+            if (is_null($order->occasional_customer_id)) {
+                // Invia mail di conferma con token (code + locale)
+                Mail::to($order->customer->email)->queue(new OrderConfirmationRequestMail(
+                    order: $order,
+                    replacePrevious: $isUpdate ?? false // true nell'update standard non confermato
+                ));
+                return response()->json([
+                    'order_id'   => $order->id,
+                    'po_numbers' => [],
+                    'awaiting_confirmation'  => true,
+                    'message'    => 'Richiesta conferma inviata al cliente.',
+                ], 201);
+            }
+
+            // OCCASIONALI: prosegue il TUO flusso attuale (explode BOM → reserve → check → PO)
+
+            $usedLines = $resolvedLines->map(fn ($l) => [
+                'product_id' => $l['product_id'],
+                'quantity'   => $l['quantity'],
+                'fabric_id'  => $l['fabric_id'] ?? null,
+                'color_id'   => $l['color_id']  ?? null,
+            ])->all();
+
+            // FABbisogno per componente (senza check iniziale)
+            $componentsNeeded = InventoryServiceExtensions::explodeBomArray($usedLines);
+
+            // Prenota arrivi liberi
+            InventoryServiceExtensions::reserveFreeIncoming(
+                $order,
+                $componentsNeeded,
+                Carbon::parse($deliveryDate)
+            );
+
+            // Check finale per shortfall residui
+            $invResult = InventoryService::forDelivery($deliveryDate, $order->id)->check($usedLines);
+
+            foreach ($invResult->shortage as $row) {
+                $missing  = $row['shortage'];
+                $fromStock= min($row['available'], $missing);
+
+                if ($fromStock > 0) {
+                    $sl = StockLevel::where('component_id', $row['component_id'])
+                        ->orderBy('quantity')
+                        ->first();
+
+                    StockReservation::create([
+                        'stock_level_id' => $sl->id,
+                        'order_id'       => $order->id,
+                        'quantity'       => $fromStock,
+                    ]);
+
+                    StockMovement::create([
+                        'stock_level_id' => $sl->id,
+                        'type'           => 'reserve',
+                        'quantity'       => $fromStock,
+                        'note'           => "Prenotazione stock per OC #{$order->id}",
+                    ]);
+                }
+            }
+
+            Log::info('OrderCustomer@store – ordine e righe salvati', [
+                'order_id' => $order->id,
+                'lines'    => $resolvedLines->count(),
+                'total'    => $total,
+            ]);
+
+            /*────────── CREA / MERGE PO se servono (SOLO OCCASIONALI) ──────────*/
             $poNumbers = [];
-            if (! $inv->ok && $request->user()->can('orders.supplier.create')) {
+            if ($inv && !$inv->ok && $request->user()->can('orders.supplier.create')) {
                 $shortCol  = ProcurementService::buildShortageCollection($inv->shortage);
                 $proc      = ProcurementService::fromShortage($shortCol, $order->id);
                 $poNumbers = $proc['po_numbers']->all();
@@ -777,15 +814,20 @@ class OrderCustomerController extends Controller
     }
 
     /**
-     * Aggiorna un ordine cliente + righe.
+     * Modifica un ordine esistente.
      *
-     * • Per le righe NUOVE o modificate, il prezzo viene risolto server-side
-     *   con CustomerPriceResolver (salvo override con permesso dedicato).
-     * • Le righe già esistenti mantengono il prezzo salvato, salvo vengano
-     *   esplicitamente sostituite dal front-end (dipende da OrderUpdateService).
+     * Regole:
+     * - OCCASIONALE: flusso ATTUALE (verifica → prenota → PO sul delta), ammesso solo ai ruoli autorizzati (Policy).
+     * - STANDARD confermato (status=1): Opzione A (conservativa) → dopo l'update NESSUN ricalcolo automatico
+     *   (il CTA “Ricalcola approvvigionamenti” lancerà un job dedicato).
+     * - STANDARD non confermato (status=0): comportamento identico allo STORE → nuovo token + invio mail
+     *   (testo: “sostituisce e annulla il precedente”), e NESSUNA azione su riserve/PO ora.
      */
     public function update(Request $request, Order $order): JsonResponse
     {
+        // Autorizzazione (Policy aggiornata negli step precedenti)
+        //$this->authorize('update', $order);
+
         /*──────── VALIDAZIONE ────────*/
         $data = $request->validate([
             'delivery_date'      => ['required','date'],
@@ -815,24 +857,20 @@ class OrderCustomerController extends Controller
         $delivery    = Carbon::parse($data['delivery_date']);
         $canOverride = $request->user()->can('orders.price.override');
 
-        /*──────── Header: aggiorno hash_flag e note subito (fuori transazione principale) ────────*/
+        /*──────── Header: aggiorno hash_flag e note (se presenti) ────────*/
         $order->fill([
-            // se non presenti nella request, non li tocco
             ...(array_key_exists('hash_flag', $data) ? ['hash_flag' => (bool)$data['hash_flag']] : []),
             ...(array_key_exists('note', $data)      ? ['note'      => $data['note']]           : []),
         ]);
         $order->save();
 
-        /*──────── Helper sconti (stessa logica dello store) ────────*/
-
-        // Normalizza i token sconto in stringhe "N%" o "N"
+        /*──────── Helper sconti ────────*/
         $normalizeDiscountTokens = function ($raw): array {
             if (is_string($raw) && $raw !== '') {
                 $decoded = json_decode($raw, true);
                 $raw = is_array($decoded) ? $decoded : [$raw];
             }
             if (!is_array($raw)) return [];
-
             $out = [];
             foreach ($raw as $tok) {
                 if ($tok === null || $tok === '') continue;
@@ -848,7 +886,6 @@ class OrderCustomerController extends Controller
             return $out;
         };
 
-        // Applica gli sconti sequenzialmente al lordo → netto
         $applyDiscounts = function (float $unitGross, array $tokens): float {
             $net = $unitGross;
             foreach ($tokens as $t) {
@@ -862,7 +899,7 @@ class OrderCustomerController extends Controller
             return max(0.0, $net);
         };
 
-        /*──────── Helper sovrapprezzi (copiati da store per coerenza) ────────*/
+        /*──────── Helper sovrapprezzi (coerenti con store) ────────*/
         $normType = function (?string $t): string {
             $t = strtolower((string)$t);
             return in_array($t, ['percent','percentage','%'], true) ? 'percent' : 'fixed';
@@ -899,7 +936,6 @@ class OrderCustomerController extends Controller
         $resolveResolvedComponentId = function (Product $product, ?int $fabricId, ?int $colorId): ?int {
             $placeholder = $product->variableComponent();    // riga BOM “slot”
             if (! $placeholder) return null;
-
             $qid = Component::query()
                 ->where('category_id', $placeholder->category_id)
                 ->when($fabricId, fn($q)=>$q->where('fabric_id', $fabricId))
@@ -920,7 +956,7 @@ class OrderCustomerController extends Controller
             $colorId   = array_key_exists('color_id',  $l) && $l['color_id']  !== null ? (int) $l['color_id']  : null;
             $tokens    = $normalizeDiscountTokens($l['discount'] ?? []);
 
-            /** @var Product $product */
+            /** @var \App\Models\Product $product */
             $product   = Product::findOrFail($productId);
 
             // whitelist sicurezza
@@ -938,17 +974,13 @@ class OrderCustomerController extends Controller
             }
             $unitGross = (float) $fb['unit_price'];
 
-            // Override prezzo: se consentito e passato, consideralo NETTO finale (ignoro ricalcolo sconti)
-            if ($canOverride && array_key_exists('price', $l) && $l['price'] !== null && $l['price'] !== '') {
-                $unitNet = (float) $l['price'];
-            } else {
-                // Applica sconti sul lordo (post variabili)
-                $unitNet = $applyDiscounts($unitGross, $tokens);
-            }
+            // Override prezzo: se consentito e passato, consideralo NETTO finale; altrimenti applica sconti
+            $unitNet = ($canOverride && array_key_exists('price', $l) && $l['price'] !== null && $l['price'] !== '')
+                ? (float) $l['price']
+                : $applyDiscounts($unitGross, $tokens);
 
-            // Meta sovrapprezzi applicati (come in store: somme “logiche”)
+            // Meta sovrapprezzi applicati (solo diagnostica)
             $base = (float) ($fb['base_price'] ?? 0.0);
-
             $fixedSum   = 0.0;
             $percentSum = 0.0;
 
@@ -984,14 +1016,14 @@ class OrderCustomerController extends Controller
                 'color_id'   => $colorId,
                 'resolved_component_id'     => $resolvedComponentId,
 
-                // meta sovrapprezzi applicati (come nello store)
+                // meta sovrapprezzi (diagnostica)
                 'surcharge_fixed_applied'   => $fixedSum,
                 'surcharge_percent_applied' => $percentSum,
                 'surcharge_total_applied'   => $surchargeTotalApplied,
             ];
         })->values();
 
-        /*──────── BUSINESS LOGIC: upsert righe + prenotazioni (service) ────────*/
+        /*──────── BUSINESS LOGIC: upsert righe (+ eventuali materiali/PO gestiti dal Service) ────────*/
         $svc = app(OrderUpdateService::class);
 
         $result = $svc->handle(
@@ -1000,7 +1032,168 @@ class OrderCustomerController extends Controller
             $delivery->toDateString()
         );
 
-        return response()->json($result);
+        // ── Branching post-update per STANDARD ─────────────────────────────────────
+        if (is_null($order->occasional_customer_id)) {
+            if ((int) $order->status === 0) {
+                // STANDARD NON confermato → come store: rigenera token + invia mail (nessun materiale/PO adesso)
+                $order->confirm_token             = (string) Str::uuid();
+                $order->confirmation_requested_at = now();
+                $order->confirm_locale            = app()->getLocale();
+                $order->save();
+
+                // Invia mail di conferma con token (code + locale)
+                Mail::to($order->customer->email)->queue(new OrderConfirmationRequestMail(
+                    order: $order,
+                    replacePrevious: $isUpdate ?? false // true nell'update standard non confermato
+                ));
+
+                return response()->json([
+                    'order_id'               => $order->id,
+                    'message'                => 'Richiesta conferma inviata al cliente (sostituisce e annulla la precedente).',
+                    'awaiting_confirmation'  => true,
+                    'result'                 => $result,
+                ]);
+            }
+
+            // STANDARD confermato → Opzione A: nessun ricalcolo automatico
+            return response()->json([
+                'order_id'         => $order->id,
+                'message'          => 'Ordine aggiornato.',
+                'recalc_available' => true,   // il FE può mostrare il CTA “Ricalcola approvvigionamenti”
+                'result'           => $result,
+            ]);
+        }
+
+        // ── Occasionali: flusso attuale eseguito dal Service ───────────────────────
+        return response()->json([
+            'order_id' => $order->id,
+            'message'  => 'Ordine occasionale aggiornato (flusso attuale eseguito).',
+            'result'   => $result,
+        ]);
+    }
+
+    /**
+     * Ricalcola le prenotazioni materiali e crea nuovi PO se servono.
+     *
+     * Regole:
+     * - SOLO per ordini STANDARD confermati (status=1).
+     * - Se la consegna è entro 30 giorni dalla conferma, si possono creare nuovi PO.
+     * - Se la consegna è oltre 30 giorni dalla conferma, NON si creano nuovi PO.
+     * - Il ricalcolo integra le prenotazioni esistenti (su incoming libero e stock fisico),
+     *   ma NON rilascia prenotazioni già fatte (sia su incoming che su stock).
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @param  \App\Models\Order  $order
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function recalcProcurement(Request $request, Order $order): JsonResponse
+    {
+        // 1) Solo STANDARD confermati
+        if (!is_null($order->occasional_customer_id)) {
+            return response()->json(['message' => 'Azione non prevista per ordini occasionali.'], 422);
+        }
+        if ((int) $order->status !== 1) {
+            return response()->json(['message' => 'Disponibile solo per ordini standard confermati.'], 422);
+        }
+
+        // 2) Calcolo regola < 30 giorni per la CREAZIONE di nuovi PO
+        $confirmedAt = Carbon::parse($order->confirmed_at);
+        $deliveryAt  = Carbon::parse($order->delivery_date);
+        $daysDiff    = $confirmedAt->diffInDays($deliveryAt, false); // negativo se consegna < conferma
+        $eligibleForPo = $daysDiff >= 0 && $daysDiff < 30;
+
+        // 3) Snapshot righe → array {product_id, quantity, fabric_id, color_id}
+        $order->load(['items.variable']);
+        $usedLines = $order->items->map(function ($it) {
+            return [
+                'product_id' => $it->product_id,
+                'quantity'   => (float) $it->quantity,
+                'fabric_id'  => $it->variable?->fabric_id,
+                'color_id'   => $it->variable?->color_id,
+            ];
+        })->values()->all();
+
+        // 4) TX: integrazioni su incoming libero + prenotazioni STOCK fisico
+        DB::transaction(function () use ($order, $usedLines, $deliveryAt) {
+
+            // 4.a) Fabbisogno per componente
+            $componentsNeeded = InventoryServiceExtensions::explodeBomArray($usedLines);
+
+            // 4.b) Prenota quantità libere su PO esistenti (nessuna riduzione: solo integrazioni)
+            InventoryServiceExtensions::reserveFreeIncoming(
+                $order,
+                $componentsNeeded,
+                $deliveryAt
+            );
+
+            // 4.c) Verifica copertura aggiornata (tenendo conto anche delle mie incoming reservation)
+            $invResult = InventoryService::forDelivery($order->delivery_date, $order->id)->check($usedLines);
+
+            // 4.d) Prenota da STOCK fisico quanto possibile (solo integrazioni; nessun rilascio)
+            foreach ($invResult->shortage as $row) {
+                $missing   = (float) $row['shortage'];   // fabbisogno ancora scoperto
+                $fromStock = (float) min($row['available'], $missing);
+
+                if ($fromStock > 0) {
+                    // FIFO sui lotti del componente, con lock per concorrenza
+                    $levels = StockLevel::query()
+                        ->where('component_id', (int) $row['component_id'])
+                        ->orderBy('created_at')
+                        ->lockForUpdate()
+                        ->get();
+
+                    $needLeft = $fromStock;
+
+                    foreach ($levels as $sl) {
+                        if ($needLeft <= 0) break;
+
+                        $already = (float) StockReservation::query()
+                            ->where('stock_level_id', $sl->id)
+                            ->sum('quantity');
+
+                        $free = (float) $sl->quantity - $already;
+                        if ($free <= 0) continue;
+
+                        $take = min($free, $needLeft);
+                        if ($take <= 0) continue;
+
+                        StockReservation::create([
+                            'stock_level_id' => $sl->id,
+                            'order_id'       => $order->id,
+                            'quantity'       => $take,
+                        ]);
+
+                        StockMovement::create([
+                            'stock_level_id' => $sl->id,
+                            'type'           => 'reserve',
+                            'quantity'       => $take,
+                            'note'           => "Prenotazione stock per OC #{$order->id} (CTA ricalcolo)",
+                        ]);
+
+                        $needLeft -= $take;
+                    }
+                }
+            }
+        });
+
+        // 5) Verifica finale e creazione PO (SOLO se < 30 giorni)
+        $poNumbers = [];
+        $invFinal  = InventoryService::forDelivery($order->delivery_date, $order->id)->check($usedLines);
+
+        if (!$invFinal->ok && $eligibleForPo) {
+            $shortCol  = ProcurementService::buildShortageCollection($invFinal->shortage);
+            $proc      = ProcurementService::fromShortage($shortCol, $order->id);
+            $poNumbers = $proc['po_numbers']->all();
+        }
+
+        return response()->json([
+            'recalc_performed' => true,
+            'eligible_for_po'  => $eligibleForPo,
+            'po_numbers'       => $poNumbers,
+            'message'          => $eligibleForPo
+                ? (count($poNumbers) ? 'Ricalcolo completato: creati nuovi PO.' : 'Ricalcolo completato: nessun nuovo PO necessario.')
+                : 'Ricalcolo completato: consegna non entro 30 giorni dalla conferma, nessun nuovo PO creato.',
+        ]);
     }
 
     /**

@@ -39,7 +39,7 @@ class Order extends Model
         'bill_number', // Numero bolla di consegna
         'shipping_address', // Indirizzo di spedizione
         'min_phase', // Fase minima di produzione
-        'stato',       // Stato dell'ordine (completato o meno)
+        'status',       // Stato dell'ordine (completato o meno)
         'note',        // Note aggiuntive
         'reason',      // Motivo dell'ordine
         'confirmed_at', // Data di conferma dell'ordine
@@ -79,7 +79,7 @@ class Order extends Model
         'bill_number', // Numero bolla di consegna
         'shipping_address',
         'min_phase', // Fase minima di produzione
-        'stato',
+        'status',
         'note',
         'reason',
         'confirmed_at',
@@ -95,7 +95,7 @@ class Order extends Model
         'registration_date' => 'date:d/m/Y',
         'has_shortfall' => 'bool',
         'hash_flag'    => 'boolean',
-        'stato'        => 'boolean',
+        'status'        => 'boolean',
         'note'         => 'string',
         'reason'       => 'string',
         'confirmed_at' => 'datetime',

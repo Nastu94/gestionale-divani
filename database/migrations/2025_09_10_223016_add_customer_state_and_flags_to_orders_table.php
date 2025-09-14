@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\Schema;
  * Campi aggiunti:
  * - hash_flag (bool): rappresenta l'“ordine nero” in forma anonima; in UI mostrerai un badge "#".
  * - note (text, nullable): note interne, visibili nella sidebar "Visualizza".
- * - stato (bool): stato lato cliente (0=non confermato, 1=confermato).
+ * - status (bool): stato lato cliente (0=non confermato, 1=confermato).
  * - reason (text, nullable): motivazione del rifiuto (viene azzerata quando l'ordine viene poi confermato).
  * - confirmed_at (datetime, nullable): timestamp della conferma cliente (serve per la regola dei 30 giorni).
  */
@@ -32,7 +32,7 @@ return new class extends Migration
                 ->after('hash_flag');
 
             // Stato lato cliente: 0 non confermato / 1 confermato.
-            $table->boolean('stato')
+            $table->boolean('status')
                 ->default(false)
                 ->after('note')
                 ->index(); // utile per filtri elenco
@@ -40,7 +40,7 @@ return new class extends Migration
             // Motivazione (solo quando rifiutato); si azzera alla successiva conferma.
             $table->text('reason')
                 ->nullable()
-                ->after('stato');
+                ->after('status');
 
             // Quando il cliente conferma (usata per calcolare delta < 30 giorni).
             $table->dateTime('confirmed_at')

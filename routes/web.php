@@ -26,6 +26,7 @@ use App\Http\Controllers\OccasionalCustomerController;
 use App\Http\Controllers\ProductCustomerPriceController;
 use App\Http\Controllers\FabricColorAdminController;
 use App\Http\Controllers\OrderPricingController;
+use App\Http\Controllers\OrderPublicConfirmationController;
 use App\Http\Controllers\Api\SupplierApiController;
 use App\Http\Controllers\Api\ComponentApiController;
 use App\Http\Controllers\Api\OrderNumberApiController;
@@ -40,6 +41,34 @@ use App\Http\Controllers\Api\OrderComponentCheckController;
 */
 Route::get('/', function () {
     return view('auth.login');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Conferma Ordini Cliente – Pagina pubblica (riepilogo + conferma/rifiuto)
+|--------------------------------------------------------------------------
+|
+| Pagina pubblica raggiungibile da link email cliente (token monouso, TTL 14g).
+| - GET  : riepilogo ordine + pulsanti conferma/rifiuto (multilingua).
+| - POST : conferma (accept) → status=1, confirmed_at; POs solo se < 30 giorni.
+| - POST : rifiuto (reject)  → status=0, reason obbligatoria.
+|
+*/
+Route::prefix('orders/customer/confirm')->group(function () {
+    // Riepilogo + pulsanti
+    Route::get('{token}', [OrderPublicConfirmationController::class, 'show'])
+        ->name('orders.customer.confirm.show')
+        ->whereUuid('token');
+
+    // Conferma (accept)
+    Route::post('{token}/accept', [OrderPublicConfirmationController::class, 'confirm'])
+        ->name('orders.customer.confirm.accept')
+        ->whereUuid('token');
+
+    // Rifiuta (reject)
+    Route::post('{token}/reject', [OrderPublicConfirmationController::class, 'reject'])
+        ->name('orders.customer.confirm.reject')
+        ->whereUuid('token');
 });
 
 /*
@@ -173,6 +202,18 @@ Route::middleware([
     */
     Route::get('/orders/customer/{order}/edit',  [OrderCustomerController::class, 'edit'])
         ->name('orders.customer.edit')
+        ->middleware('permission:orders.customer.update');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Gestione Ordini Cliente - Ricalcolo approvvigionamenti
+    |--------------------------------------------------------------------------
+    |
+    | Fornisce un'API per ricalcolare gli approvvigionamenti di un ordine cliente.
+    |
+    */
+    Route::post('/orders/customer/{order}/recalc-procurement', [OrderCustomerController::class, 'recalcProcurement'])
+        ->name('orders.customer.recalc')
         ->middleware('permission:orders.customer.update');
 
     /*

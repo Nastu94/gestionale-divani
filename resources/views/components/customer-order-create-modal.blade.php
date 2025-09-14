@@ -398,16 +398,27 @@
                             text-white uppercase bg-blue-600 hover:bg-blue-500
                             disabled:opacity-50"
                         :disabled="checking"
+                        x-show="occasional_customer_id != null"
                         @click="checkAvailability">
                     <i class="fas fa-circle-notch fa-spin mr-2" x-show="checking"></i>
                     Verifica disponibilità
+                </button>
+
+                {{-- Visibile solo quando il BE, dopo l’update, ha risposto recalc_available=true --}}
+                <button type="button"
+                        class="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-semibold
+                            text-white uppercase bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50"
+                        x-show="recalcAvailable && !recalcDone"
+                        @click="recalcProcurement">
+                    <i class="fas fa-rotate mr-2"></i>
+                    Ricalcola approvvigionamenti
                 </button>
 
                 <button type="submit"
                         class="inline-flex items-center px-4 py-2 bg-purple-600
                             rounded-md text-sm font-semibold text-white uppercase
                             hover:bg-purple-500"
-                        :disabled="availabilityOk === null || checking">
+                        :disabled="(availabilityOk === null || checking) && occasional_customer_id != null">
                     <i class="fas fa-save mr-2"></i>
                     <span x-text="editMode ? 'Modifica Ordine' : 'Salva Ordine'"></span>
                 </button>
@@ -440,7 +451,16 @@
             show      : false,
             editMode  : false,
             orderId   : null,
-            showGuestButton : true, 
+            showGuestButton : true,
+
+            /* ==== Stato ordine (nuovi flag) ==== */
+            orderStatus: 0,            // 0 = non confermato, 1 = confermato (popolato in fetchOrder)
+            recalcAvailable: false,    // true se BE segnala che serve ricalcolo (standard confermato)
+            recalcDone: false,         // true dopo CTA “Ricalcola approvvigionamenti”
+
+            /* ==== Snapshot per rilevare modifiche effettive ==== */
+            _initialSnapshot: null,
+            _snapshotReady: false,
 
             /* ==== Header ordine ==== */
             delivery_date    : '',
@@ -462,32 +482,83 @@
             selectedProduct  : null,
             price            : 0,
             quantity         : 1,
-            discountsDraft : [],
+            discountsDraft   : [],
 
-            /* ==== Variabili di riga (nuove) ==== */
-            fabricOptions : [],   // opzioni tessuto filtrate dalla whitelist prodotto
-            colorOptions  : [],   // opzioni colore filtrate dalla whitelist prodotto
-            fabric_id     : '',   // selezione corrente (tessuto)
-            color_id      : '',   // selezione corrente (colore)
+            /* ==== Variabili di riga ==== */
+            fabricOptions : [],
+            colorOptions  : [],
+            fabric_id     : '',
+            color_id      : '',
 
+            /* ==== Verifica disponibilità ==== */
             availabilityOk : null,     // null = non ancora verificato
             shortage       : [],       // array componenti mancanti
             poLinks        : [],       // ordini fornitore creati
             checking       : false,    // spinner Verifica
 
+            /* ================= Metodi ================ */
+
+            /* Inizializzazione component */
+            init() {
+                this.setupWatches();
+
+                // Cattura/azzera snapshot quando il modale apre/chiude
+                this.$watch('show', (open) => {
+                    if (open) {
+                        // reset stato CTA ad ogni apertura
+                        this.recalcDone = false;
+                        // recalcAvailable: lo imposta BE dopo update; non lo forziamo qui
+                        this.$nextTick(() => this._captureSnapshot());
+                    } else {
+                        this._snapshotReady = false;
+                        this._initialSnapshot = null;
+                    }
+                });
+            },
+
+            /* Watchers utili per il pricing live */
             setupWatches() {
-                // Ogni volta che cambia fab/colore/qty → ricalcola
                 this.$watch('fabric_id',  () => this.reprice());
                 this.$watch('color_id',   () => this.reprice());
                 this.$watch('quantity',   () => this.reprice());
-
-                // Ricalcola anche mentre l’utente cambia gli sconti
                 this.$watch('discountsDraft', () => this.reprice(), { deep: true });
             },
 
-            /* --- nuovo metodo --- */
+            /* Snapshot normalizzato (stessa forma del payload submit) */
+            _makeSnapshot() {
+                return JSON.stringify({
+                    order_number_id: this.order_number_id,
+                    customer_id: this.occasional_customer_id ? null : (this.selectedCustomer ? this.selectedCustomer.id : null),
+                    occasional_customer_id: this.occasional_customer_id ?? null,
+                    delivery_date: this.delivery_date || null,
+                    shipping_address: this.selectedCustomer ? (this.selectedCustomer.shipping_address || null) : null,
+                    hash_flag: !!this.hash_flag,
+                    note: (this.note && String(this.note).trim()) || null,
+                    lines: (this.lines || []).map(l => ({
+                        product_id : l.product?.id ?? null,
+                        quantity   : +l.qty,
+                        price      : l.price !== '' && l.price !== null ? +l.price : null,
+                        fabric_id  : l.fabric_id || null,
+                        color_id   : l.color_id  || null,
+                        discount   : Array.isArray(l.discount) ? l.discount : [],
+                    })),
+                });
+            },
+
+            _captureSnapshot() {
+                this._initialSnapshot = this._makeSnapshot();
+                this._snapshotReady = true;
+            },
+
+            hasChanges() {
+                if (!this._snapshotReady) return false;
+                return this._makeSnapshot() !== this._initialSnapshot;
+            },
+
+            isStandard() { return this.occasional_customer_id == null; },
+
+            /* Gestione guest/occasionale */
             handleGuest(guest) {
-                /* compone indirizzo di spedizione (opzionale) */
                 guest.shipping_address = [
                     guest.address,
                     guest.postal_code && guest.city ? `${guest.postal_code} ${guest.city}` : guest.city,
@@ -497,31 +568,56 @@
 
                 this.selectedCustomer        = guest;
                 this.occasional_customer_id  = guest.id;
-                this.customer_id             = null;     // mutua esclusione
+                this.customer_id             = null;
                 this.showGuestButton         = false;
             },
 
-            /* ==== Getter ==== */
+            /* Getter */
             get canAddLines() { return this.selectedCustomer && this.delivery_date; },
             get total()       { return this.lines.reduce((t,l)=>t + l.subtotal, 0); },
 
-            /* ==== Apertura / chiusura ==== */
-            open(id=null){
+            /* Apertura / chiusura modale */
+            open(id = null) {
                 this.show     = true;
                 this.editMode = !!id;
                 this.orderId  = id;
 
+                // reset flag CTA a ogni nuova apertura
+                this.recalcAvailable = false;
+                this.recalcDone = false;
+
                 if (this.editMode) {
-                    this.fetchOrder(id);
+                    this.fetchOrder(id).then(() => {
+                        // snapshot dopo aver caricato i dati dell’ordine
+                        this.$nextTick(() => this._captureSnapshot());
+                    });
                 } else {
                     this.resetForm();
                     this.reserveNumber();
+                    // snapshot sul form “nuovo”
+                    this.$nextTick(() => this._captureSnapshot());
                 }
             },
 
-            close(){ this.show=false; this.resetForm(); },
+            close() {
+                // Blocca/avvisa SOLO se: edit di standard confermato, serve ricalcolo, non fatto, e ci sono MODIFICHE
+                const mustBlock =
+                    this.editMode &&
+                    this.isStandard() &&
+                    this.orderStatus === 1 &&
+                    this.recalcAvailable &&
+                    !this.recalcDone &&
+                    this.hasChanges();
 
-            resetForm(){
+                if (mustBlock) {
+                    const ok = confirm('Hai modificato un ordine confermato. Devi completare il “Ricalcola approvvigionamenti” per aggiornare riserve e PO. Vuoi davvero chiudere senza ricalcolare?');
+                    if (!ok) return;
+                }
+                this.show = false;
+            },
+
+            /* Reset form */
+            resetForm() {
                 this.delivery_date    = '';
                 this.selectedCustomer = null;
                 this.occasional_customer_id  = null;
@@ -533,25 +629,28 @@
                 this.price            = 0;
                 this.quantity         = 1;
                 this.order_number_id  = null;
-                this.order_number   = '—';
-                this.availabilityOk = null;
-                this.shortage       = [];
-                this.poLinks        = [];
-                this.checking       = false;
-                this.fabricOptions=[]; this.colorOptions=[];
-                this.fabric_id=''; this.color_id='';
-                this.discountsDraft = [];
-                this.hash_flag = false;
-                this.note = '';
+                this.order_number     = '—';
+                this.availabilityOk   = null;
+                this.shortage         = [];
+                this.poLinks          = [];
+                this.checking         = false;
+                this.fabricOptions    = [];
+                this.colorOptions     = [];
+                this.fabric_id        = '';
+                this.color_id         = '';
+                this.discountsDraft   = [];
+                this.hash_flag        = false;
+                this.note             = '';
+                this.orderStatus      = 0;
             },
 
-            /* ==== Prenota progressivo ==== */
-            reserveNumber(){
+            /* Prenota progressivo */
+            reserveNumber() {
                 fetch('/order-numbers/reserve', {
                     method : 'POST',
                     headers: {
                         'Accept':'application/json','Content-Type':'application/json',
-                        'X-CSRF-TOKEN':document.querySelector('meta[name=\"csrf-token\"]').content
+                        'X-CSRF-TOKEN':document.querySelector('meta[name="csrf-token"]').content
                     },
                     credentials:'same-origin',
                     body: JSON.stringify({ type:'customer' })
@@ -560,7 +659,7 @@
                 .catch(()=>{ this.order_number_id=null; this.order_number='—'; });
             },
 
-            /* ==== Ricerca clienti ==== */
+            /* Ricerca clienti */
             async searchCustomers(){
                 if (this.customerSearch.trim().length < 2) { this.customerOptions=[]; return; }
                 try{
@@ -571,19 +670,18 @@
                 }catch{ this.customerOptions=[]; }
             },
 
-            selectCustomer(o){ 
-                this.selectedCustomer=o; 
+            selectCustomer(o){
+                this.selectedCustomer=o;
                 this.customerOptions=[];
-                this.occasional_customer_id = null; 
+                this.occasional_customer_id = null;
             },
 
-            /* ==== Ricerca prodotti ==== */
+            /* Ricerca prodotti */
             async searchProducts() {
                 if (this.productSearch.trim().length < 2) {
                     this.productOptions = []; return;
                 }
 
-                // id cliente "reale": per guest (occasionale) mettilo a null
                 const custId = this.occasional_customer_id ? '' : (this.selectedCustomer?.id ?? '');
 
                 const qs = new URLSearchParams({
@@ -597,7 +695,7 @@
                         headers:{ Accept:'application/json' }, credentials:'same-origin'
                     });
                     if (!r.ok) throw new Error(r.status);
-                    this.productOptions = await r.json(); // ogni option può avere effective_price & price_source
+                    this.productOptions = await r.json();
                 } catch {
                     this.productOptions = [];
                 }
@@ -606,21 +704,18 @@
             selectProduct(option) {
                 this.selectedProduct = option;
                 this.productOptions  = [];
-                // Default prezzo da resolver se disponibile, altrimenti base
                 const p = option.effective_price ?? option.price ?? 0;
                 this.price = Number(p);
                 this.loadProductWhitelist(option.id);
             },
 
-            /* ==== Gestione righe ==== */
+            /* Gestione righe */
             addLine() {
                 if (!this.selectedProduct || this.quantity <= 0) return;
 
-                // Usa SEMPRE this.price, che reprice() imposta al netto
                 const qty  = Number(this.quantity || 1);
                 const unit = Number(this.price || 0);
 
-                // Trasforma i draft sconti in token "N%" / "N"
                 const discountTokens = (this.discountsDraft || [])
                     .filter(d => d && d.value !== '' && !Number.isNaN(Number(d.value)))
                     .map(d => d.type === 'percent' ? `${Number(d.value)}%` : `${Number(d.value)}`);
@@ -628,13 +723,13 @@
                 this.lines.push({
                     product     : this.selectedProduct,
                     qty         : qty,
-                    price       : unit,                // prezzo unitario NETTO
-                    subtotal    : unit * qty,          // subtotale NETTO
+                    price       : unit,                // unitario NETTO
+                    subtotal    : unit * qty,
                     fabric_id   : this.fabric_id || null,
                     color_id    : this.color_id  || null,
                     fabric_name : window.GD_findName(window.GD_VARIABLE_OPTIONS.fabrics, this.fabric_id),
                     color_name  : window.GD_findName(window.GD_VARIABLE_OPTIONS.colors,  this.color_id),
-                    discount    : discountTokens,      // i token che salverai su DB
+                    discount    : discountTokens,
                 });
 
                 // reset input riga
@@ -645,17 +740,17 @@
 
             editLine(i){
                 if(this.selectedProduct){
-                    alert('Completa prima la riga in modifica.'); 
+                    alert('Completa prima la riga in modifica.');
                     return;
                 }
                 const l = this.lines.splice(i,1)[0];
-                this.selectedProduct    =l.product; 
-                this.price              =l.price; 
-                this.quantity           =l.qty; 
+                this.selectedProduct    = l.product;
+                this.price              = l.price;
+                this.quantity           = l.qty;
                 this.loadProductWhitelist(l.product.id, l.fabric_id ?? null, l.color_id ?? null);
-                this.productSearch='';
-                this.availabilityOk = null; 
-                this.discountsDraft = Array.isArray(l.discount)
+                this.productSearch      = '';
+                this.availabilityOk     = null;
+                this.discountsDraft     = Array.isArray(l.discount)
                     ? l.discount.map(tok => {
                         const isPerc = typeof tok === 'string' && tok.trim().endsWith('%');
                         const val = parseFloat(isPerc ? tok.slice(0, -1) : tok);
@@ -666,22 +761,19 @@
 
             removeLine(i){ this.lines.splice(i,1); this.availabilityOk = null; },
 
-            /* ==== Helpers ==== */
+            /* Helpers */
             formatCurrency(v){ return Intl.NumberFormat('it-IT',{minimumFractionDigits:2}).format(v||0); },
 
-            /* ══════════ Submit unico (create / update) ══════════ */
+            /* Submit unico (create / update) */
             async submit() {
-                /* 1️⃣  validazioni front-end rapide */
                 if (!this.selectedCustomer || !this.delivery_date || !this.lines.length) {
-                    alert('Compila data consegna, cliente e almeno una riga.'); return
+                    alert('Compila data consegna, cliente e almeno una riga.'); return;
                 }
-                if (this.availabilityOk === null) {
-                    alert('Esegui prima la verifica disponibilità.'); return
+                if (this.availabilityOk === null && this.occasional_customer_id != null) {
+                    alert('Esegui prima la verifica disponibilità.'); return;
                 }
 
-                /* 2️⃣  payload comune */
                 const payload = {
-                    /* header */
                     order_number_id : this.order_number_id,
                     customer_id     : this.occasional_customer_id ? null : this.selectedCustomer.id,
                     occasional_customer_id : this.occasional_customer_id ?? null,
@@ -689,7 +781,6 @@
                     shipping_address: this.selectedCustomer.shipping_address,
                     hash_flag       : this.hash_flag ? 1 : 0,
                     note            : (this.note && String(this.note).trim().length) ? this.note.trim() : null,
-                    /* righe */
                     lines : this.lines.map(l => ({
                         product_id : l.product.id,
                         quantity   : l.qty,
@@ -698,15 +789,11 @@
                         color_id   : l.color_id  || null,
                         discount   : Array.isArray(l.discount) ? l.discount : [],
                     }))
-                }
+                };
 
-                /* 3️⃣  metodo + url in base alla modalità */
-                const url    = this.editMode
-                            ? `/orders/customer/${this.orderId}`
-                            : '/orders/customer'
-                const method = this.editMode ? 'PUT' : 'POST'
+                const url    = this.editMode ? `/orders/customer/${this.orderId}` : '/orders/customer';
+                const method = this.editMode ? 'PUT' : 'POST';
 
-                /* 4️⃣  invio */
                 try {
                     const r = await fetch(url, {
                         method,
@@ -717,59 +804,93 @@
                         },
                         credentials : 'same-origin',
                         body        : JSON.stringify(payload)
-                    })
-                    if (!r.ok) throw new Error(await r.text())
+                    });
 
-                    /* messaggio di conferma */
-                    const j = await r.json()
-                    if (j.po_numbers?.length) {
-                        alert('Ordine cliente salvato.\nSono stati creati i seguenti ordini fornitore: ' + j.po_numbers.join(', '));
-                    } else {
-                        alert('Ordine salvato con successo.')
+                    if (!r.ok) {
+                        let msg = 'Errore nel salvataggio.';
+                        try {
+                            const err = await r.json();
+                            msg = (err && err.message) ? err.message : msg;
+                        } catch {
+                            msg = await r.text();
+                        }
+                        alert(msg);
+                        return;
                     }
 
-                    this.close()
-                    window.location.reload()          // rinfresca la lista
+                    const j = await r.json();
+
+                    // PO creati (tipicamente occasionali o ricalcoli)
+                    if (Array.isArray(j.po_numbers) && j.po_numbers.length > 0) {
+                        alert('Ordine cliente salvato.\nSono stati creati i seguenti ordini fornitore: ' + j.po_numbers.join(', '));
+                        this.close();
+                        window.location.reload();
+                        return;
+                    }
+
+                    // STANDARD in attesa conferma (store o update pre-conferma)
+                    if (j.awaiting_confirmation === true) {
+                        alert('Richiesta conferma inviata al cliente.');
+                        this.close();
+                        window.location.reload();
+                        return;
+                    }
+
+                    // STANDARD confermato, Opzione A (nessun ricalcolo auto)
+                    if (j.recalc_available === true) {
+                        alert('Ordine aggiornato.');
+                        this.recalcAvailable = true;
+                        this.orderId = j.order_id ?? this.orderId;
+                        // NON chiudo: l’utente deve lanciare il CTA oppure chiudere consapevolmente
+                        // Aggiorno snapshot alla nuova versione post-update
+                        this.$nextTick(() => this._captureSnapshot());
+                        return;
+                    }
+
+                    // Default
+                    alert(j.message || 'Ordine salvato con successo.');
+                    this.close();
+                    window.location.reload();
 
                 } catch (e) {
-                    console.error('Errore salvataggio', e)
-                    alert('Errore nel salvataggio.')
+                    console.error('Errore salvataggio', e);
+                    alert('Errore nel salvataggio.');
                 }
             },
-            
-            save() {
-                this.submit();
-            },
 
-            update() {
-                this.submit();
-            },
-            
-            /* ==== Fetch ordine esistente (edit) ==== */
+            save()   { this.submit(); },
+            update() { this.submit(); },
+
+            /* Fetch ordine esistente (edit) */
             async fetchOrder(id) {
                 try {
-                    /* 1️⃣  nuovo endpoint RESTful  */
                     const r = await fetch(`/orders/customer/${id}/edit`, {
-                        headers     : { 'Accept':'application/json' }, // forza JSON
+                        headers     : { 'Accept':'application/json' },
                         credentials : 'same-origin'
-                    })
-                    if (!r.ok) throw new Error(r.status)
-                    const o = await r.json()
+                    });
+                    if (!r.ok) throw new Error(r.status);
+                    const o = await r.json();
 
-                    console.log('Ordine caricato', o)
+                    this.orderId          = o.id;
+                    this.order_number     = o.number;
+                    this.order_number_id  = o.order_number_id;
+                    this.delivery_date    = o.delivery_date;
+                    this.orderStatus      = Number(o.status ?? 0);
 
-                    /* 2️⃣  popola form  */
-                    this.orderId        = o.id
-                    this.order_number   = o.number      // restituito dal controller edit()
-                    this.order_number_id= o.order_number_id
-                    this.delivery_date  = o.delivery_date
-                    this.selectedCustomer = o.customer ?? o.occ_customer      // oggetto completo
-                    this.selectedCustomer.shipping_address = o.shipping_address ?? '' // indirizzo spedizione
-                    this.customerSearch   = this.selectedCustomer?.company ?? ''   // → input popolato
+                    // Standard vs Occasionali
+                    this.occasional_customer_id = o.occ_customer ? (o.occ_customer.id ?? null) : null;
+
+                    // Cliente (standard o occasionale) + indirizzo
+                    this.selectedCustomer = o.customer ?? o.occ_customer ?? null;
+                    if (this.selectedCustomer) {
+                        this.selectedCustomer.shipping_address = o.shipping_address ?? '';
+                    }
+                    this.customerSearch = this.selectedCustomer?.company ?? '';
+
                     this.hash_flag = !!o.hash_flag;
                     this.note      = o.note ?? '';
 
-                    this.lines = o.lines.map(l => ({
+                    this.lines = (o.lines || []).map(l => ({
                         product  : { id:l.product_id, sku:l.sku, name:l.name },
                         qty      : l.quantity,
                         price    : Number(l.price),
@@ -778,22 +899,22 @@
                         fabric_name : window.GD_findName(window.GD_VARIABLE_OPTIONS.fabrics, l.fabric_id),
                         color_name  : window.GD_findName(window.GD_VARIABLE_OPTIONS.colors,  l.color_id),
                         subtotal : l.quantity * l.price,
-                        discount  : Array.isArray(l.discount) ? l.discount : [],
-                    }))
+                        discount : Array.isArray(l.discount) ? l.discount : [],
+                    }));
 
-                    /* reset campi “nuova riga” */
-                    this.selectedProduct = null
-                    this.productSearch   = ''
-                    this.price           = 0
-                    this.quantity        = 1
+                    this.selectedProduct = null;
+                    this.productSearch   = '';
+                    this.price           = 0;
+                    this.quantity        = 1;
 
                 } catch (e) {
-                    console.error('Impossibile caricare ordine', e)
-                    alert('Errore nel caricamento dei dati ordine.')
-                    this.close()
+                    console.error('Impossibile caricare ordine', e);
+                    alert('Errore nel caricamento dei dati ordine.');
+                    this.close();
                 }
             },
 
+            /* Verifica disponibilità (solo occasionali) */
             async checkAvailability () {
                 this.checking       = true;
                 this.availabilityOk = null;
@@ -826,7 +947,6 @@
                     this.availabilityOk = j.ok;
                     this.shortage       = j.shortage ?? [];
 
-                    /* ALERT */
                     if (j.ok) {
                         alert('Tutti i componenti sono disponibili.');
                     } else {
@@ -841,10 +961,7 @@
                 }
             },
 
-            /**
-             * Carica la whitelist del prodotto selezionato e popola le select.
-             * Usa l'endpoint già esistente GET /products/{product}/variables
-             */
+            /* Carica whitelist variabili prodotto */
             async loadProductWhitelist(productId, preselectFabricId = null, preselectColorId = null) {
                 if (!productId) {
                     this.fabricOptions = [];
@@ -859,7 +976,6 @@
                     if (!r.ok) throw new Error(String(r.status));
                     const js = await r.json();
 
-                    // 1) cataloghi globali → filtro su whitelist del prodotto
                     const allF = (window.GD_VARIABLE_OPTIONS && window.GD_VARIABLE_OPTIONS.fabrics) || [];
                     const allC = (window.GD_VARIABLE_OPTIONS && window.GD_VARIABLE_OPTIONS.colors)  || [];
 
@@ -869,11 +985,8 @@
                     this.fabricOptions = allF.filter(f => allowedF.has(Number(f.id)));
                     this.colorOptions  = allC.filter(c => allowedC.has(Number(c.id)));
 
-                    // 2) default dal backend
                     const defF = Number(js.default_fabric_id || 0);
                     const defC = Number(js.default_color_id || 0);
-
-                    // 3) risoluzione scelta finale: preferisci i valori passati esplicitamente
                     const wantF = Number(preselectFabricId || 0);
                     const wantC = Number(preselectColorId  || 0);
 
@@ -895,7 +1008,7 @@
                 }
             },
 
-            /* Ricalcolo prezzo lato server (consigliato) */
+            /* Ricalcolo prezzo lato server */
             _priceAbort: null,
             async reprice() {
                 if (!this.selectedProduct) return;
@@ -913,7 +1026,7 @@
                         fabric_id: this.fabric_id || null,
                         color_id:  this.color_id  || null,
                         customer_id: this.occasional_customer_id ? null : (this.selectedCustomer?.id ?? null),
-                        discounts  : discounts,                        
+                        discounts  : discounts,
                     };
 
                     const r = await fetch('/orders/line-quote', {
@@ -929,16 +1042,58 @@
                     if (!r.ok) throw new Error('pricing_failed');
                     const q = await r.json();
 
-                    // [AGGIUNTA SCONTI] usa il prezzo unitario scontato se presente, altrimenti quello lordo
                     const unitNet = Number(q.discounted_unit_price ?? q.unit_price ?? q.effective_price ?? 0);
-
-                    // Manteniamo l’input Prezzo (€) allineato al netto (richiesta: sconti dopo variabili)
                     this.price = unitNet;
-
-                    // Totale momentaneo = totale righe già inserite + riga in editing
                     this.total = this.lines.reduce((s,l)=>s+(l.subtotal||0),0) + unitNet * (this.quantity||1);
                 } catch(e) {
-                    if (e.name === 'AbortError') return; // ignoriamo richieste precedenti
+                    if (e.name === 'AbortError') return;
+                }
+            },
+
+            /* CTA: Ricalcola approvvigionamenti (standard confermato) */
+            async recalcProcurement() {
+                if (!this.orderId) { alert('Ordine non valido.'); return; }
+                try {
+                    const r = await fetch(`/orders/customer/${this.orderId}/recalc-procurement`, {
+                        method: 'POST',
+                        headers: {
+                            Accept: 'application/json',
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+                        },
+                        credentials: 'same-origin',
+                    });
+
+                    if (!r.ok) {
+                        let msg = 'Errore durante il ricalcolo.';
+                        try {
+                            const err = await r.json();
+                            if (err && err.message) msg = err.message;
+                        } catch (e) {
+                            msg = await r.text();
+                        }
+                        alert(msg);
+                        return;
+                    }
+
+                    const j = await r.json();
+                    this.recalcDone = true;
+
+                    if (Array.isArray(j.po_numbers) && j.po_numbers.length) {
+                        alert((j.message || 'Ricalcolo completato.') + '\nPO creati: ' + j.po_numbers.join(', '));
+                    } else {
+                        alert(j.message || 'Ricalcolo completato. Nessun nuovo PO necessario.');
+                    }
+
+                    // NON chiudiamo automaticamente: l’utente decide.
+                    // Aggiorna snapshot per evitare falsi positivi alla chiusura
+                    this.$nextTick(() => this._captureSnapshot());
+
+                    this.close();
+
+                } catch (e) {
+                    console.error(e);
+                    alert('Errore durante il ricalcolo.');
                 }
             },
         };

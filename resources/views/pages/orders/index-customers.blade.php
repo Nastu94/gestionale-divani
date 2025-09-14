@@ -111,6 +111,7 @@
                                            :sort="$sort" :dir="$dir" :filters="$filters"
                                            reset-route="orders.customer.index"
                                            :filterable="false" align="left" />
+                                <th>Stato</th>
                             </tr>
                         </thead>
 
@@ -121,6 +122,7 @@
                                     $canEdit      = auth()->user()->can('orders.customer.update')  && ! $started;
                                     $canDelete    = auth()->user()->can('orders.customer.delete')  && ! $started;
                                     $canCrud      = $canEdit || $canDelete;                   // apre/chiude toolbar
+                                    //dd(config('orders.modifiable_occasional_roles', []), auth()->user()->roles->pluck('name')->toArray(), auth()->user()->can('update', $order));
                                 @endphp
 
                                 {{-- RIGA PRINCIPALE --}}
@@ -142,15 +144,31 @@
                                     </td>
                                     <td class="px-6 py-2">
                                         {{ $order->shipping_address ?? '—' }}
+                                    </td>
                                     <td class="px-6 py-2">{{ $order->ordered_at?->format('d/m/Y') }}</td>
                                     <td class="px-6 py-2">{{ $order->delivery_date?->format('d/m/Y') }}</td>
                                     <td class="px-6 py-2 text-center">{{ number_format($order->total, 2, ',', '.') }}</td>
+                                    <td class="px-6 py-2 whitespace-nowrap">
+                                        @if ($order->status == 0 && $order->reason === null)
+                                            <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">
+                                                Non confermato
+                                            </span>
+                                        @elseif ($order->status == 0 && $order->reason !== null)
+                                            <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">
+                                                Rifiutato
+                                            </span>
+                                        @elseif ($order->status == 1)
+                                            <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                                                Confermato
+                                            </span>
+                                        @endif
+                                    </td>
                                 </tr>
 
                                 {{-- RIGA ESPANSA CON AZIONI --}}
                                 @if ($canCrud || auth()->user()->can('orders.customer.view'))
                                     <tr x-show="openId === {{ $order->id }}" x-cloak>
-                                        <td :colspan="6" class="px-6 py-3 bg-gray-200 dark:bg-gray-700">
+                                        <td :colspan="7" class="px-6 py-3 bg-gray-200 dark:bg-gray-700">
                                             <div class="flex items-center space-x-4 text-xs">
 
                                                 {{-- Visualizza --}}
@@ -163,13 +181,15 @@
                                                 @endcan
 
                                                 {{-- Modifica --}}
-                                                @if ($canEdit)
-                                                    <button  type="button"
-                                                            @click.stop="openEdit({{ $order->id }})"
-                                                            class="inline-flex items-center hover:text-green-600">
-                                                        <i class="fas fa-pen mr-1"></i> Modifica
-                                                    </button>
-                                                @endif
+                                                @if(auth()->user()->can('update', $order) || $order->status == 0)
+                                                    @if ($canEdit)
+                                                        <button  type="button"
+                                                                @click.stop="openEdit({{ $order->id }})"
+                                                                class="inline-flex items-center hover:text-green-600">
+                                                            <i class="fas fa-pen mr-1"></i> Modifica
+                                                        </button>
+                                                    @endif
+                                                @endcan
 
                                                 {{-- Cancella --}}
                                                 @if ($canDelete)
@@ -193,7 +213,7 @@
                             {{-- RIGA NESSUN RISULTATO --}}
                             @if ($orders->isEmpty())
                                 <tr>
-                                    <td colspan="6" class="px-6 py-2 text-center text-gray-500">Nessun risultato trovato.</td>
+                                    <td colspan="7" class="px-6 py-2 text-center text-gray-500">Nessun risultato trovato.</td>
                                 </tr>
                             @endif
                         </tbody>

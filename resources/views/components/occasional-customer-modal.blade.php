@@ -60,24 +60,24 @@
             <div>
                 <label class="block text-sm font-medium">Indirizzo</label>
                 <input type="text" x-model="form.address" class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
-                               text-sm text-gray-900 dark:text-gray-100">
+                               text-sm text-gray-900 dark:text-gray-100" required>
             </div>
 
             <div class="grid grid-cols-3 gap-4">
                 <div>
                     <label class="block text-sm font-medium">CAP</label>
                     <input type="text" x-model="form.postal_code" class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
-                               text-sm text-gray-900 dark:text-gray-100">
+                               text-sm text-gray-900 dark:text-gray-100" required>
                 </div>
                 <div>
                     <label class="block text-sm font-medium">Città</label>
                     <input type="text" x-model="form.city" class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
-                               text-sm text-gray-900 dark:text-gray-100">
+                               text-sm text-gray-900 dark:text-gray-100" required>
                 </div>
                 <div>
                     <label class="block text-sm font-medium">Prov.</label>
                     <input type="text" x-model="form.province" class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
-                               text-sm text-gray-900 dark:text-gray-100">
+                               text-sm text-gray-900 dark:text-gray-100" required>
                 </div>
             </div>
 
@@ -86,12 +86,12 @@
                 <div>
                     <label class="block text-sm font-medium">E-mail</label>
                     <input type="email" x-model="form.email" class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
-                               text-sm text-gray-900 dark:text-gray-100">
+                               text-sm text-gray-900 dark:text-gray-100" required>
                 </div>
                 <div>
                     <label class="block text-sm font-medium">Telefono</label>
                     <input type="text" x-model="form.phone" class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
-                               text-sm text-gray-900 dark:text-gray-100">
+                               text-sm text-gray-900 dark:text-gray-100" required>
                 </div>
             </div>
 
