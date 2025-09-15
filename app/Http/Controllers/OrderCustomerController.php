@@ -702,7 +702,11 @@ class OrderCustomerController extends Controller
         ]);
 
         // Manteniamo l’ordine "prodotto → suoi componenti"
-        return response()->json($rows->values());
+        return response()->json([
+            'rows'   => $rows->values(),
+            'note'   => $order->note,      // TEXT/nullable
+            'reason' => $order->reason,    // TEXT/nullable → popolata in caso di rifiuto
+        ]);
     }
 
     /**

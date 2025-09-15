@@ -54,20 +54,40 @@
                     sidebarLines       : [],
                     sidebarOrderNumber : null,
                     sidebarLoading     : false,
+                    sidebarNote        : null,
+                    sidebarReason      : null,
                     formatCurrency(v)  { return Intl.NumberFormat('it-IT', { minimumFractionDigits: 2 }).format(v) },
                     openSidebar(id, num) {
                         this.sidebarOpen        = true
                         this.sidebarLoading     = true
                         this.sidebarLines       = []
                         this.sidebarOrderNumber = num
+                        this.sidebarNote        = null
+                        this.sidebarReason      = null
 
                         fetch(`/orders/customer/${id}/lines`, {
                             headers     : { Accept: 'application/json' },
                             credentials : 'same-origin'
                         })
                         .then(r => { if (!r.ok) throw new Error('Errore ' + r.status); return r.json() })
-                        .then(rows => { this.sidebarLines = rows; this.sidebarLoading = false })
-                        .catch(e   => { alert('Impossibile caricare le righe'); console.error(e); this.sidebarLoading = false })
+                        .then(js => {
+                            // Compat: se è un array (vecchio), usa come rows; altrimenti usa il nuovo oggetto
+                            if (Array.isArray(js)) {
+                                this.sidebarLines = js;
+                                this.sidebarNote  = null;
+                                this.sidebarReason= null;
+                            } else {
+                                this.sidebarLines = Array.isArray(js.rows) ? js.rows : [];
+                                this.sidebarNote  = js.note ?? null;
+                                this.sidebarReason= js.reason ?? null;
+                            }
+                            this.sidebarLoading = false;
+                        })
+                        .catch(e => {
+                            alert('Impossibile caricare i dettagli ordine');
+                            console.error(e);
+                            this.sidebarLoading = false;
+                        });
                     },
                 }"
                 class="max-w-full mx-auto sm:px-6 lg:px-8"
@@ -261,6 +281,31 @@
                         <i class="fas fa-circle-notch fa-spin text-3xl text-gray-600"></i>
                     </div>
 
+                    {{-- NEW: Meta (Note / Ragione rifiuto) --}}
+                    <div class="p-4 space-y-3">
+                        {{-- Note ordine --}}
+                        <template x-if="sidebarNote">
+                            <div class="rounded border border-purple-200 bg-purple-50/70 p-3">
+                                <div class="flex items-center gap-2 mb-1">
+                                    <i class="fas fa-sticky-note text-purple-600"></i>
+                                    <span class="font-semibold">Note ordine</span>
+                                </div>
+                                <p class="text-sm text-purple-900 whitespace-pre-line" x-text="sidebarNote"></p>
+                            </div>
+                        </template>
+
+                        {{-- Ragione rifiuto --}}
+                        <template x-if="sidebarReason">
+                            <div class="rounded border border-rose-200 bg-rose-50 p-3">
+                                <div class="flex items-center gap-2 mb-1">
+                                    <i class="fas fa-triangle-exclamation text-rose-600"></i>
+                                    <span class="font-semibold">Ragione del rifiuto</span>
+                                </div>
+                                <p class="text-sm text-rose-900 whitespace-pre-line" x-text="sidebarReason"></p>
+                            </div>
+                        </template>
+                    </div>
+                    
                     {{-- tabella righe --}}
                     <div x-show="sidebarLines.length > 0" class="p-4">
                         <table class="w-full text-sm border divide-y">
@@ -302,7 +347,6 @@
                     </div>
                 </div>
             </div>
-            {{-- /sidebar --}}
         </div>
     </div>
 
