@@ -127,6 +127,13 @@ return [
             'path' => storage_path('logs/laravel.log'),
         ],
 
+        // Canale di log specifico per il job di riconciliazione forniture
+        'supply' => [
+            'driver' => 'daily',
+            'path'   => storage_path('logs/supply_reconcile.log'),
+            'level'  => env('LOG_LEVEL', 'info'),
+            'days'   => 30,
+        ],
     ],
 
 ];

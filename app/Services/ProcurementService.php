@@ -11,6 +11,8 @@ use App\Services\Traits\ProcurementServiceAdjust;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Carbon;
 
 /**
  * ProcurementService
@@ -27,16 +29,15 @@ use Illuminate\Support\Facades\Log;
 class ProcurementService
 {
     use ProcurementServiceAdjust;
-    
+
     /**
      * Crea ordini fornitore a partire dallo shortage di componenti.
      *
-     * @param  Collection<int, array{component_id:int, shortage:float}>  $shortage
-     * @param  \Carbon\CarbonInterface|string  $deliveryDate
-     * @param  int|null  $originOcId
+     * @param  Collection<int, array{component_id:int, shortage:float, supplier_id:int, lead_time_days:int, unit_price:float}>  $shortage
+     * @param  int  $originOcId  >0 = origine singolo OC (comportamento storico); <=0 = run cumulativo (multi-OC)
      * @return array{
-     *     pos:         Illuminate\Support\Collection<Order>,
-     *     po_numbers:  Illuminate\Support\Collection<string>
+     *     pos:        \Illuminate\Support\Collection<\App\Models\Order>,
+     *     po_numbers: \Illuminate\Support\Collection<string>
      * }
      */
     public static function fromShortage(Collection $shortage, int $originOcId): array
@@ -46,15 +47,18 @@ class ProcurementService
             'rows_cnt' => $shortage->count(),
         ]);
 
-        return DB::transaction(function () use ($shortage, $originOcId) {
+        // Se cumulativo, NON useremo un OC singolo sulle righe PO
+        $originForRow = $originOcId > 0 ? $originOcId : null;
+
+        return DB::transaction(function () use ($shortage, $originOcId, $originForRow) {
 
             /* 1️⃣ Raggruppa per supplier + lead_time */
             $byKey = [];
             foreach ($shortage as $row) {
                 $key = "{$row['supplier_id']}|{$row['lead_time_days']}";
-                $byKey[$key]['supplier_id']       = $row['supplier_id'];
-                $byKey[$key]['lead_time_days']    = $row['lead_time_days'];
-                $byKey[$key]['items'][]           = $row;
+                $byKey[$key]['supplier_id']     = (int) $row['supplier_id'];
+                $byKey[$key]['lead_time_days']  = (int) $row['lead_time_days'];
+                $byKey[$key]['items'][]         = $row;
             }
 
             $poCollection = collect();
@@ -85,49 +89,62 @@ class ProcurementService
                 Log::info('PO created', ['po_id' => $po->id, 'number' => $on->number]);
 
                 /* 2.2 righe */
-                $totalDelta = 0;
+                $totalDelta = 0.0;
+
                 foreach ($grp['items'] as $it) {
 
+                    $qty       = (float) $it['shortage'];
+                    $unitPrice = (float) $it['unit_price'];
+
                     $row = OrderItem::create([
-                        'order_id'                        => $po->id,
-                        'component_id'                    => $it['component_id'],
-                        'quantity'                        => $it['shortage'],
-                        'unit_price'                      => $it['unit_price'],
-                        'generated_by_order_customer_id'  => $originOcId,   // sempre valorizzato
+                        'order_id'                       => $po->id,
+                        'component_id'                   => (int) $it['component_id'],
+                        'quantity'                       => $qty,
+                        'unit_price'                     => $unitPrice,
+                        // ⬇️ se cumulativo (originOcId <= 0) → NULL per non violare FK e non dare indicazioni fuorvianti
+                        'generated_by_order_customer_id' => $originForRow,
                     ]);
 
-                    if ($row->unit_price == 0 && $it['unit_price'] > 0) {
-                        $row->unit_price = $it['unit_price']; $row->save();
+                    // Se il prezzo arriva 0 ma lo shortage è stato arricchito, aggiorniamo
+                    if ($row->unit_price == 0 && $unitPrice > 0) {
+                        $row->unit_price = $unitPrice;
+                        $row->save();
                     }
-                    
-                    $totalDelta += $it['shortage'] * $row->unit_price;
 
-                    Log::debug('PO line upsert', [
+                    $totalDelta += $qty * $row->unit_price;
+
+                    Log::debug('PO line create', [
                         'po_id'        => $po->id,
-                        'component_id' => $it['component_id'],
-                        'qty_added'    => $it['shortage'],
+                        'component_id' => (int) $it['component_id'],
+                        'qty_added'    => $qty,
+                        'origin_oc'    => $originForRow,
                     ]);
 
-                    /* prenotazione merce in arrivo */
-                    PoReservation::create([
-                        'order_item_id'      => $row->id,
-                        'order_customer_id'  => $originOcId,
-                        'quantity'           => $it['shortage'],
-                    ]);
-
+                    /* 🎯 Prenotazione merce in arrivo:
+                       - SOLO se originOcId > 0 (poiché sappiamo a quale OC appartiene)
+                       - se cumulativo, le PoReservation per OC le crea il Job subito dopo */
+                    if ($originOcId > 0) {
+                        PoReservation::create([
+                            'order_item_id'     => $row->id,
+                            'order_customer_id' => $originOcId,
+                            'quantity'          => $qty,
+                        ]);
+                    }
                 }
 
-                if ($totalDelta > 0) $po->increment('total', $totalDelta);
+                if ($totalDelta > 0) {
+                    $po->increment('total', $totalDelta);
+                }
 
                 $poCollection->push($po->load('orderNumber'));
 
                 Log::info('auto_po_created', [
-                    'po_id'      => $po->id,
-                    'po_number'  => $po->orderNumber->number,
-                    'supplier_id'=> $grp['supplier_id'],
-                    'lead_time'  => $grp['lead_time_days'],
-                    'delta_val'  => $totalDelta,
-                    'oc_id'      => $originOcId,
+                    'po_id'       => $po->id,
+                    'po_number'   => $po->orderNumber->number,
+                    'supplier_id' => $grp['supplier_id'],
+                    'lead_time'   => $grp['lead_time_days'],
+                    'delta_val'   => $totalDelta,
+                    'oc_id'       => $originOcId,
                 ]);
             }
 
