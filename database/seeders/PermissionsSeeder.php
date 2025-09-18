@@ -36,6 +36,7 @@ class PermissionsSeeder extends Seeder
             ['name' => 'orders.supplier.create',      'display_name' => 'Crea ordini fornitore',            'description' => 'Crea ordini fornitore.'],
             ['name' => 'orders.supplier.update',      'display_name' => 'Modifica ordini fornitore',        'description' => 'Modifica ordini fornitore.'],
             ['name' => 'orders.supplier.delete',      'display_name' => 'Elimina ordini fornitore',         'description' => 'Elimina ordini fornitore.'],
+            ['name' => 'orders.supplier.manage_supply', 'display_name' => 'Gestisci approvvigionamento ordine fornitore', 'description' => 'Gestisce l\'approvvigionamento automatico di un ordine fornitore in base agli ordini clienti.'],
 
             ['name' => 'customers.view',              'display_name' => 'Visualizza clienti',               'description' => 'Visualizza anagrafica clienti.'],
             ['name' => 'customers.create',            'display_name' => 'Crea clienti',                     'description' => 'Crea anagrafica clienti.'],

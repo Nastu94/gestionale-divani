@@ -32,7 +32,7 @@ return [
     | Orario locale (Europe/Rome) in cui far partire il run del lunedì.
     | Esempio formato HH:MM (24h): '06:15'.
     */
-    'schedule_time' => env('SUPPLY_RECONCILE_SCHEDULE_TIME', '23:50'),
+    'schedule_time' => env('SUPPLY_RECONCILE_SCHEDULE_TIME', '06:00'),
     'schedule_timezone' => env('SUPPLY_RECONCILE_TZ', 'Europe/Rome'),
 
 

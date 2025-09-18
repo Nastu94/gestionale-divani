@@ -23,6 +23,7 @@ return [
             'items'   => [
                 ['label'=>'Ordini Cliente',   'route'=>'orders.customer.index',  'permission'=>'orders.customer.view'],
                 ['label'=>'Ordini Fornitore', 'route'=>'orders.supplier.index',  'permission'=>'orders.supplier.view'],
+                ['label'=>'Dashboard Supply', 'route'=>'orders.supply.dashboard', 'permission'=>'orders.supplier.manage_supply'],
             ],
         ],
         [
@@ -77,6 +78,7 @@ return [
             'items'   => [
                 ['label'=>'Ordini Cliente',   'route'=>'orders.customer.index', 'icon'=>'fa-shopping-basket',     'permission'=>'orders.customer.view'],
                 ['label'=>'Ordini Fornitore', 'route'=>'orders.supplier.index', 'icon'=>'fa-people-carry',        'permission'=>'orders.supplier.view'],
+                ['label'=>'Dashboard Supply', 'route'=>'orders.supply.dashboard', 'icon'=>'fa-tachometer-alt',    'permission'=>'orders.supplier.manage_supply'],
             ],
         ],
         [

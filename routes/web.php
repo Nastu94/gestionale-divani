@@ -27,6 +27,7 @@ use App\Http\Controllers\ProductCustomerPriceController;
 use App\Http\Controllers\FabricColorAdminController;
 use App\Http\Controllers\OrderPricingController;
 use App\Http\Controllers\OrderPublicConfirmationController;
+use App\Http\Controllers\SupplyDashboardController;
 use App\Http\Controllers\Api\SupplierApiController;
 use App\Http\Controllers\Api\ComponentApiController;
 use App\Http\Controllers\Api\OrderNumberApiController;
@@ -937,7 +938,22 @@ Route::middleware([
             'destroy' => 'orders.supplier.destroy',
         ])
         ->middleware('permission:orders.supplier.delete');
+    
+    /*
+    |--------------------------------------------------------------------------
+    | Orders » Supplier » Supply Dashboard
+    |--------------------------------------------------------------------------
+    | Rotte protette: solo utenti con permesso "orders.supplier.menage_supply".
+    | - GET  orders/supplier/supply        → dashboard monitoraggio
+    | - POST orders/supplier/supply/run    → forza una riconciliazione immediata
+    */
+    Route::get ('/orders/supplier/supply',      [SupplyDashboardController::class, 'index'])
+        ->name('orders.supply.dashboard')
+        ->middleware('permission:orders.supplier.manage_supply');
 
+    Route::post('/orders/supplier/supply/run',  [SupplyDashboardController::class, 'runNow'])
+        ->name('orders.supply.run')
+        ->middleware('permission:orders.supplier.manage_supply');
     /*
 |--------------------------------------------------------------------------
     | Magazzino

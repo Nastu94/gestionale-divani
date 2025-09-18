@@ -62,6 +62,7 @@ class RoleController extends Controller
             'stock_levels'    => ['GR', 'Giacenze (report)'],
             'stock_movements' => ['MR', 'Movimenti (report)'],
             'rollback_item_phase' => ['R', 'Rollback fase articolo'],
+            'manage_supply'    => ['GS', 'Gestisci Supply'],
         ];
 
         return view('pages.roles.index', compact(
