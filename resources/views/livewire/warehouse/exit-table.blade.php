@@ -289,7 +289,7 @@
                     Operatore
                 </label>
                 <input type="text" maxlength="255"
-                    x-model.trim="operator" required
+                    x-model.trim="operator"
                     class="w-full border rounded px-2 py-1
                             focus:ring-indigo-500 focus:border-indigo-500">
             </div>

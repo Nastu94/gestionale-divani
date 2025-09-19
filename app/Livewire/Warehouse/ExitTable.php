@@ -240,7 +240,7 @@ class ExitTable extends Component
 
         $this->validate([
             'advQuantity' => ['required','numeric','gt:0','lte:'.$this->advMaxQty],
-            'advOperator' => ['required','string','max:255'],
+            'advOperator' => ['nullable','string','max:255'],
         ], [], ['advQuantity'=>'quantità', 'advOperator'=>'operatore']);
 
         try {
