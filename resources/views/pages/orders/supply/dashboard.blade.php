@@ -143,7 +143,6 @@
                 <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg">
                     <div class="p-6">
                         <div class="text-sm text-gray-500">Qty coperte (stock + PO)</div>
-                        {{-- ✔ niente decimali --}}
                         <div class="mt-1 font-bold">{{ number_format((float) $kpi['covered_qty'], 0, ',', '.') }}</div>
                     </div>
                 </div>
@@ -185,7 +184,6 @@
                                 <th class="px-3 py-2 text-left font-medium text-gray-500">PO (lines/qty)</th>
                                 <th class="px-3 py-2 text-left font-medium text-gray-500">Short (comp/qty)</th>
                                 <th class="px-3 py-2 text-left font-medium text-gray-500">PO creati</th>
-                                {{-- ✔ colonna Trace rimossa --}}
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-100">
@@ -194,7 +192,6 @@
                                     <td class="px-3 py-2">{{ $r->id }}</td>
                                     <td class="px-3 py-2">{{ $r->week_label }}</td>
 
-                                    {{-- ✔ Finestra: solo data (senza ore) --}}
                                     <td class="px-3 py-2">
                                         {{ \Illuminate\Support\Str::before($r->window_start, ' ') }}
                                         →
@@ -219,7 +216,6 @@
                                     <td class="px-3 py-2">{{ (int) $r->orders_skipped_fully_covered }}</td>
                                     <td class="px-3 py-2">{{ (int) $r->orders_touched }}</td>
 
-                                    {{-- ✔ Quantità senza decimali --}}
                                     <td class="px-3 py-2">
                                         {{ (int) $r->stock_reservation_lines }} /
                                         {{ number_format((float) $r->stock_reserved_qty, 0, ',', '.') }}

@@ -49,6 +49,7 @@ final readonly class AdvanceOrderItemPhaseAction
         private bool             $isRollback = false,
         private ?string          $reason     = null,
         private string           $rollbackMode = 'scrap',
+        private ?string          $operator   = null,
     ) {}
 
     /**
@@ -157,6 +158,7 @@ final readonly class AdvanceOrderItemPhaseAction
                 'is_rollback'   => $this->isRollback,
                 'rollback_mode' => $this->isRollback ? $this->rollbackMode : null,
                 'reason'        => $this->reason,
+                'operator'      => $this->operator,
             ]);
 
             /*───────────────────────────────────────────────────────────────────*

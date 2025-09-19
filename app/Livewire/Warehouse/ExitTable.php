@@ -64,6 +64,7 @@ class ExitTable extends Component
     public ?int   $advItemId    = null;   // riga selezionata
     public float  $advMaxQty    = 0;      // pezzi residui in fase
     public float  $advQuantity  = 0;      // input utente
+    public ?string $advOperator  = null;  // operatore
 
     /*──────────── modal ROLLBACK ──────────────*/
     public ?int  $rbItemId   = null;
@@ -239,7 +240,8 @@ class ExitTable extends Component
 
         $this->validate([
             'advQuantity' => ['required','numeric','gt:0','lte:'.$this->advMaxQty],
-        ], [], ['advQuantity'=>'quantità']);
+            'advOperator' => ['required','string','max:255'],
+        ], [], ['advQuantity'=>'quantità', 'advOperator'=>'operatore']);
 
         try {
             Log::debug('[confirmAdvance] validated – dispatch action');
@@ -250,13 +252,14 @@ class ExitTable extends Component
                 'user'       => auth()->user(),
                 'fromPhase'  => ProductionPhase::from($this->phase),   // 👈 KPI selezionata
                 'isRollback' => false,
+                'operator'   => $this->advOperator ? trim($this->advOperator) : null,
             ])->execute();
 
             Log::info('[confirmAdvance] OK', ['item' => $this->advItemId]);
 
             session()->flash('success', 'Fase avanzata correttamente.');
             $this->dispatch('close-row');  
-            $this->reset('advItemId','advMaxQty','advQuantity');
+            $this->reset('advItemId','advMaxQty','advQuantity', 'advOperator');
             $this->resetPage();               // refresh KPI + righe
         } catch (\Throwable $e) {
             Log::error('[confirmAdvance] ERROR', [

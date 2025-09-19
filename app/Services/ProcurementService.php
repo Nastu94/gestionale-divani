@@ -175,8 +175,8 @@ class ProcurementService
 
                 // 2️⃣ scegli il fornitore (più rapido → meno costoso)
                 $cs = ComponentSupplier::where('component_id', $componentId)
-                        ->orderBy('lead_time_days')
                         ->orderBy('last_cost')
+                        ->orderBy('lead_time_days')
                         ->first();
 
                 if (! $cs) {

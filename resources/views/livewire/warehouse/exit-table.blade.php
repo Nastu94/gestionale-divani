@@ -279,7 +279,17 @@
                 </label>
 
                 <input type="number" step="1" min="1"
-                    x-model.number="qty"
+                    x-model.number="qty" required 
+                    class="w-full border rounded px-2 py-1
+                            focus:ring-indigo-500 focus:border-indigo-500">
+            </div>
+
+            <div>
+                <label class="block text-sm mb-1">
+                    Operatore
+                </label>
+                <input type="text" maxlength="255"
+                    x-model.trim="operator" required
                     class="w-full border rounded px-2 py-1
                             focus:ring-indigo-500 focus:border-indigo-500">
             </div>
@@ -358,12 +368,14 @@
                 id  : null,
                 max : 0,
                 qty : 1,
+                operator : '',
 
                 /* ▲ apre il dialog   -------------------------------------- */
                 open (p) {
                     this.id  = p.id
                     this.max = p.maxQty
                     this.qty = p.defaultQty
+                    this.operator = ''
                     /* fallback per browser senza <dialog> */
                     if (! this.dlg.showModal) {
                         this.dlg.setAttribute('open', '')
@@ -384,6 +396,7 @@
 
                     // ①  aggiorna la property
                     comp.set('advQuantity', this.qty)
+                        .then(() => comp.set('advOperator', this.operator))
                         // ②  solo dopo chiama il metodo
                         .then(() => comp.call('confirmAdvance', this.qty));
 

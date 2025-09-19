@@ -38,7 +38,8 @@ class OrderItemPhaseEvent extends Model
         'changed_by',
         'is_rollback',
         'reason',
-        'rollback_mode', 
+        'rollback_mode',
+        'operator',
     ];
 
     /** @var array<string,string> */
@@ -79,7 +80,8 @@ class OrderItemPhaseEvent extends Model
         'changed_by',
         'is_rollback',
         'reason',
-        'rollback_mode', 
+        'rollback_mode',
+        'operator',
     ];
     
     /**
