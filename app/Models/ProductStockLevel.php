@@ -29,6 +29,9 @@ class ProductStockLevel extends Model
         'warehouse_id',
         'quantity',
         'reserved_for',
+        'fabric_id',
+        'color_id',
+        'product_id',
     ];
     /**
      * Configura le opzioni di logging per questo modello.
@@ -49,6 +52,9 @@ class ProductStockLevel extends Model
         'warehouse_id',
         'quantity',
         'reserved_for',
+        'fabric_id',
+        'color_id',
+        'product_id',
     ];
 
     /** @var array<string, string> */

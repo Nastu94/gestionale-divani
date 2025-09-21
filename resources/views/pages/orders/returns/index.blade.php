@@ -110,7 +110,7 @@
 
                                     {{-- Cliente --}}
                                     <td class="px-6 py-2 whitespace-nowrap">
-                                        {{ $ret->customer?->name ?? '—' }}
+                                        {{ $ret->customer?->company ?? '—' }}
                                     </td>
 
                                     {{-- Stato --}}

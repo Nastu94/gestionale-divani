@@ -157,7 +157,7 @@ Route::middleware([
     */
     Route::post('/order-numbers/reserve', [OrderNumberApiController::class, 'reserve'])
         ->name('order.number.reserve')
-        ->middleware(['permission:orders.supplier.create']);
+        ->middleware(['permission:orders.supplier.create|orders.customer.create|orders.customer.returns_manage']);
 
     /*
     |--------------------------------------------------------------------------
@@ -891,6 +891,19 @@ Route::middleware([
     */
     Route::put('returns/{return}', [ProductReturnController::class, 'update'])
         ->name('returns.update')
+        ->middleware('permission:orders.customer.returns_manage');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Gestione Resi Cliente - destroy
+    |--------------------------------------------------------------------------
+    |
+    | Gestisce la cancellazione di un reso cliente dal sistema.
+    | Protetta dal permesso orders.customer.returns_manage.
+    |
+    */
+    Route::delete('returns/{return}', [ProductReturnController::class, 'destroy'])
+        ->name('returns.destroy')
         ->middleware('permission:orders.customer.returns_manage');
 
     /*

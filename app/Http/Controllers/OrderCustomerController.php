@@ -1041,6 +1041,7 @@ class OrderCustomerController extends Controller
             if ((int) $order->status === 0) {
                 // STANDARD NON confermato → come store: rigenera token + invia mail (nessun materiale/PO adesso)
                 $order->confirm_token             = (string) Str::uuid();
+                $order->reason                    = null; // reset eventuale motivo rifiuto
                 $order->confirmation_requested_at = now();
                 $order->confirm_locale            = app()->getLocale();
                 $order->save();

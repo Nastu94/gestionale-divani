@@ -33,7 +33,7 @@
         <div class="flex items-start justify-between mb-4">
             <h3 class="text-lg font-semibold tracking-wide">
                 <span x-show="mode==='create'" x-cloak>Nuovo Reso</span>
-                <span x-show="mode==='edit'"   x-cloak>Modifica Reso <span class="text-gray-500">#</span><span x-text="form.number || id"></span></span>
+                <span x-show="mode==='edit'"   x-cloak>Modifica Reso <span class="text-gray-500">#</span><span x-text="form.number"></span></span>
             </h3>
             <button @click="close()" class="text-gray-400 hover:text-gray-200"><i class="fas fa-times"></i></button>
         </div>
@@ -52,11 +52,13 @@
             <div class="space-y-4">
                 {{-- RIGA 1: N. Reso + Data Reso --}}
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {{-- N. Reso (opzionale; può essere generato dal BE) --}}
+                    {{-- N. Reso (autogenerato) --}}
                     <div>
                         <label class="block text-sm font-medium">N. Reso</label>
-                        <input type="text" name="number" x-model="form.number"
-                            placeholder="es. RE-2025-000001 (opzionale)"
+                        <input type="text"
+                            name="number"
+                            x-model="form.number"
+                            readonly
                             class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-800 text-sm">
                     </div>
 
@@ -106,7 +108,7 @@
                                 <template x-if="selectedCustomer.shipping_address">
                                     <p class="text-xs" x-text="selectedCustomer.shipping_address"></p>
                                 </template>
-                                <button type="button" @click="selectedCustomer=null" class="text-xs text-red-600 mt-1">Cambia</button>
+                                <button x-show="mode=='create'" type="button" @click="selectedCustomer=null" class="text-xs text-red-600 mt-1">Cambia</button>
                             </div>
                         </template>
 
@@ -135,10 +137,12 @@
                             <template x-for="(opt, idx) in orderOptions" :key="opt.__key ?? ('o-'+(opt.id ?? idx))">
                                 <div class="px-2 py-1 hover:bg-gray-200 dark:hover:bg-gray-700 cursor-pointer"
                                     @click="selectOrder(opt)">
-                                    <div class="text-[11px] leading-tight">
-                                        <strong x-text="opt.number"></strong>
-                                        <span class="ml-1" x-text="(opt.customer?.company || opt.customer?.name || '—')"></span>
-                                        <span class="block opacity-70"
+                                    <div class="leading-tight">
+                                        <span class="ml-1 text-sm font-semibold" x-text="(opt.customer?.company || '—')"></span>
+                                        <span class="text-sm font-semibold"
+                                            x-text="`Ordine ${ (opt?.number != null && String(opt.number).trim() !== '' ) ? opt.number : ('#' + opt.id) }`">
+                                        </span>
+                                        <span class="text-sm block opacity-70"
                                             x-text="'Consegna: ' + (opt.delivery_date || '—') + ' · Ordine: ' + (opt.ordered_at || '—')"></span>
                                     </div>
                                 </div>
@@ -148,12 +152,16 @@
                         {{-- Riepilogo ordine scelto --}}
                         <template x-if="selectedOrder">
                             <div class="mt-2 p-2 border rounded bg-gray-50 dark:bg-gray-800">
-                                <p class="text-sm font-semibold">
-                                    Ordine <span x-text="selectedOrder.number"></span>
-                                    <span class="text-xs opacity-75 ml-1" x-text="selectedOrder.delivery_date ? ('— consegna ' + selectedOrder.delivery_date) : ''"></span>
+                                <p class="text-sm font-semibold">                                    
+                                    <span
+                                        x-text="`Ordine ${ (selectedOrder?.number != null) ? selectedOrder.number : ('#' + selectedOrder?.id) }`">
+                                    </span>
+                                    <span class="text-xs ml-1"
+                                            x-show="selectedOrder?.delivery_date"
+                                            x-text="'— consegna ' + selectedOrder.delivery_date"></span>
                                 </p>
                                 <p class="text-xs" x-text="selectedOrder.customer ? (selectedOrder.customer.company || selectedOrder.customer.name) : '—'"></p>
-                                <button type="button" @click="clearOrder()" class="text-xs text-red-600 mt-1">Rimuovi</button>
+                                <button x-show="mode=='create'" type="button" @click="clearOrder()" class="text-xs text-red-600 mt-1">Rimuovi</button>
                             </div>
                         </template>
 
@@ -204,7 +212,7 @@
                                 </td>
                                 <td class="px-2 py-1" x-text="l.condition"></td>
                                 <td class="px-2 py-1" x-text="l.reason"></td>
-                                <td class="px-2 py-1 text-center">
+                                <td class="px-2 py-1 text-center flex items-center justify-center">
                                     <button type="button" @click="editLine(idx)" class="text-indigo-600"><i class="fas fa-pen"></i></button>
                                     <button type="button" @click="removeLine(idx)" class="text-red-600 ml-2"><i class="fas fa-trash"></i></button>
                                 </td>
@@ -404,10 +412,11 @@ function returnModal() {
 
         /* Testata */
         form: {
-            number: '',
+            number: '—',
             return_date: new Date().toISOString().slice(0,10),
             notes: '',
         },
+        _reserving: false,
 
         /* Cliente */
         selectedCustomer: null,
@@ -442,6 +451,7 @@ function returnModal() {
             this.mode = 'create'; this.id = null;
             this.action = '{{ route('returns.store') }}';
             this.resetHeader(); this.resetRow(); this.lines = [];
+            this.reserveReturnNumber();
             this.show = true;
         },
         async openEdit(id) {
@@ -457,7 +467,7 @@ function returnModal() {
                 if (!r.ok) throw new Error('HTTP '+r.status);
                 const js = await r.json();
 
-                this.form.number = js.number ?? '';
+                this.form.number = js.number ?? '—';
                 this.form.return_date = js.return_date ?? new Date().toISOString().slice(0,10);
                 this.form.notes = js.notes ?? '';
 
@@ -514,27 +524,52 @@ function returnModal() {
             this.editingIndex=null;
         },
 
+        /* Riserva un numero reso (solo in create) */
+        reserveReturnNumber() {
+            if (this._reserving || this.form.number) return; // evita doppie chiamate
+            this._reserving = true;
+
+            fetch('/order-numbers/reserve', {
+                method: 'POST',
+                headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+                },
+                credentials: 'same-origin',
+                body: JSON.stringify({ type: 'return' })
+            })
+            .then(r => r.ok ? r.json() : Promise.reject())
+            .then(j => { this.form.number = j.number; }) // usiamo il progressivo ritornato
+            .catch(() => { this.form.number = ''; })     // fallback: campo vuoto
+            .finally(() => { this._reserving = false; });
+        },
+
         /* Ricerca CLIENTI con chiavi sicure (__key) */
-        async searchCustomers(){
-            const q = (this.customerSearch || '').trim();
-            if (q.length < 2) { this.customerOptions = []; return; }
+        async searchCustomers () {
+            if (this.customerSearch.trim().length < 2) {
+                this.customerOptions = []; return;
+            }
+            const qs = new URLSearchParams({
+                q: this.customerSearch.trim(),
+                include_occasional: '1',   // <— SOLO qui nei Resi
+                limit: '20',
+            });
+
             try {
-                const r = await fetch(`/customers/search?q=${encodeURIComponent(q)}`, {
-                    headers:{ Accept:'application/json' }
+                const r = await fetch(`/customers/search?${qs.toString()}`, {
+                    headers: { Accept: 'application/json' },
+                    credentials: 'same-origin'
                 });
-                const data = r.ok ? await r.json() : [];
-                this.customerOptions = (Array.isArray(data) ? data : []).map((o, i) => {
-                    const base =
-                        (o.id != null ? `id-${o.id}` :
-                        (o.uuid ? `uuid-${o.uuid}` :
-                        (o.email ? `email-${o.email}` :
-                        (o.company || o.name ? `name-${(o.company || o.name)}` : `row-${i}`))));
-                    return { ...o, __key: `c-${base}-${i}` };
-                });
+                if (!r.ok) throw new Error(r.status);
+
+                const list = await r.json();
+                this.customerOptions = Array.isArray(list) ? list : [];
             } catch {
                 this.customerOptions = [];
             }
         },
+
         selectCustomer(opt){
             this.selectedCustomer = opt; this.customerOptions = [];
 
@@ -546,43 +581,80 @@ function returnModal() {
         },
 
         /* Ricerca ORDINI con chiavi sicure (__key) */
-        async searchOrders(){
-            const q = (this.orderSearch || '').trim();
-            if (q.length < 2) { this.orderOptions = []; return; }
+        async searchOrders() {
+            if (!this.orderSearch || this.orderSearch.trim().length < 2) {
+                this.orderOptions = []; return;
+            }
 
-            const params = new URLSearchParams({ q });
-            // se vuoi filtrare per cliente selezionato:
-            if (this.selectedCustomer?.id) params.set('customer_id', this.selectedCustomer.id);
+            const qs = new URLSearchParams({
+                q: this.orderSearch.trim(),
+                limit: 20,
+            });
+
+            // SE ho già un cliente selezionato → filtra lato BE
+            if (this.selectedCustomer && this.selectedCustomer.id) {
+                if (this.selectedCustomer.source === 'occasional') {
+                    qs.set('occasional_customer_id', String(this.selectedCustomer.id));
+                } else {
+                    qs.set('customer_id', String(this.selectedCustomer.id));
+                }
+            }
 
             try {
-                const r = await fetch(`/orders/customer/search?${params.toString()}`, {
-                    headers:{ Accept:'application/json' }
+                const r = await fetch(`/orders/customer/search?${qs.toString()}`, {
+                    headers: { Accept: 'application/json' },
+                    credentials: 'same-origin',
                 });
-                const data = r.ok ? await r.json() : [];
-                this.orderOptions = (Array.isArray(data) ? data : []).map((o, i) => ({
-                    ...o,
-                    __key: `o-${ (o.id!=null?o.id:(o.number||'row')) }-${i}`
-                }));
-            } catch {
+                if (!r.ok) throw new Error(String(r.status));
+                this.orderOptions = await r.json();
+            } catch (e) {
+                console.error('orders search failed', e);
                 this.orderOptions = [];
             }
         },
-        selectOrder(opt){
-            this.selectedOrder = opt;
-            this.orderOptions  = [];
+        // Selezione ordine dall'autocomplete (create/edit)
+        selectOrder(opt) {
+            // ── normalizza il campo number: intero o null (mai stringa vuota)
+            const normalizedNumber =
+                (opt && opt.number != null && String(opt.number).trim() !== '')
+                    ? Number(opt.number)
+                    : null;
 
-            // Se non c'è cliente, prendi quello dell’ordine; altrimenti controlla coerenza
-            if (!this.selectedCustomer && opt.customer) {
-                this.selectedCustomer = opt.customer;
-            } else if (this.selectedCustomer && opt.customer && Number(this.selectedCustomer.id) !== Number(opt.customer.id)) {
-                const ok = confirm('Il cliente dell’ordine selezionato è diverso dal cliente attuale. Vuoi sostituire il cliente con quello dell’ordine?');
-                if (ok) {
-                    this.selectedCustomer = opt.customer;
-                } else {
-                    // rollback ordine se non vuoi cambiare cliente
+            // proposta ordine
+            const chosen = {
+                id: opt.id,
+                number: normalizedNumber,                 // <— ora è int o null
+                delivery_date: opt.delivery_date ?? null,
+                customer: opt.customer ?? null,
+                shipping_address: opt.shipping_address ?? null,
+            };
+
+            // coerenza con cliente corrente
+            if (!this.selectedCustomer && chosen.customer) {
+                this.selectedCustomer = chosen.customer;
+            } else if (
+                this.selectedCustomer &&
+                chosen.customer &&
+                Number(this.selectedCustomer.id) !== Number(chosen.customer.id)
+            ) {
+                const ok = confirm(
+                    'Il cliente dell’ordine selezionato è diverso dal cliente attuale. ' +
+                    'Vuoi sostituire il cliente con quello dell’ordine?'
+                );
+                if (!ok) {
+                    // rollback se non vuoi cambiare cliente
                     this.selectedOrder = null;
+                    this.orderOptions  = [];
+                    this.form.order_id = null;
+                    return;
                 }
+                this.selectedCustomer = chosen.customer;
             }
+
+            // conferma selezione
+            this.selectedOrder = chosen;
+            this.form.order_id = chosen.id;
+            this.orderOptions  = [];
         },
         clearOrder(){
             this.selectedOrder = null;
