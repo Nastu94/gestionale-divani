@@ -28,12 +28,14 @@ use App\Http\Controllers\FabricColorAdminController;
 use App\Http\Controllers\OrderPricingController;
 use App\Http\Controllers\OrderPublicConfirmationController;
 use App\Http\Controllers\SupplyDashboardController;
+use App\Http\Controllers\ProductReturnController;
 use App\Http\Controllers\Api\SupplierApiController;
 use App\Http\Controllers\Api\ComponentApiController;
 use App\Http\Controllers\Api\OrderNumberApiController;
 use App\Http\Controllers\Api\CustomersApiController;
 use App\Http\Controllers\Api\ProductsApiController;
 use App\Http\Controllers\Api\OrderComponentCheckController;
+use App\Http\Controllers\Api\CustomerOrdersApiController;
 
 /*
 |--------------------------------------------------------------------------
@@ -216,6 +218,18 @@ Route::middleware([
     Route::post('/orders/customer/{order}/recalc-procurement', [OrderCustomerController::class, 'recalcProcurement'])
         ->name('orders.customer.recalc')
         ->middleware('permission:orders.customer.update');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Ricerca ordini cliente per modale Resi
+    |--------------------------------------------------------------------------
+    |
+    | Fornisce un'API per la ricerca di ordini cliente (autocomplete modale).
+    |
+    */
+    Route::get('/orders/customer/search', [CustomerOrdersApiController::class, 'search'])
+        ->name('orders.customer.search')
+        ->middleware('permission:orders.customer.view');
 
     /*
     |--------------------------------------------------------------------------
@@ -826,6 +840,58 @@ Route::middleware([
     */
     Route::post('/orders/line-quote', [OrderPricingController::class, 'quoteLine'])
         ->name('orders.line-quote');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Gestione Resi Cliente - index
+    |--------------------------------------------------------------------------
+    |
+    | Mostra la lista dei resi cliente.
+    | Protette dal permesso orders.customer.returns_manage.
+    |
+    */
+    Route::get('returns', [ProductReturnController::class, 'index'])
+        ->name('returns.index')
+        ->middleware('permission:orders.customer.returns_manage');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Gestione Resi Cliente - show
+    |--------------------------------------------------------------------------
+    |
+    | Mostra il dettaglio di un reso cliente specifico.
+    | Protette dal permesso orders.customer.returns_manage.
+    |
+    */
+    Route::get('returns/{return}', [ProductReturnController::class, 'show'])
+        ->name('returns.show')
+        ->middleware('permission:orders.customer.returns_manage');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Gestione Resi Cliente - store
+    |--------------------------------------------------------------------------
+    |
+    | Visualizza il form per creare un nuovo reso cliente e gestisce il salvataggio.
+    | Protette dal permesso orders.customer.returns_manage.
+    |
+    */
+    Route::post('returns', [ProductReturnController::class, 'store'])
+        ->name('returns.store')
+        ->middleware('permission:orders.customer.returns_manage');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Gestione Resi Cliente - update
+    |--------------------------------------------------------------------------
+    |
+    | Visualizza il form per modificare un reso cliente esistente e gestisce l'aggiornamento.
+    | Protette dal permesso orders.customer.returns_manage.
+    |
+    */
+    Route::put('returns/{return}', [ProductReturnController::class, 'update'])
+        ->name('returns.update')
+        ->middleware('permission:orders.customer.returns_manage');
 
     /*
 |--------------------------------------------------------------------------

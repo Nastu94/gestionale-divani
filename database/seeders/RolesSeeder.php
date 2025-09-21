@@ -33,13 +33,13 @@ class RolesSeeder extends Seeder
                 'product-variables.*'
             ],
             'Commerciale' => [
-                'orders.supplier.*', 'price_lists.*',
+                'orders.supplier.*', 'price_lists.*', 'orders.customer.*',
                 'components.view', 'products.view',
                 'customers.*', 'suppliers.*',
                 'reports.orders.supplier', 'product-prices.*'
             ],
             'Impiegato' => [
-                'orders.customer.view', 'orders.customer.create', 'orders.customer.update',
+                'orders.customer.view', 'orders.customer.create', 'orders.customer.update', 'orders.customer.returns_manage',
                 'orders.supplier.view', 'orders.supplier.create', 'orders.supplier.update',
                 'categories.view', 'components.view', 'products.view', 'price_lists.view',
                 'customers.view', 'suppliers.view', 'warehouses.view', 'product-prices.view',

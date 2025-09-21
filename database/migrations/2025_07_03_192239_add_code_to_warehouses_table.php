@@ -37,6 +37,13 @@ return new class extends Migration
             'is_active' => true,
             'created_at' => now(),
             'updated_at' => now(),
+        ],[
+            'name'       => 'Magazzino Resi',
+            'code'       => 'MG-RETURN',
+            'type'       => 'return',
+            'is_active'  => true,
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
     }
 

@@ -71,4 +71,28 @@ class ProductStockLevel extends Model
     {
         return $this->belongsTo(Warehouse::class);
     }
+
+    /** 
+     * Ordine cliente per il quale questa giacenza è prenotata (reserved_for). 
+     */
+    public function reservedOrder(): BelongsTo
+    {
+        return $this->belongsTo(Order::class, 'reserved_for');
+    }
+
+    /**
+     * Variabile: tessuto associato alla giacenza (se presente).
+     */
+    public function fabric(): BelongsTo
+    {
+        return $this->belongsTo(Fabric::class);
+    }
+
+    /** 
+     * Variabile: colore associato alla giacenza (se presente). 
+     */
+    public function color(): BelongsTo
+    {
+        return $this->belongsTo(Color::class);
+    }
 }
