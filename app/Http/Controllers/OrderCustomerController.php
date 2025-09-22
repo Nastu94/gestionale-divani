@@ -19,6 +19,7 @@ use App\Services\InventoryService;
 use App\Services\ProcurementService;
 use App\Services\OrderUpdateService;
 use App\Services\OrderDeleteService;
+use App\Services\ReturnedProductReservationService; 
 use App\Services\Traits\InventoryServiceExtensions;
 use App\Support\Pricing\CustomerPriceResolver;
 use App\Mail\Orders\OrderConfirmationRequestMail;
@@ -500,13 +501,70 @@ class OrderCustomerController extends Controller
             }
 
             // OCCASIONALI: prosegue il TUO flusso attuale (explode BOM → reserve → check → PO)
+            // =========== Tentativo copertura con RESI (prodotti finiti) =====================
+            $returnsCoverageByKey = [];   // chiave: "product_id:fabric_id:color_id" => qty coperta
+            $makeKey = fn($pid,$fid,$cid) => sprintf('%d:%d:%d', $pid, $fid ?? 0, $cid ?? 0);
 
-            $usedLines = $resolvedLines->map(fn ($l) => [
-                'product_id' => $l['product_id'],
-                'quantity'   => $l['quantity'],
-                'fabric_id'  => $l['fabric_id'] ?? null,
-                'color_id'   => $l['color_id']  ?? null,
-            ])->all();
+            if ($isOccasional) {
+                // carica variabili riga per match FC
+                $order->load(['items.variable','items.product']);
+                $returnsSvc = app(ReturnedProductReservationService::class);
+
+                foreach ($order->items as $it) {
+                    // qty da coprire = intera riga (non abbiamo altre coperture fin qui)
+                    $res = $returnsSvc->reserveForItem($it, (float)$it->quantity, $request->user());
+                    $covered = (float) ($res['reserved'] ?? 0);
+
+                    if ($covered > 0) {
+                        $fid = $it->variable?->fabric_id;
+                        $cid = $it->variable?->color_id;
+                        $k   = $makeKey($it->product_id, $fid, $cid);
+                        $returnsCoverageByKey[$k] = ($returnsCoverageByKey[$k] ?? 0) + $covered;
+                    }
+                }
+            }
+            // ============================================================================
+            // OCCASIONALI: prosegue il TUO flusso attuale (explode BOM → reserve → check → PO)
+
+            // ⬇️ ADATTA le righe usate per la disponibilità: sottrai la qty coperta coi resi
+            $usedLines = collect($resolvedLines)
+                ->map(function ($l) use (&$returnsCoverageByKey, $makeKey) {
+                    $pid = (int) $l['product_id'];
+                    $fid = array_key_exists('fabric_id',$l) ? $l['fabric_id'] : null;
+                    $cid = array_key_exists('color_id', $l) ? $l['color_id']  : null;
+                    $k   = $makeKey($pid, $fid, $cid);
+
+                    $qty     = (float) $l['quantity'];
+                    $covered = (float) ($returnsCoverageByKey[$k] ?? 0);
+
+                    if ($covered <= 0) {
+                        return [
+                            'product_id' => $pid,
+                            'quantity'   => $qty,
+                            'fabric_id'  => $fid,
+                            'color_id'   => $cid,
+                        ];
+                    }
+
+                    // applica copertura, consumando la mappa (in caso di più righe uguali)
+                    $take = min($qty, $covered);
+                    $returnsCoverageByKey[$k] = max($covered - $take, 0);
+
+                    $left = $qty - $take;
+                    if ($left <= 1e-6) {
+                        return null; // riga interamente coperta da resi → NON entra in BOM
+                    }
+
+                    return [
+                        'product_id' => $pid,
+                        'quantity'   => $left,
+                        'fabric_id'  => $fid,
+                        'color_id'   => $cid,
+                    ];
+                })
+                ->filter()   // rimuovi null (righe totalmente coperte da reso)
+                ->values()
+                ->all();
 
             // FABbisogno per componente (senza check iniziale)
             $componentsNeeded = InventoryServiceExtensions::explodeBomArray($usedLines);
@@ -553,8 +611,9 @@ class OrderCustomerController extends Controller
 
             /*────────── CREA / MERGE PO se servono (SOLO OCCASIONALI) ──────────*/
             $poNumbers = [];
-            if ($inv && !$inv->ok && $request->user()->can('orders.supplier.create')) {
-                $shortCol  = ProcurementService::buildShortageCollection($inv->shortage);
+            $invFinal  = InventoryService::forDelivery($deliveryDate, $order->id)->check($usedLines);
+            if (!$invFinal->ok && $request->user()->can('orders.supplier.create')) {
+                $shortCol  = ProcurementService::buildShortageCollection($invFinal->shortage);
                 $proc      = ProcurementService::fromShortage($shortCol, $order->id);
                 $poNumbers = $proc['po_numbers']->all();
             }
@@ -1072,7 +1131,7 @@ class OrderCustomerController extends Controller
         // ── Occasionali: flusso attuale eseguito dal Service ───────────────────────
         return response()->json([
             'order_id' => $order->id,
-            'message'  => 'Ordine occasionale aggiornato (flusso attuale eseguito).',
+            'message'  => 'Ordine occasionale aggiornato.',
             'result'   => $result,
         ]);
     }
@@ -1108,15 +1167,72 @@ class OrderCustomerController extends Controller
         $eligibleForPo = $daysDiff >= 0 && $daysDiff < 30;
 
         // 3) Snapshot righe → array {product_id, quantity, fabric_id, color_id}
-        $order->load(['items.variable']);
-        $usedLines = $order->items->map(function ($it) {
+        $order->load(['items.variable','items.product']);
+        $returnsSvc = app(ReturnedProductReservationService::class);
+
+        $returnsCoverageByKey = [];
+        $makeKey = fn($pid,$fid,$cid) => sprintf('%d:%d:%d', $pid, $fid ?? 0, $cid ?? 0);
+
+        foreach ($order->items as $it) {
+            $res = $returnsSvc->reserveForItem($it, (float)$it->quantity, $request->user());
+            $covered = (float) ($res['reserved'] ?? 0);
+            if ($covered > 0) {
+                $fid = $it->variable?->fabric_id;
+                $cid = $it->variable?->color_id;
+                $k   = $makeKey($it->product_id, $fid, $cid);
+                $returnsCoverageByKey[$k] = ($returnsCoverageByKey[$k] ?? 0) + $covered;
+            }
+        }
+        // ⬇️ ADATTA le righe usate per la disponibilità: sottrai la qty coperta coi resi
+        // base lines dall'ordine
+        $baseLines = $order->items->map(function ($it) {
             return [
-                'product_id' => $it->product_id,
+                'product_id' => (int) $it->product_id,
                 'quantity'   => (float) $it->quantity,
                 'fabric_id'  => $it->variable?->fabric_id,
                 'color_id'   => $it->variable?->color_id,
             ];
-        })->values()->all();
+        })->values();
+
+        // adatta quantità in base alla copertura resi
+        $usedLines = $baseLines
+            ->map(function ($l) use (&$returnsCoverageByKey, $makeKey) {
+                $pid = (int) $l['product_id'];
+                $fid = array_key_exists('fabric_id',$l) ? $l['fabric_id'] : null;
+                $cid = array_key_exists('color_id', $l) ? $l['color_id']  : null;
+                $k   = $makeKey($pid, $fid, $cid);
+
+                $qty     = (float) $l['quantity'];
+                $covered = (float) ($returnsCoverageByKey[$k] ?? 0);
+
+                if ($covered <= 0) {
+                    return [
+                        'product_id' => $pid,
+                        'quantity'   => $qty,
+                        'fabric_id'  => $fid,
+                        'color_id'   => $cid,
+                    ];
+                }
+
+                // applica copertura, consumando la mappa (in caso di più righe uguali)
+                $take = min($qty, $covered);
+                $returnsCoverageByKey[$k] = max($covered - $take, 0);
+
+                $left = $qty - $take;
+                if ($left <= 1e-6) {
+                    return null; // riga interamente coperta da resi → NON entra in BOM
+                }
+
+                return [
+                    'product_id' => $pid,
+                    'quantity'   => $left,
+                    'fabric_id'  => $fid,
+                    'color_id'   => $cid,
+                ];
+            })
+            ->filter()   // rimuovi null (righe totalmente coperte da reso)
+            ->values()
+            ->all();
 
         // 4) TX: integrazioni su incoming libero + prenotazioni STOCK fisico
         DB::transaction(function () use ($order, $usedLines, $deliveryAt) {

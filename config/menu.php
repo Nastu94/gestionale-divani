@@ -24,7 +24,7 @@ return [
                 ['label'=>'Ordini Cliente',   'route'=>'orders.customer.index',  'permission'=>'orders.customer.view'],
                 ['label'=>'Ordini Fornitore', 'route'=>'orders.supplier.index',  'permission'=>'orders.supplier.view'],
                 ['label'=>'Dashboard Supply', 'route'=>'orders.supply.dashboard', 'permission'=>'orders.supplier.manage_supply'],
-                ['label'=>'Resi',             'route'=>'returns.index',          'permission'=>'orders.customer.returns_manage'],
+                ['label'=>'Resi Cliente',     'route'=>'returns.index',          'permission'=>'orders.customer.returns_manage'],
             ],
         ],
         [
@@ -80,7 +80,7 @@ return [
                 ['label'=>'Ordini Cliente',   'route'=>'orders.customer.index', 'icon'=>'fa-shopping-basket',     'permission'=>'orders.customer.view'],
                 ['label'=>'Ordini Fornitore', 'route'=>'orders.supplier.index', 'icon'=>'fa-people-carry',        'permission'=>'orders.supplier.view'],
                 ['label'=>'Dashboard Supply', 'route'=>'orders.supply.dashboard', 'icon'=>'fa-tachometer-alt',    'permission'=>'orders.supplier.manage_supply'],
-                ['label'=>'Resi',             'route'=>'returns.index',         'icon'=>'fa-undo',                'permission'=>'orders.customer.returns_manage'],
+                ['label'=>'Resi Cliente',     'route'=>'returns.index',         'icon'=>'fa-undo',                'permission'=>'orders.customer.returns_manage'],
             ],
         ],
         [

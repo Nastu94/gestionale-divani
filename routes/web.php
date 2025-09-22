@@ -250,7 +250,6 @@ Route::middleware([
     | Questa rotta permette di verificare la disponibilità dei componenti
     | in base alle righe di un ordine cliente e genera un Auto-PO se necessario.
     */
-
     Route::post('/orders/check-components', [OrderComponentCheckController::class, 'check'])
         ->name('orders.check-components')
         ->middleware('permission:orders.customer.create');

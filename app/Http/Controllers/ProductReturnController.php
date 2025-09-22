@@ -566,7 +566,7 @@ class ProductReturnController extends Controller
                 'condition'  => data_get($row, 'condition') ?: null,
                 'reason'     => data_get($row, 'reason')    ?: null,
                 // la UI manda "notes": lo mappiamo su "note"
-                'note'       => (string) (data_get($row, 'note') ?? data_get($row, 'notes') ?? ''),
+                'notes'       => (string) (data_get($row, 'note') ?? data_get($row, 'notes') ?? ''),
                 'restock'    => (bool) data_get($row, 'restock', false),
             ];
         }
@@ -610,7 +610,7 @@ class ProductReturnController extends Controller
                 $line->quantity  = $row['quantity'];
                 $line->condition = $row['condition'];
                 $line->reason    = $row['reason'];
-                $line->note      = $row['note'];
+                $line->notes     = $row['notes'];
                 $line->restock   = $row['restock'];
                 $line->save();
             } else {
@@ -623,7 +623,7 @@ class ProductReturnController extends Controller
                     'color_id'   => $row['color_id'] ?? null,
                     'condition'  => $row['condition'] ?? null,
                     'reason'     => $row['reason'] ?? null,
-                    'note'       => $row['note'] ?? null,
+                    'notes'      => $row['notes'] ?? null,
                     'restock'    => (bool) ($row['restock'] ?? false),
                 ]);
             }
@@ -729,4 +729,88 @@ class ProductReturnController extends Controller
         }
     }
 
+    /**
+     * Elimina un reso (solo se non ha righe “in magazzino”).
+     */
+    public function destroy(Request $request, ProductReturn $return)
+    {
+        Gate::authorize('orders.customer.returns_manage');
+
+        Log::info('@ProductReturnController::destroy [IN]', ['return_id' => $return->id]);
+
+        // Recupero magazzino resi per verifiche di coerenza
+        $returnsWarehouse = Warehouse::query()
+            ->where('type', 'return')
+            ->orWhere('code', 'MG-RETURN')
+            ->first();
+
+        if (! $returnsWarehouse) {
+            return $this->respondError('Magazzino resi non configurato (type=return / code=MG-RETURN).');
+        }
+
+        try {
+            DB::transaction(function () use ($return, $returnsWarehouse) {
+
+                // Carico righe (con eventuale id PSL)
+                $lines = $return->lines()->get(['id','product_stock_level_id']);
+
+                // Colleziono gli id PSL per lock/validazioni e cancellazione
+                $pslIds = $lines->pluck('product_stock_level_id')->filter()->values();
+
+                if ($pslIds->isNotEmpty()) {
+
+                    // Lock ottimistico delle PSL coinvolte
+                    $psls = ProductStockLevel::whereIn('id', $pslIds)->lockForUpdate()->get();
+
+                    // Blocco se qualche PSL è già riservata o non è più nel magazzino resi
+                    $blocked = $psls->first(function ($psl) use ($returnsWarehouse) {
+                        return !is_null($psl->reserved_for) || (int)$psl->warehouse_id !== (int)$returnsWarehouse->id;
+                    });
+
+                    if ($blocked) {
+                        $why = !is_null($blocked->reserved_for)
+                            ? "già riservata all'ordine #{$blocked->reserved_for}"
+                            : 'spostata fuori dal magazzino resi';
+                        throw new \RuntimeException("esiste una giacenza da reso {$why} (PSL #{$blocked->id}).");
+                    }
+                }
+
+                // 1) Cancello le righe del reso (prima, per non violare il FK sulla PSL)
+                if ($lines->isNotEmpty()) {
+                    ProductReturnLine::whereIn('id', $lines->pluck('id'))->delete();
+                }
+
+                // 2) Cancello le PSL collegate (ora non più referenziate)
+                if ($pslIds->isNotEmpty()) {
+                    ProductStockLevel::whereIn('id', $pslIds)->delete();
+                }
+
+                // 3) Cancello la testata del reso
+                $return->delete();
+
+                Log::info('@ProductReturnController::destroy [OK]', [
+                    'return_id' => $return->id,
+                    'deleted_lines' => $lines->count(),
+                    'deleted_psl'   => $pslIds->count(),
+                ]);
+            });
+        } catch (\Throwable $e) {
+            Log::error('@ProductReturnController::destroy [EXCEPTION]', [
+                'return_id' => $return->id,
+                'err'       => $e->getMessage(),
+            ]);
+            return $this->respondError('Impossibile eliminare il reso: ' . $e->getMessage());
+        }
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'ok'      => true,
+                'message' => 'Reso eliminato correttamente.',
+            ]);
+        }
+
+        return redirect()
+            ->route('returns.index')
+            ->with('success', 'Reso eliminato correttamente.');
+    }
 }
