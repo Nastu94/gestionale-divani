@@ -1092,7 +1092,8 @@ class OrderCustomerController extends Controller
         $result = $svc->handle(
             $order,
             $prepared,                        // include variabili + sconti + applied
-            $delivery->toDateString()
+            $delivery->toDateString(),
+            $request->user()
         );
 
         // ── Branching post-update per STANDARD ─────────────────────────────────────

@@ -27,6 +27,8 @@ class StockLevelsTable extends Component
     /*──────────────────────────────────────────────────────────────*
      |  Proprietà pubbliche ↔ Query-string                          |
      *──────────────────────────────────────────────────────────────*/
+    /** components | products */
+    public string  $mode = 'components';
     public ?string $sort    = '';      // '' = nessun ordinamento
     public string  $dir     = 'asc';   // asc | desc
     public array   $filters = [        // filtri di colonna
@@ -34,6 +36,8 @@ class StockLevelsTable extends Component
         'component_description' => '',
         'uom'                   => '',
         'reserved_quantity'     => '',   // range min (≥)
+        'fabric'                => '',
+        'color'                 => '',
     ];
     public int     $perPage  = 50;     // 50 | 100 | 250
 
@@ -45,12 +49,15 @@ class StockLevelsTable extends Component
 
     /**↔ query-string map  */
     protected array $queryString = [
+        'mode'                                  => ['except' => 'components'],
         'sort'                                  => ['except' => ''],
         'dir'                                   => ['except' => 'asc'],
         'filters.component_code'                => ['except' => ''],
         'filters.component_description'         => ['except' => ''],
         'filters.uom'                           => ['except' => ''],
         'filters.reserved_quantity'             => ['except' => ''],
+        'filters.fabric'                        => ['except' => ''],
+        'filters.color'                         => ['except' => ''],
         'page'                                  => ['except' => 1],
         'perPage'                               => ['except' => 50],
     ];
@@ -71,6 +78,20 @@ class StockLevelsTable extends Component
         if ($prop !== 'page') {
             $this->resetPage();
         }
+        if ($prop === 'mode') {
+            $this->expandedId = null;
+            $this->lots = [];
+            $this->sort = '';
+
+            if ($this->mode === 'components') {
+                // passando a COMPONENTI: i filtri prodotti non servono
+                $this->filters['fabric'] = '';
+                $this->filters['color']  = '';
+            } else {
+                // passando a PRODOTTI: l'UM non c'è
+                $this->filters['uom'] = '';
+            }
+        }
     }
 
     /*──────────────────────────────────────────────────────────────*
@@ -78,13 +99,14 @@ class StockLevelsTable extends Component
      *──────────────────────────────────────────────────────────────*/
     public function toggle(int $id): void
     {
+        if ($this->mode !== 'components') return;
+
         $this->expandedId = $this->expandedId === $id ? null : $id;
 
-        /* carica lotti (>0 qty) on-demand */
         if ($this->expandedId && ! isset($this->lots[$id])) {
             $this->lots[$id] = DB::table('stock_level_lots')
                 ->where('stock_level_id', $id)
-                ->where('quantity', '>', 0)                    // ignora lotti scarichi
+                ->where('quantity', '>', 0)
                 ->select('internal_lot_code', 'supplier_lot_code', 'quantity')
                 ->orderBy('internal_lot_code')
                 ->get();
@@ -94,26 +116,29 @@ class StockLevelsTable extends Component
     /*──────────────────────────────────────────────────────────────*
      |  Query builder con filtri / sort                             |
      *──────────────────────────────────────────────────────────────*/
-    private function query(): Builder
+    private function query(): \Illuminate\Database\Query\Builder|Builder
     {
-        /* White-list colonne ordinabili */
-        $allowedSorts = [
-            'component_code', 'component_description', 'uom',
-            'quantity', 'reserved_quantity',
-        ];
+        return $this->mode === 'components'
+            ? $this->queryComponents()
+            : $this->queryProducts();
+    }
+
+    /** Vista COMPONENTI (identica alla tua, invariata) */
+    private function queryComponents(): Builder
+    {
+        $allowedSorts = ['component_code','component_description','uom','quantity','reserved_quantity'];
         if ($this->sort !== '' && ! in_array($this->sort, $allowedSorts, true)) {
             $this->sort = '';
         }
 
-        /* Sub-query totali impegnati (stock_reservations) */
         $resSub = DB::table('stock_reservations')
             ->select('stock_level_id', DB::raw('SUM(quantity) AS reserved_quantity'))
             ->groupBy('stock_level_id');
 
-        return StockLevel::query()
+        $q = StockLevel::query()
             ->join('components as c', 'c.id', '=', 'stock_levels.component_id')
-            ->leftJoinSub($resSub, 'r',   'r.stock_level_id', '=', 'stock_levels.id')
-            ->where('stock_levels.quantity', '>', 0)          // esclude snapshot a zero
+            ->leftJoinSub($resSub, 'r', 'r.stock_level_id', '=', 'stock_levels.id')
+            ->where('stock_levels.quantity', '>', 0)
             ->select([
                 'stock_levels.*',
                 'c.code             as component_code',
@@ -122,27 +147,85 @@ class StockLevelsTable extends Component
                 DB::raw('COALESCE(r.reserved_quantity,0) AS reserved_quantity'),
             ])
 
-            /*―――― Filtri dinamici ――――*/
+            // Filtri
             ->when($this->filters['component_code'],
-                   fn ($q,$v) => $q->where('c.code','like',"%{$v}%"))
+                fn ($q,$v) => $q->where('c.code','like',"%{$v}%"))
             ->when($this->filters['component_description'],
-                   fn ($q,$v) => $q->where('c.description','like',"%{$v}%"))
+                fn ($q,$v) => $q->where('c.description','like',"%{$v}%"))
             ->when($this->filters['uom'],
-                   fn ($q,$v) => $q->where('c.unit_of_measure',$v))
+                fn ($q,$v) => $q->where('c.unit_of_measure',$v))
             ->when($this->filters['reserved_quantity'],
-                   fn ($q,$v) => $q->havingRaw('reserved_quantity >= ?', [$v]))
+                fn ($q,$v) => $q->havingRaw('reserved_quantity >= ?', [$v]));
 
-            /*―――― Ordinamento ――――*/
-            ->tap(function ($q) {
-                match ($this->sort) {
-                    'component_code'        => $q->orderBy('c.code',          $this->dir),
-                    'component_description' => $q->orderBy('c.description',   $this->dir),
-                    'uom'                   => $q->orderBy('c.unit_of_measure',$this->dir),
-                    'reserved_quantity'     => $q->orderBy('reserved_quantity',$this->dir),
-                    'quantity'              => $q->orderBy('stock_levels.quantity', $this->dir),
-                    default                 => null,
-                };
-            });
+        // Sort
+        $q->tap(function ($q) {
+            match ($this->sort) {
+                'component_code'        => $q->orderBy('c.code',            $this->dir),
+                'component_description' => $q->orderBy('c.description',     $this->dir),
+                'uom'                   => $q->orderBy('c.unit_of_measure', $this->dir),
+                'reserved_quantity'     => $q->orderBy('reserved_quantity', $this->dir),
+                'quantity'              => $q->orderBy('stock_levels.quantity', $this->dir),
+                default                 => null,
+            };
+        });
+
+        return $q;
+    }
+
+    /** Vista PRODOTTI RESI (product_stock_levels) */
+    private function queryProducts(): \Illuminate\Database\Query\Builder
+    {
+        $codeFilter = $this->filters['component_code'] ?? '';
+        $descFilter = $this->filters['component_description'] ?? '';
+        $resMin     = $this->filters['reserved_quantity'] ?? '';
+        // NEW
+        $fabFilter  = $this->filters['fabric'] ?? '';
+        $colFilter  = $this->filters['color']  ?? '';
+
+        $allowedSorts = ['component_code','component_description','quantity','reserved_quantity','fabric','color'];
+        if ($this->sort !== '' && ! in_array($this->sort, $allowedSorts, true)) {
+            $this->sort = '';
+        }
+
+        $q = DB::table('product_stock_levels as psl')
+            ->join('products as p', 'p.id', '=', 'psl.product_id')
+            ->leftJoin('fabrics as f', 'f.id', '=', 'psl.fabric_id')
+            ->leftJoin('colors  as co','co.id','=', 'psl.color_id')
+            ->where('psl.quantity', '>', 0)
+            ->selectRaw('
+                MIN(psl.id) as id,
+                p.sku as product_code,
+                p.description as product_description,
+                f.name as fabric_name,
+                co.name as color_name,
+                COALESCE(SUM(psl.quantity),0) as quantity,
+                COALESCE(SUM(CASE WHEN psl.reserved_for IS NOT NULL THEN psl.quantity ELSE 0 END),0) as reserved_quantity
+            ')
+            ->groupBy('psl.product_id','psl.fabric_id','psl.color_id','p.sku','p.description','f.name','co.name')
+
+            // Filtri esistenti
+            ->when($codeFilter, fn($q,$v) => $q->where('p.sku', 'like', "%{$v}%"))
+            ->when($descFilter, fn($q,$v) => $q->where('p.description', 'like', "%{$v}%"))
+            ->when($resMin,     fn($q,$v) => $q->havingRaw('reserved_quantity >= ?', [$v]))
+
+            // NEW: filtri su tessuto/colore
+            ->when($fabFilter,  fn($q,$v) => $q->where('f.name', 'like', "%{$v}%"))
+            ->when($colFilter,  fn($q,$v) => $q->where('co.name','like', "%{$v}%"));
+
+        // Ordinamenti (già presenti + fabric/color)
+        $q->tap(function ($q) {
+            match ($this->sort) {
+                'component_code'        => $q->orderBy('product_code',       $this->dir),
+                'component_description' => $q->orderBy('product_description', $this->dir),
+                'reserved_quantity'     => $q->orderBy('reserved_quantity',  $this->dir),
+                'quantity'              => $q->orderBy('quantity',           $this->dir),
+                'fabric'                => $q->orderBy('fabric_name',        $this->dir),
+                'color'                 => $q->orderBy('color_name',         $this->dir),
+                default                 => null,
+            };
+        });
+
+        return $q;
     }
 
     /*──────────────────────────────────────────────────────────────*
@@ -161,7 +244,8 @@ class StockLevelsTable extends Component
     public function render()
     {
         return view('livewire.warehouse.stock-levels-table', [
-            'levels'  => $this->stockLevels, // shorthand in Blade
+            'levels'  => $this->stockLevels,
+            'mode'    => $this->mode,
             'sort'    => $this->sort,
             'dir'     => $this->dir,
             'filters' => $this->filters,

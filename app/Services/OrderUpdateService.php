@@ -9,6 +9,8 @@ use App\Models\StockMovement;
 use App\Models\StockReservation;
 use App\Models\PoReservation;
 use App\Services\Traits\InventoryServiceExtensions;
+use App\Services\ReturnedProductReservationService;
+use Illuminate\Contracts\Auth\Authenticatable as User;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -31,7 +33,7 @@ class OrderUpdateService
      * @param string|null $newDate
      * @return array ['message' => string, 'po_numbers' => array]
      */
-    public function handle(Order $order, Collection $payload, ?string $newDate = null): array
+    public function handle(Order $order, Collection $payload, ?string $newDate = null, $actor = null): array
     {
         $t0 = microtime(true);
 
@@ -118,7 +120,7 @@ class OrderUpdateService
             Log::debug('OC update – TX begin', ['order_id' => $order->id]);
 
             $result = DB::transaction(function () use (
-                $order, $current, $incoming, $increase, $decrease, $newDate, $changedDate, $t0
+                $order, $current, $incoming, $increase, $decrease, $newDate, $changedDate, $t0, $actor
             ) {
                 /* 4.1 Header */
                 if ($changedDate) {
@@ -223,9 +225,133 @@ class OrderUpdateService
                 }
                 // ─────────────────────────────────────────────────────────────
 
-                /* 4.4 Release prenotazioni per diminuzioni (SOLO per OCCASIONALI) */
+                /* 4.3.1 RESI su delta positivi (solo OCCASIONALI) */
+                $returnsCoverageApplied = [];
+                if ($increase->isNotEmpty()) {
+                    /** @var ReturnedProductReservationService $returnsSvc */
+                    $returnsSvc = app(ReturnedProductReservationService::class);
+
+                    // mappa: key -> OrderItem aggiornato
+                    $order->load(['items.variable','items.product']);
+                    $itemsByKey = $order->items->mapWithKeys(function ($it) {
+                        $k = sprintf('%d:%d:%d',
+                            (int)$it->product_id,
+                            (int)($it->variable?->fabric_id ?? 0),
+                            (int)($it->variable?->color_id  ?? 0)
+                        );
+                        return [$k => $it];
+                    });
+
+                    foreach ($increase as $inc) {
+                        $k = sprintf('%d:%d:%d',
+                            (int)$inc['product_id'],
+                            (int)($inc['fabric_id'] ?? 0),
+                            (int)($inc['color_id']  ?? 0)
+                        );
+                        if (!isset($itemsByKey[$k])) continue;
+
+                        $it   = $itemsByKey[$k];
+                        $need = (float)$inc['quantity'];
+
+                        $res = $returnsSvc->reserveForItem($it, $need, $actor);
+                        $reserved = (float)($res['reserved'] ?? 0);
+
+                        if ($reserved > 0) {
+                            $returnsCoverageApplied[] = [
+                                'product_id' => (int)$inc['product_id'],
+                                'fabric_id'  => $inc['fabric_id'] ?? null,
+                                'color_id'   => $inc['color_id']  ?? null,
+                                'reserved'   => $reserved,
+                            ];
+                        }
+                    }
+
+                    Log::debug('OC update – returns coverage applied on increases', [
+                        'order_id' => $order->id,
+                        'applied'  => $returnsCoverageApplied,
+                    ]);
+                }
+
+                /* 4.4 RESI su delta negativi: rilascia coperture prodotto finito */
                 if ($decrease->isNotEmpty()) {
-                    Log::debug('OC update – decrease present, releasing reservations', [
+                    /** @var ReturnedProductReservationService $returnsSvc */
+                    $returnsSvc = app(ReturnedProductReservationService::class);
+
+                    foreach ($decrease as $dec) {
+                        $pid = (int)$dec['product_id'];
+                        $fid = $dec['fabric_id'] ?? null;
+                        $cid = $dec['color_id']  ?? null;
+                        $qty = (float)$dec['quantity'];
+
+                        // Libera fino a $qty di coperture resi su questo ordine/prodotto/variabili
+                        $rel = $returnsSvc->releaseForProduct(
+                            orderId:   $order->id,
+                            productId: $pid,
+                            fabricId:  $fid,
+                            colorId:   $cid,
+                            quantity:  $qty
+                        );
+
+                        Log::debug('OC update – returns released on decrease', [
+                            'order_id'   => $order->id,
+                            'product_id' => $pid,
+                            'fabric_id'  => $fid,
+                            'color_id'   => $cid,
+                            'requested'  => $qty,
+                            'released'   => (float)($rel['released'] ?? 0),
+                            'leftover'   => (float)($rel['leftover'] ?? 0),
+                        ]);
+                    }
+                }
+
+                /* 4.5 Snapshot righe attuali → righe "usate" al netto dei resi */
+                $makeKey = fn($pid,$fid,$cid) => sprintf('%d:%d:%d', (int)$pid, (int)($fid ?? 0), (int)($cid ?? 0));
+
+                // copertura resi già assegnata a questo ordine (aggregata)
+                $returnsByKey = DB::table('product_stock_levels')
+                    ->where('reserved_for', $order->id)
+                    ->selectRaw('product_id,
+                                COALESCE(fabric_id,0) as fabric_id,
+                                COALESCE(color_id,0)  as color_id,
+                                SUM(quantity)         as qty')
+                    ->groupBy('product_id','fabric_id','color_id')
+                    ->get()
+                    ->reduce(function($carry, $row) use ($makeKey) {
+                        $k = $makeKey($row->product_id, (int)$row->fabric_id ?: null, (int)$row->color_id ?: null);
+                        $carry[$k] = (float)$row->qty;
+                        return $carry;
+                    }, []);
+
+                $order->load(['items.variable']);
+                $usedLines = $order->items->map(function ($it) use ($returnsByKey, $makeKey) {
+                    $pid = (int)$it->product_id;
+                    $fid = $it->variable?->fabric_id;
+                    $cid = $it->variable?->color_id;
+
+                    $qty     = (float)$it->quantity;
+                    $covered = (float)($returnsByKey[$makeKey($pid, $fid, $cid)] ?? 0);
+
+                    $take = min($qty, $covered);
+                    $left = $qty - $take;
+
+                    if ($left <= 1e-6) return null;
+
+                    return [
+                        'product_id' => $pid,
+                        'quantity'   => $left,
+                        'fabric_id'  => $fid,
+                        'color_id'   => $cid,
+                    ];
+                })
+                ->filter()
+                ->values()
+                ->all();
+
+                // ───── Da qui in poi il flusso storico (componenti) sui soli "left" ─────
+
+                /* 4.6 Se ci sono diminuzioni componenti: release stock + adjust PO */
+                if ($decrease->isNotEmpty()) {
+                    Log::debug('OC update – decrease present, releasing component reservations', [
                         'order_id'   => $order->id,
                         'dec_cnt'    => $decrease->count(),
                         'dec_sample' => $decrease->take(3)->values(),
@@ -235,7 +361,7 @@ class OrderUpdateService
                     $leftovers = \App\Services\InventoryService::forDelivery($order->delivery_date, $order->id)
                         ->releaseReservations($order, $componentsDec);
 
-                    Log::debug('OC update – release leftovers', [
+                    Log::debug('OC update – release leftovers (components)', [
                         'order_id'  => $order->id,
                         'leftovers' => $leftovers,
                     ]);
@@ -245,21 +371,10 @@ class OrderUpdateService
                         Log::debug('OC update – PO adjusted after decrease', ['order_id' => $order->id]);
                     }
                 } else {
-                    Log::debug('OC update – no decrease, skip release', ['order_id' => $order->id]);
+                    Log::debug('OC update – no decrease, skip component release', ['order_id' => $order->id]);
                 }
 
-                /* 4.5 Snapshot righe attuali → fabbisogno completo per componente */
-                $order->load(['items.variable']);
-                $usedLines = $order->items->map(function ($it) {
-                    return [
-                        'product_id' => $it->product_id,
-                        'quantity'   => (float) $it->quantity,
-                        'fabric_id'  => $it->variable?->fabric_id,
-                        'color_id'   => $it->variable?->color_id,
-                    ];
-                })->values()->all();
-
-                // Fabbisogno per TUTTI i componenti (non solo shortage)
+                /* 4.7 Fabbisogno per TUTTI i componenti (non solo shortage) */
                 $required = \App\Services\Traits\InventoryServiceExtensions::explodeBomArray($usedLines);
                 $componentIds = array_keys($required);
 
@@ -298,12 +413,12 @@ class OrderUpdateService
                     $remaining[$cid] = max(0.0, (float)$need - $mineStock - $minePO);
                 }
 
-                /* 4.6 STOCK fisico → prenota */
+                /* 4.8 STOCK fisico → prenota */
                 if (!empty(array_filter($remaining, fn($q)=>$q>1e-9))) {
                     $this->reserveFromStock($order, $remaining);
                 }
 
-                /* 4.7 PO esistenti → prenota qty libere */
+                /* 4.9 PO esistenti → prenota qty libere */
                 if (!empty(array_filter($remaining, fn($q)=>$q>1e-9))) {
                     $this->allocateFromExistingIncoming(
                         $order,
@@ -312,7 +427,7 @@ class OrderUpdateService
                     );
                 }
 
-                /* 4.8 Nuovi PO per l’eventuale residuo */
+                /* 4.10 Nuovi PO per l’eventuale residuo */
                 $poNumbers = [];
                 $stillShort = collect($remaining)
                     ->filter(fn ($q) => $q > 1e-9)
@@ -325,8 +440,8 @@ class OrderUpdateService
                     $poNumbers = $proc['po_numbers']->all();
                 }
 
-                /* 4.9 Totale ordine */
-                $total = $order->items->reduce(
+                /* 4.11 Totale ordine */
+                $total = $order->items()->get()->reduce(
                     fn ($s, $it) => $s + ((float)$it->quantity * (float)$it->unit_price),
                     0.0
                 );

@@ -308,4 +308,85 @@ class ReturnedProductReservationService
 
         return $total > 0 ? $total : 0.0;
     }
+
+    /**
+     * Libera (in tutto o in parte) una prenotazione di prodotti finiti per un OC.
+     * - Cerca righe product_stock_levels riservate (reserved_for = order_id).
+     * - LIFO: libera per prime le prenotazioni più recenti.
+     * - Se necessario, splitta la riga (quando qty riga > qty da liberare e NON esiste reserved_qty).
+     *
+     * @param int $orderId ID dell’ordine cliente per cui era stata fatta la prenotazione
+     * @param int $productId ID del prodotto
+     * @param int|null $fabricId ID della variante fabric, se applicabile
+     * @param int|null $colorId ID della variante color, se applicabile
+     * @param float $quantity Quantità da liberare (≥0)
+     * @return array{ released: float, leftover: float } Quantità effettivamente liberata e quantità non trovata
+     */
+    public function releaseForProduct(
+        int $orderId,
+        int $productId,
+        ?int $fabricId,
+        ?int $colorId,
+        float $quantity
+    ): array {
+        $toFree = max(0.0, (float)$quantity);
+        if ($toFree <= 0) {
+            return ['released' => 0.0, 'leftover' => 0.0];
+        }
+
+        $q = \DB::table('product_stock_levels')
+            ->where('reserved_for', $orderId)
+            ->where('product_id', $productId);
+
+        if ($fabricId !== null) $q->where('fabric_id', $fabricId);
+        else                    $q->whereNull('fabric_id');
+
+        if ($colorId  !== null) $q->where('color_id',  $colorId);
+        else                    $q->whereNull('color_id');
+
+        // LIFO: libera per prime le prenotazioni più recenti
+        $rows = $q->orderByDesc('id')->lockForUpdate()->get();
+
+        $released = 0.0;
+
+        foreach ($rows as $row) {
+            if ($toFree <= 0) break;
+
+            $take = min((float)$row->quantity, $toFree);
+
+            // riduci la riga o "stacca" la prenotazione (reserved_for -> NULL)
+            if ($take >= (float)$row->quantity) {
+                // liberiamo tutta la riga: la lasciamo disponibile a magazzino resi
+                \DB::table('product_stock_levels')
+                    ->where('id', $row->id)
+                    ->update(['reserved_for' => null]);
+            } else {
+                // split logico: diminuisci la quantità della riga riservata e crea (se serve) una riga libera
+                \DB::table('product_stock_levels')
+                    ->where('id', $row->id)
+                    ->update(['quantity' => (float)$row->quantity - $take]);
+
+                \DB::table('product_stock_levels')->insert([
+                    'order_id'     => $row->order_id,     // mantiene orine di origine del reso se serve
+                    'warehouse_id' => $row->warehouse_id,
+                    'product_id'   => $row->product_id,
+                    'fabric_id'    => $row->fabric_id,
+                    'color_id'     => $row->color_id,
+                    'quantity'     => $take,
+                    'reserved_for' => null,
+                    'created_at'   => now(),
+                    'updated_at'   => now(),
+                ]);
+            }
+
+            $released += $take;
+            $toFree   -= $take;
+        }
+
+        return [
+            'released' => (float)$released,
+            'leftover' => max(0.0, (float)$toFree),
+        ];
+    }
+
 }
