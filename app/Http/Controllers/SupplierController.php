@@ -148,6 +148,10 @@ class SupplierController extends Controller
                 throw new \Exception('Supplier was not created.');
             }
 
+            if ($data['is_active'] === false) {
+                $supplier->delete(); // soft-delete immediato
+            }
+
             // Commit della transazione
             DB::commit();
 
@@ -258,6 +262,12 @@ class SupplierController extends Controller
                 'address'       => $data['address'],
                 'is_active'     => $data['is_active'],
             ]);
+
+            if ($data['is_active'] === false) {
+                $supplier->delete(); // soft-delete
+            } else {
+                $supplier->restore(); // rimuove deleted_at se presente
+            }
 
             // Commit
             DB::commit();

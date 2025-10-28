@@ -198,6 +198,10 @@ class ProductController extends Controller
             */
             $product->ensureTessuPlaceholderWithMeters((float) $data['fabric_required_meters']);
 
+            if ($data['is_active'] === false) {
+                $product->delete(); // soft-delete immediato
+            }
+
             DB::commit();
 
             return redirect()
@@ -315,6 +319,12 @@ class ProductController extends Controller
              * Come in store: quantity = fabric_required_meters, flag pivot opzionali se presenti.
              */
             $product->ensureTessuPlaceholderWithMeters((float) $data['fabric_required_meters']);
+
+            if ($data['is_active'] === false) {
+                $product->delete(); // soft-delete immediato
+            } else {
+                $product->restore(); // rimuove deleted_at se presente
+            }
 
             DB::commit();
 

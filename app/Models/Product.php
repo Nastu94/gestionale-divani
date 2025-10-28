@@ -488,4 +488,21 @@ class Product extends Model
             return (float) $this->resolveBaseFabricMeters();
         });
     }
+
+    /**
+     * Abilita il route-binding anche per i record soft-deleted.
+     * Così Product $product nei controller risolve anche se il record è "trashed".
+     *
+     * @param  mixed       $value  Valore del parametro di rotta (di solito l'id)
+     * @param  string|null $field  Campo usato per il binding (default: route key)
+     * @return \App\Models\Product
+     *
+     * @throws \Illuminate\Database\Eloquent\ModelNotFoundException
+     */
+    public function resolveRouteBinding($value, $field = null)
+    {
+        return static::withTrashed()
+            ->where($field ?? $this->getRouteKeyName(), $value)
+            ->firstOrFail();
+    }
 }

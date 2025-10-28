@@ -181,6 +181,10 @@ class ComponentController extends Controller
 
             $component = Component::create($data);
 
+            if($data['is_active'] === false){
+                $component->delete(); // soft-delete immediato
+            }
+
             if (! $component->wasRecentlyCreated) {
                 throw new \RuntimeException('Component was not created.');
             }
@@ -338,6 +342,12 @@ class ComponentController extends Controller
             DB::beginTransaction();
 
             $component->update($data);
+
+            if($data['is_active'] === true){
+                $component->restore(); // rimuove deleted_at se presente
+            } else {
+                $component->delete(); // soft-delete
+            }
 
             DB::commit();
 
