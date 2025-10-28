@@ -35,7 +35,6 @@
             </div>
         @endif
     </x-slot>
-    
     <div class="py-6">
         <div x-data="productCrud()" class="max-w-full mx-auto sm:px-6 lg:px-8">
             <div class="bg-white dark:bg-gray-800 shadow sm:rounded-lg">
@@ -285,7 +284,6 @@
     <script>
         document.addEventListener('alpine:init', () => {
             Alpine.data('productCrud', () => ({
-
                 /* ============================================================
                 * Sezione prodotti (già esistente)
                 * ========================================================== */
@@ -327,6 +325,12 @@
                 },
 
                 openEdit(product) {
+                    // Fallback: se per qualsiasi motivo l'accessor non è presente,
+                    // prendo la quantity della riga di pivot con variable_slot='TESSU'.
+                    const fabricFromPivot = (product.components || [])
+                        .find(c => (c.pivot && c.pivot.variable_slot === 'TESSU'))
+                        ?.pivot?.quantity ?? 0;
+
                     this.mode = 'edit';
                     this.form = {
                         id         : product.id,
@@ -334,15 +338,15 @@
                         name       : product.name,
                         description: product.description ?? '',
                         price      : product.price,
-                        fabric_required_meters: product.fabric_required_meters,
+                        // Preferisci l'attributo calcolato, altrimenti usa il pivot
+                        fabric_required_meters: product.fabric_required_meters ?? fabricFromPivot,
                         is_active  : product.is_active,
                         components : (product.components ?? []).map(c => ({
                             id         : c.id,
                             quantity   : c.pivot.quantity,
-                            /* campi UI */
                             code       : c.code,
                             description: c.description,
-                            unit       : c.unit,   // opzionale
+                            unit       : c.unit, // opzionale
                             existing   : true,
                             search     : '', options: []
                         }))

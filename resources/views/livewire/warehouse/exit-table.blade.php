@@ -7,7 +7,7 @@
             $fasi = [
                 0 => ['txt' => 'Inserito'      , 'icon' => 'fa-upload'          , 'bg' => 'bg-gray-300 dark:bg-gray-700'],
                 1 => ['txt' => 'Fusto'         , 'icon' => 'fa-hammer'          , 'bg' => 'bg-yellow-100 dark:bg-yellow-700'],
-                2 => ['txt' => 'Imbottitura'   , 'icon' => 'fa-feather'         , 'bg' => 'bg-green-100 dark:bg-green-700'],
+                2 => ['txt' => 'Spugna'        , 'icon' => 'fa-feather'         , 'bg' => 'bg-green-100 dark:bg-green-700'],
                 3 => ['txt' => 'Taglio'        , 'icon' => 'fa-cut'             , 'bg' => 'bg-blue-100  dark:bg-blue-700'],
                 4 => ['txt' => 'Cucito'        , 'icon' => 'fa-thumbtack'        , 'bg' => 'bg-indigo-100 dark:bg-indigo-700'],
                 5 => ['txt' => 'Assemblaggio'  , 'icon' => 'fa-screwdriver-wrench'           , 'bg' => 'bg-purple-100 dark:bg-purple-700'],

@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Spatie\Activitylog\Traits\LogsActivity;
 use Spatie\Activitylog\LogOptions;
-
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\Schema;
@@ -36,6 +36,14 @@ class Product extends Model
     protected $fillable = [
         'sku', 'name', 'description', 'price', 'is_active',
     ];
+
+    
+    /**
+     * Attributi "appesi" all'array/JSON del modello.
+     * Aggiungiamo 'fabric_required_meters' così da spedire questo valore
+     * dentro @json($product) usato dal tuo Alpine.
+     */
+    protected $appends = ['fabric_required_meters'];
 
     public function getActivitylogOptions(): LogOptions
     {
@@ -418,7 +426,10 @@ class Product extends Model
      */
     protected function findFirstBaseTessuComponent(): Component
     {
-        $q = Component::query()->where('is_active', true);
+        $q = Component::query()
+            ->where('is_active', true)
+            ->where('fabric_id', '=', 1)
+            ->where('color_id',  '=', 1);
 
         if (Schema::hasColumn('components', 'is_base')) {
             $q->where('is_base', true);
@@ -437,5 +448,44 @@ class Product extends Model
         }
 
         return $placeholder;
+    }
+
+    /**
+     * Accessor per 'fabric_required_meters'.
+     *
+     * Ordine di risoluzione:
+     * 1) Se la relazione 'components' è già caricata → cerca nella collection
+     *    la riga di pivot con variable_slot = 'TESSU' e restituisce la quantity.
+     * 2) In mancanza, fa una query mirata sulla relazione per la sola riga 'TESSU'.
+     * 3) Fallback finale: usa resolveBaseFabricMeters() (la tua logica esistente
+     *    che risale dai join sulle categorie).
+     *
+     * Ritorna sempre float (0.0 se non trovata).
+     */
+    protected function fabricRequiredMeters(): Attribute
+    {
+        return Attribute::get(function (): float {
+            // 1) Se la relazione è eager-loaded, evitiamo query extra
+            if ($this->relationLoaded('components')) {
+                $row = $this->components->firstWhere(
+                    fn ($c) => ($c->pivot->variable_slot ?? null) === 'TESSU'
+                );
+                if ($row && isset($row->pivot->quantity)) {
+                    return (float) $row->pivot->quantity;
+                }
+            }
+
+            // 2) Query mirata su pivot → prima riga 'TESSU' (è unica per tua regola)
+            $row = $this->components()
+                ->wherePivot('variable_slot', 'TESSU')
+                ->first(); // seleziona component + pivot
+
+            if ($row && isset($row->pivot->quantity)) {
+                return (float) $row->pivot->quantity;
+            }
+
+            // 3) Fallback alla tua funzione già presente
+            return (float) $this->resolveBaseFabricMeters();
+        });
     }
 }

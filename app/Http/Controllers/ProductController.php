@@ -157,7 +157,7 @@ class ProductController extends Controller
             'fabric_required_meters'  => ['required', 'numeric', 'min:0', 'max:999.999'],
             'components'              => ['nullable','array'],
             'components.*.id'         => ['required_with:components','exists:components,id'],
-            'components.*.quantity'   => ['required_with:components','integer','min:1'],
+            'components.*.quantity'   => ['required_with:components','numeric','min:1'],
             'is_active'   => ['nullable','in:on,0,1'],
         ], $messages);
 
@@ -243,7 +243,27 @@ class ProductController extends Controller
     public function update(Request $request, Product $product)
     {
         // Messaggi personalizzati (stessi di store)
-        $messages = [ /* … vedi sopra … */ ];
+        $messages = [
+            'sku.required'        => 'Il codice prodotto è obbligatorio.',
+            'sku.string'          => 'Il codice deve essere una stringa.',
+            'sku.max'             => 'Il codice non può superare i 64 caratteri.',
+            'sku.unique'          => 'Questo codice è già in uso.',
+            'name.required'       => 'Il nome del prodotto è obbligatorio.',
+            'name.string'         => 'Il nome deve essere una stringa.',
+            'name.max'            => 'Il nome non può superare i 255 caratteri.',
+            'price.required'      => 'Il prezzo è obbligatorio.',
+            'price.numeric'       => 'Il prezzo deve essere un numero.',
+            'price.min'           => 'Il prezzo deve essere almeno 0.',
+            'components.array'    => 'I componenti devono essere un array.',
+            'components.*.id.required'       => 'Seleziona un componente.',
+            'components.*.id.exists'         => 'Il componente selezionato non esiste.',
+            'components.*.quantity.required' => 'Inserisci la quantità.',
+            'components.*.quantity.integer'  => 'La quantità deve essere un numero intero.',
+            'components.*.quantity.min'      => 'La quantità deve essere almeno 1.',
+            'fabric_required_meters.required' => 'Indica i metri di tessuto necessari.',
+            'fabric_required_meters.numeric'  => 'I metri di tessuto devono essere numerici.',
+            'fabric_required_meters.min'      => 'I metri di tessuto non possono essere negativi.',
+        ];
 
         // Regole di validazione (stessi di store, sku unico escludendo l’attuale)
         $validator = Validator::make($request->all(), [
@@ -257,7 +277,7 @@ class ProductController extends Controller
             'fabric_required_meters'  => ['required', 'numeric', 'min:0', 'max:999.999'],
             'components'              => ['nullable','array'],
             'components.*.id'         => ['required_with:components','exists:components,id'],
-            'components.*.quantity'   => ['required_with:components','integer','min:1'],
+            'components.*.quantity'   => ['required_with:components','numeric','min:1'],
             'is_active'   => ['nullable','in:on,0,1'],
         ], $messages);
 
