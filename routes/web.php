@@ -732,6 +732,19 @@ Route::middleware([
 
     /*
     |--------------------------------------------------------------------------
+    | Gestione Prodotti – duplicazione
+    |--------------------------------------------------------------------------
+    |
+    | Duplica un prodotto esistente.
+    | Protetta dal permesso products.create.
+    |
+    */
+    Route::post('products/{product}/duplicate', [ProductController::class, 'duplicate'])
+        ->name('products.duplicate')
+        ->middleware('permission:products.create');
+
+    /*
+    |--------------------------------------------------------------------------
     | Gestione Prodotti – variabili (opzioni)
     |--------------------------------------------------------------------------
     |

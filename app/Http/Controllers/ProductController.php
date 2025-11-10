@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
+use Throwable;
 
 class ProductController extends Controller
 {
@@ -31,6 +32,9 @@ class ProductController extends Controller
         $sort    = $request->query('sort', 'id');
         $dir     = $request->query('dir', 'asc');
         $filters = $request->query('filter', []);
+        if (! array_key_exists('is_active', $filters)) {
+            $filters['is_active'] = 'on';
+        }
 
         // Sanitizza
         if (! in_array($sort, $allowedSorts)) {
@@ -219,6 +223,106 @@ class ProductController extends Controller
                 ->withInput()
                 ->with('error', 'Errore durante la creazione del prodotto. Controlla i log.');
         }
+    }
+
+    /**
+     * Duplica un prodotto e la sua BOM (product_components),
+     * generando uno SKU ex-novo col pattern "PRD-LLLLNNNN".
+     *
+     * - Transazione per consistenza.
+     * - Se il sorgente è soft-deleted, la copia viene creata ATTIVA (deleted_at = null).
+     * - Ritorna JSON minimale: ok, id e sku della nuova copia.
+     *
+     * @param  \Illuminate\Http\Request $request
+     * @param  \App\Models\Product      $product  Prodotto sorgente (route-binding conTrashed lato Model)
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function duplicate(Request $request, Product $product): JsonResponse
+    {
+        try {
+            $copy = DB::transaction(function () use ($product) {
+                // 1) Clona gli attributi base (replicate ignora PK e relazioni)
+                $clone = $product->replicate();
+
+                // 2) SKU univoco nuovo con pattern PRD-LLLLNNNN
+                $clone->sku = $this->makeNewSkuString();
+
+                // 3) Se il sorgente era soft-deleted, la copia NON deve esserlo
+                if (Schema::hasColumn($clone->getTable(), 'deleted_at')) {
+                    $clone->setAttribute('deleted_at', null);
+                }
+
+                // 4) Salvataggio della copia
+                $clone->save();
+
+                // 5) Copia BOM (pivot product_components)
+                //    Carico la pivot per leggere quantity/is_variable/variable_slot
+                $components = $product->components()
+                    ->withPivot(['quantity', 'is_variable', 'variable_slot'])
+                    ->get();
+
+                foreach ($components as $component) {
+                    // Dati pivot sicuri → includo solo colonne realmente presenti
+                    $pivot = [
+                        'quantity' => (float) ($component->pivot->quantity ?? 0),
+                    ];
+
+                    if (Schema::hasColumn('product_components', 'is_variable')) {
+                        $pivot['is_variable'] = (bool) ($component->pivot->is_variable ?? false);
+                    }
+                    if (Schema::hasColumn('product_components', 'variable_slot')) {
+                        $pivot['variable_slot'] = $component->pivot->variable_slot ?? null;
+                    }
+
+                    $clone->components()->attach($component->id, $pivot);
+                }
+
+                return $clone;
+            });
+
+            return response()->json([
+                'ok'  => true,
+                'id'  => $copy->id,
+                'sku' => $copy->sku,
+                'msg' => 'Prodotto duplicato correttamente.',
+            ], 201);
+        } catch (Throwable $e) {
+            // In caso di errore, rispondi in JSON senza rompere l’interfaccia AJAX
+            report($e);
+
+            return response()->json([
+                'ok'   => false,
+                'msg'  => 'Errore durante la duplicazione del prodotto.',
+                'hint' => $e->getMessage(), // utile in dev; rimuovi in produzione se preferisci
+            ], 500);
+        }
+    }
+
+    /**
+     * Genera una stringa SKU univoca con pattern "PRD-LLLLNNNN".
+     * Non tocca il metodo esistente generateCode(): evitiamo side-effects.
+     *
+     * @return string SKU univoco
+     */
+    protected function makeNewSkuString(): string
+    {
+        $prefix = 'PRD-';
+
+        do {
+            // 4 lettere maiuscole A–Z
+            $letters = '';
+            for ($i = 0; $i < 4; $i++) {
+                $letters .= chr(random_int(65, 90)); // A..Z
+            }
+
+            // 4 cifre sempre a 4 caratteri
+            $digits = str_pad((string) random_int(0, 9999), 4, '0', STR_PAD_LEFT);
+
+            $sku = $prefix . $letters . $digits;
+            $exists = Product::withTrashed()->where('sku', $sku)->exists();
+        } while ($exists);
+
+        return $sku;
     }
 
     /**

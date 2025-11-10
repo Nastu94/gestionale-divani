@@ -133,7 +133,6 @@
                                     :dir="$dir"
                                     :filters="$filters"
                                     align="right"
-                                    :filterable="false"
                                     reset-route="products.index"
                                 />
                             </tr>
@@ -199,6 +198,18 @@
                                                     <i class="fas fa-pencil-alt mr-1"></i> Modifica
                                                 </button>
                                             @endif
+
+                                            @can('products.create')
+                                                <button
+                                                    type="button"
+                                                    class="inline-flex items-center hover:text-blue-600"
+                                                    @click="duplicateProduct(@js(route('products.duplicate', $product)))"
+                                                    x-data
+                                                    title="Duplica prodotto e distinta"
+                                                >
+                                                    <i class="fas fa-copy mr-1"></i> Duplica
+                                                </button>
+                                            @endcan
                                             
                                             @can('product-prices.view')
                                                 <button type="button"
@@ -285,10 +296,12 @@
         document.addEventListener('alpine:init', () => {
             Alpine.data('productCrud', () => ({
                 /* ============================================================
-                * Sezione prodotti (già esistente)
+                * Sezione prodotti
                 * ========================================================== */
                 componentsList: @json($components),
                 generateCodeUrl: @json(route('products.generate-code')),
+                // Flag per evitare click multipli durante la richiesta
+                dupBusy: false,
 
                 // Modale prodotto
                 showModal: false,
@@ -410,6 +423,53 @@
                     }
                 },
 
+                /**
+                 * Ritorna il token CSRF dal meta del layout (standard Laravel).
+                 */
+                getCsrfToken() {
+                    return document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+                },
+
+                /**
+                 * Duplica un prodotto chiamando l'endpoint passato già completo.
+                 * Nessun reload: mostriamo solo una notifica con il nuovo SKU.
+                 *
+                 * @param {string} url URL già costruito lato Blade (es. "/products/123/duplicate")
+                 */
+                async duplicateProduct(url) {
+                    if (this.dupBusy) return;
+                    if (!confirm('Confermi la duplicazione di questo prodotto (distinta compresa)?')) return;
+
+                    this.dupBusy = true;
+                    try {
+                        const r = await fetch(url, {
+                            method: 'POST',
+                            headers: {
+                                'Accept'          : 'application/json',
+                                'X-CSRF-TOKEN'    : this.getCsrfToken(),
+                                'X-Requested-With': 'XMLHttpRequest',
+                            },
+                            credentials: 'same-origin',
+                        });
+
+                        const j = await r.json().catch(() => ({}));
+
+                        if (!r.ok || !j.ok) {
+                            alert(j.msg || j.message || 'Errore nella duplicazione.');
+                            return;
+                        }
+
+                        // Successo: nessun insert in tabella (la copia apparirà sfogliando le pagine)
+                        alert(`Prodotto duplicato.\nNuovo SKU: ${j.sku}`);
+                        window.location.reload();
+                    } catch (e) {
+                        console.error('duplicateProduct error', e);
+                        alert('Errore di rete nella duplicazione.');
+                    } finally {
+                        this.dupBusy = false;
+                    }
+                },
+
                 /* Ricerca componenti (come da tuo codice) */
                 async searchComponents(idx) {
                     const term = this.form.components[idx].search?.trim() || '';
@@ -449,7 +509,7 @@
                 },
 
                 /* ============================================================
-                * NUOVO: Prezzi cliente–prodotto (modali + ricerca cliente)
+                * Prezzi cliente–prodotto (modali + ricerca cliente)
                 * ========================================================== */
 
                 // Modale Listino
