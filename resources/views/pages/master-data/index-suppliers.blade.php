@@ -229,6 +229,17 @@
                                                 </button>
                                             @endcan
 
+                                            @can('price_lists.create')
+                                                <button
+                                                    type="button"
+                                                    @click.stop="window.Livewire && window.Livewire.dispatch('open-bulk-assign-components', { supplierId: {{ $supplier->id }}, supplierName: @js($supplier->name) })"
+                                                    class="inline-flex items-center hover:text-fuchsia-600"
+                                                    title="Assegna componenti al fornitore senza compilare prezzo e tempi"
+                                                >
+                                                    <i class="fas fa-layer-group mr-1"></i> Assegnazione massiva
+                                                </button>
+                                            @endcan
+
                                             @if($canDelete)
                                                 @if(!$supplier->trashed())
                                                     {{-- Elimina (solo se non soft-deleted) --}}
@@ -283,6 +294,8 @@
             </div>
         </div>
     </div>
+
+    <livewire:supplier-bulk-assign-components-modal />
 
     @push('scripts')
         <script>
