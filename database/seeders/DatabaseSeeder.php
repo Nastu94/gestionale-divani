@@ -14,6 +14,7 @@ use Database\Seeders\FabricSeeder;
 use Database\Seeders\ColorSeeder;
 use Database\Seeders\ComponentSeeder;
 use Database\Seeders\SuppliersFromExcelSeeder;
+use Database\Seeders\AttachAllFabricsAndColorsToProductsSeeder;
 
 class DatabaseSeeder extends Seeder
 {
@@ -32,6 +33,7 @@ class DatabaseSeeder extends Seeder
             ColorSeeder::class,
             ComponentSeeder::class,
             SuppliersFromExcelSeeder::class,
+            AttachAllFabricsAndColorsToProductsSeeder::class,
         ]);
     }
 }
