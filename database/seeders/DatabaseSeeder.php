@@ -13,6 +13,7 @@ use Database\Seeders\ComponentCategorySeeder;
 use Database\Seeders\FabricSeeder;
 use Database\Seeders\ColorSeeder;
 use Database\Seeders\ComponentSeeder;
+use Database\Seeders\SuppliersFromExcelSeeder;
 
 class DatabaseSeeder extends Seeder
 {
@@ -30,6 +31,7 @@ class DatabaseSeeder extends Seeder
             FabricSeeder::class,
             ColorSeeder::class,
             ComponentSeeder::class,
+            SuppliersFromExcelSeeder::class,
         ]);
     }
 }
