@@ -10,6 +10,10 @@ use App\Models\Order;
 use App\Models\Alert;
 use App\Models\OrderItemPhaseEvent;
 use App\Models\OrderItemShortfall;
+use App\Models\Fabric;
+use App\Models\Color;
+use App\Observers\FabricObserver;
+use App\Observers\ColorObserver;
 use App\Observers\OrderItemPhaseEventObserver;
 use App\Observers\StockLevelLotObserver;
 use App\Observers\OrderItemShortfallObserver;
@@ -33,6 +37,8 @@ class AppServiceProvider extends ServiceProvider
         StockLevelLot::observe(StockLevelLotObserver::class);
         OrderItemPhaseEvent::observe(OrderItemPhaseEventObserver::class);
         OrderItemShortfall::observe(OrderItemShortfallObserver::class);
+        Fabric::observe(FabricObserver::class);
+        Color::observe(ColorObserver::class);
 
         // Componente dashboard-tiles: passaggio dei dati delle tiles
         // Questo composer si occupa di calcolare i badge_count in base alla chiave specificata

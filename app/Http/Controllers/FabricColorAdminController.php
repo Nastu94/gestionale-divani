@@ -6,13 +6,6 @@
 //  - CRUD di Fabrics & Colors (in questa fase: solo visualizzazione liste)
 //  - Mapping dei componenti TESSU ↔ (fabric_id, color_id)
 //  - Matrice disponibilità SKU per policy STRICT
-//
-// In questa fase implementiamo SOLO il metodo index() che prepara:
-//  - cataloghi (fabrics, colors) attivi
-//  - elenco componenti categoria "TESSU" con filtri (mapped/unmapped/conflicts, fabric, color, active, ricerca)
-//  - conteggi (totali, mappati, non mappati, conflitti)
-//  - mappa matrice fabric×color → component (per la griglia laterale)
-// PHP 8.4 / Laravel 12
 // -----------------------------------------------------------------------------
 
 namespace App\Http\Controllers;
