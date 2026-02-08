@@ -143,6 +143,7 @@
                                     $canAdvance  = $canAdvanceRaw  && $phase < 6;   // no “Avanza” se già in Spedizione
                                     $canRollback = $canRollbackRaw && $phase > 0;   // no “Rollback” in Inserito
                                     $showDdT     =                ($phase == 6);    // DdT solo in Spedizione
+                                    $showWorkOrder = ($phase < 6);    // Work Order solo se non in Spedizione
 
                                     $canToggle   = $canAdvance || $canRollback || $showDdT;
                                 @endphp
@@ -205,6 +206,21 @@
                                                             class="inline-flex items-center hover:text-amber-600"
                                                             wire:click="openRollback({{ $row->id }}, {{ $row->qty_in_phase }})">
                                                         <i class="fas fa-undo mr-1"></i> Rollback
+                                                    </button>
+                                                @endif
+
+                                                {{-- 🖨 Buono produzione/magazzino (solo fasi 0..5) --}}
+                                                @if($showWorkOrder)
+                                                    <button type="button"
+                                                            class="inline-flex items-center hover:text-purple-600"
+                                                            wire:click.stop="printWorkOrder({{ $row->order_id }})">
+                                                        <i class="fas fa-print mr-1"></i> Stampa buono
+                                                    </button>
+
+                                                    <button type="button"
+                                                            class="inline-flex items-center hover:text-indigo-600"
+                                                            wire:click.stop="openWorkOrderDrawer({{ $row->order_id }})">
+                                                        <i class="fas fa-list mr-1"></i> Mostra buono
                                                     </button>
                                                 @endif
 
@@ -413,6 +429,70 @@
                                         <button type="button"
                                                 class="inline-flex items-center hover:text-purple-600"
                                                 wire:click="printExistingDdt({{ $d['id'] }})">
+                                            <i class="fas fa-print mr-1"></i> Stampa
+                                        </button>
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                @endif
+            </div>
+        </div>
+    </div>
+
+    {{-- Drawer BUONI (destra) --}}
+    <div
+        x-data="{ open: @entangle('woDrawerOpen') }"
+        x-show="open"
+        x-cloak
+        class="fixed inset-0 z-50"
+        @keydown.escape.window="open=false; $wire.closeWorkOrderDrawer()"
+    >
+        <div class="absolute inset-0 bg-black/40"
+            @click="open=false; $wire.closeWorkOrderDrawer()"></div>
+
+        <div class="absolute top-0 right-0 h-full w-full max-w-md bg-white dark:bg-gray-800 shadow-xl">
+            <div class="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                <div>
+                    <div class="text-sm font-semibold">Buoni ordine</div>
+                    <div class="text-xs text-gray-500">
+                        Nr. Ordine: {{ $woDrawerOrderNumber ?? '—' }} — Fase: {{ $phase }}
+                    </div>
+                </div>
+
+                <button type="button"
+                        class="px-2 py-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+                        @click="open=false; $wire.closeWorkOrderDrawer()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+
+            <div class="p-4 overflow-y-auto" style="height: calc(100% - 64px);">
+                @if(empty($woDrawerWorkOrders))
+                    <div class="text-sm text-gray-500">Nessun buono trovato per questo ordine in questa fase.</div>
+                @else
+                    <table class="min-w-full text-sm divide-y divide-gray-200 dark:divide-gray-700">
+                        <thead class="bg-gray-100 dark:bg-gray-700 uppercase text-xs">
+                            <tr>
+                                <th class="px-3 py-2 text-left">Nr.</th>
+                                <th class="px-3 py-2 text-left">Data</th>
+                                <th class="px-3 py-2 text-right">Azioni</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+                            @foreach($woDrawerWorkOrders as $w)
+                                <tr>
+                                    <td class="px-3 py-2 font-semibold">
+                                        {{ $w['number'] }}/{{ $w['year'] }}
+                                    </td>
+                                    <td class="px-3 py-2">
+                                        {{ $w['issued_at'] }}
+                                    </td>
+                                    <td class="px-3 py-2 text-right">
+                                        <button type="button"
+                                                class="inline-flex items-center hover:text-purple-600"
+                                                wire:click="printExistingWorkOrder({{ $w['id'] }})">
                                             <i class="fas fa-print mr-1"></i> Stampa
                                         </button>
                                     </td>

@@ -18,7 +18,9 @@ use App\Enums\ProductionPhase;
 use App\Models\Ddt;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\WorkOrder;
 use App\Services\Ddt\DdtService;
+use App\Services\WorkOrders\WorkOrderService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\URL;
@@ -85,6 +87,14 @@ class ExitTable extends Component
 
     /** @var array<int,array{id:int,number:int,year:int,issued_at:string}> */
     public array $ddtDrawerDdts = [];
+
+    /*──────────── Drawer BUONI ──────────────*/
+    public bool $woDrawerOpen = false;
+    public ?int $woDrawerOrderId = null;
+    public ?string $woDrawerOrderNumber = null;
+
+    /** @var array<int,array{id:int,number:int,year:int,issued_at:string}> */
+    public array $woDrawerWorkOrders = [];
 
     /* ───────────────────────────────────────────────────────────────*
      |  Eventi Livewire: rispondono a click su pulsanti o input    |
@@ -471,6 +481,120 @@ class ExitTable extends Component
             $this->dispatch('open-print-window', url: $printUrl);
         } catch (\Throwable $e) {
             Log::error('[printExistingDdt] ERROR', ['msg' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            session()->flash('error', $e->getMessage());
+        }
+    }
+
+    /*──────────────────────────── Drawer BUONI: elenco e ristampa ───────────────────────────*/
+    public function printWorkOrder(int $orderId): void
+    {
+        try {
+            if ($this->phase >= 6) {
+                return; // sicurezza: in spedizione c'è il DDT
+            }
+
+            if (! auth()->user()->can('stock.exit')) {
+                throw ValidationException::withMessages(['auth' => 'Non hai il permesso per generare il buono.']);
+            }
+
+            // 1) Crea buono con SOLO delta
+            $wo = app(WorkOrderService::class)->createForOrderAndPhase(
+                orderId: $orderId,
+                phase: $this->phase,
+                user: auth()->user()
+            );
+
+            // 2) URL firmato verso pagina stampa
+            $printUrl = URL::temporarySignedRoute(
+                'warehouse.work_orders.print',
+                now()->addMinutes(5),
+                ['workOrder' => $wo->id]
+            );
+
+            // 3) Apri finestra stampa
+            $this->dispatch('open-print-window', url: $printUrl);
+
+            session()->flash('success', "Buono {$wo->number}/{$wo->year} generato. Apertura stampa…");
+        } catch (\Throwable $e) {
+            Log::error('[printWorkOrder] ERROR', ['msg' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            session()->flash('error', $e instanceof ValidationException ? $e->getMessage() : $e->getMessage());
+        }
+    }
+
+    public function openWorkOrderDrawer(int $orderId): void
+    {
+        try {
+            if ($this->phase >= 6) return;
+
+            if (! auth()->user()->can('stock.exit')) {
+                throw ValidationException::withMessages(['auth' => 'Non hai il permesso per visualizzare i buoni.']);
+            }
+
+            $order = Order::query()->with('orderNumber')->findOrFail($orderId);
+
+            $this->woDrawerOrderId = $order->id;
+            $this->woDrawerOrderNumber = (string)($order->orderNumber?->number ?? $order->id);
+
+            $wos = WorkOrder::query()
+                ->where('order_id', $order->id)
+                ->where('phase', $this->phase)
+                ->orderByDesc('issued_at')
+                ->orderByDesc('id')
+                ->get(['id','year','number','issued_at']);
+
+            $this->woDrawerWorkOrders = $wos->map(fn (WorkOrder $w) => [
+                'id'        => $w->id,
+                'year'      => (int) $w->year,
+                'number'    => (int) $w->number,
+                'issued_at' => $w->issued_at ? $w->issued_at->format('d/m/Y H:i') : '',
+            ])->all();
+
+            $this->woDrawerOpen = true;
+        } catch (\Throwable $e) {
+            Log::error('[openWorkOrderDrawer] ERROR', ['msg' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            session()->flash('error', $e->getMessage());
+        }
+    }
+
+    public function closeWorkOrderDrawer(): void
+    {
+        $this->woDrawerOpen = false;
+        $this->reset('woDrawerOrderId','woDrawerOrderNumber','woDrawerWorkOrders');
+    }
+
+    public function updatedWoDrawerOpen($value): void
+    {
+        if (! $value) {
+            $this->reset('woDrawerOrderId','woDrawerOrderNumber','woDrawerWorkOrders');
+        }
+    }
+
+    public function printExistingWorkOrder(int $workOrderId): void
+    {
+        try {
+            if (! auth()->user()->can('stock.exit')) {
+                throw ValidationException::withMessages(['auth' => 'Non hai il permesso per stampare i buoni.']);
+            }
+
+            $wo = WorkOrder::query()->findOrFail($workOrderId);
+
+            // sicurezza: deve appartenere all'ordine aperto e alla fase corrente
+            if ($this->woDrawerOrderId !== null && (int)$wo->order_id !== (int)$this->woDrawerOrderId) {
+                throw ValidationException::withMessages(['wo' => 'Buono non coerente con l’ordine selezionato.']);
+            }
+            if ((int)$wo->phase !== (int)$this->phase) {
+                throw ValidationException::withMessages(['wo' => 'Buono non coerente con la fase corrente.']);
+            }
+
+            $printUrl = URL::temporarySignedRoute(
+                'warehouse.work_orders.print',
+                now()->addMinutes(5),
+                ['workOrder' => $wo->id]
+            );
+
+            $this->dispatch('open-print-window', url: $printUrl);
+        } catch (\Throwable $e) {
+            Log::error('[printExistingWorkOrder] ERROR', ['msg' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             session()->flash('error', $e->getMessage());
         }
     }

@@ -38,6 +38,7 @@ use App\Http\Controllers\Api\ProductsApiController;
 use App\Http\Controllers\Api\OrderComponentCheckController;
 use App\Http\Controllers\Api\CustomerOrdersApiController;
 use App\Http\Controllers\Warehouse\DdtController;
+use App\Http\Controllers\Warehouse\WorkOrderController;
 
 /*
 |--------------------------------------------------------------------------
@@ -1793,3 +1794,13 @@ Route::middleware(['auth', 'signed'])->group(function () {
     Route::get('/orders/customer/{order}/label/pdf', [OrderCustomerLabelController::class, 'pdf'])
         ->name('orders.customer.label.pdf');
 });
+Route::middleware(['web','auth','signed'])
+    ->prefix('warehouse')
+    ->name('warehouse.')
+    ->group(function () {
+        Route::get('/work-orders/{workOrder}/print', [WorkOrderController::class, 'print'])
+            ->name('work_orders.print');
+
+        Route::get('/work-orders/{workOrder}/pdf', [WorkOrderController::class, 'pdf'])
+            ->name('work_orders.pdf');
+    });
