@@ -284,16 +284,58 @@ final readonly class AdvanceOrderItemPhaseAction
      *───────────────────────────────────────────────────────────────────────*/
     private function checkReservations(OrderItem $item, int $destPhase): array
     {
+        /* -----------------------------------------------------------------
+        | SANITY CHECK: la riga deve avere un prodotto, altrimenti la BOM
+        | non è calcolabile e la verifica prenotazioni non ha senso.
+        *----------------------------------------------------------------- */
         $item->loadMissing('variable', 'product.components.category.phaseLinks');
 
-        $components = $item->product?->components()
+        if ($item->product === null) {
+            /* Log “parlante” per capire subito se è product_id nullo, prodotto cancellato, ecc. */
+            Log::error('[AdvanceOrderItemPhaseAction] checkReservations: prodotto mancante', [
+                'order_item_id' => $item->id,
+                'order_id'      => $item->order_id,
+                'product_id'    => $item->product_id,
+                'destPhase'     => $destPhase,
+            ]);
+
+            /* Messaggio business (meglio di un foreach su null) */
+            throw ValidationException::withMessages([
+                'product' => 'Prodotto disattivato, riattivarlo per proseguire con l\'avanzamento di fase.',
+            ]);
+        }
+
+        /* -----------------------------------------------------------------
+        | Recupera i componenti di BOM che appartengono alla fase di destinazione
+        *----------------------------------------------------------------- */
+        $components = $item->product->components()
             ->with('category.phaseLinks')
             ->get()
             ->filter(fn ($c) =>
                 $c->category
-                  ->phasesEnum()
-                  ->contains(fn ($p) => $p->value === $destPhase)
+                ->phasesEnum()
+                ->contains(fn ($p) => $p->value === $destPhase)
             );
+
+        /* Se per qualche motivo anomalo non è una Collection, fermati con log chiaro */
+        if ($components === null) {
+            Log::error('[AdvanceOrderItemPhaseAction] checkReservations: components NULL (anomalia)', [
+                'order_item_id' => $item->id,
+                'order_id'      => $item->order_id,
+                'product_id'    => $item->product_id,
+                'destPhase'     => $destPhase,
+            ]);
+
+            throw ValidationException::withMessages([
+                'stock' => 'Errore interno: impossibile determinare i componenti della fase. Controlla la relazione prodotto->componenti.',
+            ]);
+        }
+
+        Log::debug('[AdvanceOrderItemPhaseAction] checkReservations: components computed', [
+            'order_item_id'    => $item->id,
+            'destPhase'        => $destPhase,
+            'components_count' => $components->count(),
+        ]);
 
         $missing = [];
 
