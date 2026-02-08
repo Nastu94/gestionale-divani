@@ -55,7 +55,7 @@
             right: 0;
 
             /* 40pt footer + 12pt gap sopra footer (spazio bianco garantito) */
-            bottom: 52pt;
+            bottom: 67pt;
         }
 
         table.layout {
@@ -98,13 +98,18 @@
             letter-spacing: -3pt;
         }
 
+        .brand.brand-komodo {
+            font-size: 52pt;      /* prova 54pt; se serve ancora, scendi a 53pt */
+            letter-spacing: -3pt; /* puoi lasciare uguale al base */
+        }
+
         /* Wrapper che “clippa” davvero */
         .brand-wrap{
             display: block;
             width: 100%;
             white-space: nowrap;
-            overflow: hidden;                     /* qui DomPDF lo rispetta molto meglio */
-            padding-left: 4pt;                    /* evita che la prima lettera tocchi la linea */
+            overflow: hidden; /* DomPDF lo rispetta meglio qui */
+            padding-left: 0;  /* ✅ fondamentale: evita che "KOMODO" venga clippato */
         }
 
         /* Stacca visivamente la colonna destinatario dal brand */
@@ -199,9 +204,12 @@
     // KOMODO (6) vs "AL DIVANI" (8 + spazio)
     $isLongBrand = mb_strlen(trim((string)$brand)) > 6;
 
+    // ✅ True solo quando il brand è esattamente "KOMODO"
+    $isKomodo = strtoupper(trim((string)$brand)) === 'KOMODO';
+
     // Larghezza colonna brand in pt: più larga quando il brand è lungo
     // (DomPDF lavora meglio con misure fisse in pt)
-    $brandColWidth = $isLongBrand ? 320 : 300;
+    $brandColWidth = $isLongBrand ? 320 : 320;
 @endphp
 
 @foreach($labels as $label)
@@ -219,7 +227,7 @@
                         </colgroup>
                         {{-- TOP --}}
                         <tr class="row-top">
-                            <td class="brand {{ $isLongBrand ? 'brand-long' : '' }}">
+                            <td class="brand {{ $isLongBrand ? 'brand-long' : ($isKomodo ? 'brand-komodo' : '') }}">
                                 {{-- Wrapper: overflow hidden funziona meglio qui che sul <td> in DomPDF --}}
                                 <div class="brand-wrap">{{ $brand }}</div>
                             </td>
