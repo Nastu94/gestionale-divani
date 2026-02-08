@@ -208,17 +208,18 @@
                                                     </button>
                                                 @endif
 
-                                                {{-- 📝 Note --}}
-                                                <button type="button" class="inline-flex items-center hover:text-indigo-600"
-                                                        @click.prevent="$wire.emit('open-note', {{ $row->id }})">
-                                                    <i class="fas fa-sticky-note mr-1"></i> Note
-                                                </button>
-
-                                                {{-- 🖨 DdT --}}
+                                                {{-- 🖨 DdT / Mostra DDT --}}
                                                 @if($showDdT)
-                                                    <button  type="button" class="inline-flex items-center hover:text-purple-600"
-                                                             @click.prevent="$wire.emit('print-ddt', {{ $row->id }})">
-                                                        <i class="fas fa-print mr-1"></i> DdT
+                                                    <button type="button"
+                                                            class="inline-flex items-center hover:text-purple-600"
+                                                            wire:click.stop="printDdt({{ $row->id }})">
+                                                        <i class="fas fa-print mr-1"></i> Stampa DdT
+                                                    </button>
+
+                                                    <button type="button"
+                                                            class="inline-flex items-center hover:text-indigo-600"
+                                                            wire:click.stop="openDdtDrawer({{ $row->order_id }})">
+                                                        <i class="fas fa-list mr-1"></i> Mostra DDT
                                                     </button>
                                                 @endif
                                             </div>
@@ -357,10 +358,91 @@
             </div>
         </form>
     </dialog>
+
+    {{-- Drawer DDT (destra) --}}
+    <div
+        x-data="{ open: @entangle('ddtDrawerOpen') }"
+        x-show="open"
+        x-cloak
+        class="fixed inset-0 z-50"
+        @keydown.escape.window="open=false; $wire.closeDdtDrawer()"
+    >
+        {{-- overlay --}}
+        <div class="absolute inset-0 bg-black/40"
+            @click="open=false; $wire.closeDdtDrawer()"></div>
+
+        {{-- pannello --}}
+        <div class="absolute top-0 right-0 h-full w-full max-w-md bg-white dark:bg-gray-800 shadow-xl">
+            <div class="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                <div>
+                    <div class="text-sm font-semibold">DDT ordine</div>
+                    <div class="text-xs text-gray-500">
+                        Nr. Ordine: {{ $ddtDrawerOrderNumber ?? '—' }}
+                    </div>
+                </div>
+
+                <button type="button"
+                        class="px-2 py-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+                        @click="open=false; $wire.closeDdtDrawer()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+
+            <div class="p-4 overflow-y-auto" style="height: calc(100% - 64px);">
+                @if(empty($ddtDrawerDdts))
+                    <div class="text-sm text-gray-500">Nessun DDT trovato per questo ordine.</div>
+                @else
+                    <table class="min-w-full text-sm divide-y divide-gray-200 dark:divide-gray-700">
+                        <thead class="bg-gray-100 dark:bg-gray-700 uppercase text-xs">
+                            <tr>
+                                <th class="px-3 py-2 text-left">Nr.</th>
+                                <th class="px-3 py-2 text-left">Data</th>
+                                <th class="px-3 py-2 text-right">Azioni</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+                            @foreach($ddtDrawerDdts as $d)
+                                <tr>
+                                    <td class="px-3 py-2 font-semibold">
+                                        {{ $d['number'] }}/{{ $d['year'] }}
+                                    </td>
+                                    <td class="px-3 py-2">
+                                        {{ $d['issued_at'] }}
+                                    </td>
+                                    <td class="px-3 py-2 text-right">
+                                        <button type="button"
+                                                class="inline-flex items-center hover:text-purple-600"
+                                                wire:click="printExistingDdt({{ $d['id'] }})">
+                                            <i class="fas fa-print mr-1"></i> Stampa
+                                        </button>
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                @endif
+            </div>
+        </div>
+    </div>
 </div>
 
 @push('scripts')
     <script>
+        /**
+         * Apre una nuova finestra con la pagina “wrapper” che contiene l’iframe PDF e chiama print().
+         */
+        window.addEventListener('open-print-window', (e) => {
+            const url = e.detail?.url;
+
+            if (!url) return;
+
+            const w = window.open(url, '_blank', 'noopener,noreferrer');
+
+            /* Se il popup blocker interviene */
+            if (!w) {
+                alert('Popup bloccato: consenti i popup per stampare il DDT.');
+            }
+        });
         function advanceModal () {
             return {
                 dlg : null,          // settato in x-init

@@ -36,6 +36,7 @@ use App\Http\Controllers\Api\CustomersApiController;
 use App\Http\Controllers\Api\ProductsApiController;
 use App\Http\Controllers\Api\OrderComponentCheckController;
 use App\Http\Controllers\Api\CustomerOrdersApiController;
+use App\Http\Controllers\Warehouse\DdtController;
 
 /*
 |--------------------------------------------------------------------------
@@ -1764,3 +1765,23 @@ Route::middleware([
         ->name('variables.colors.update')
         ->middleware('permission:product-variables.update');
 });
+
+
+/**
+ * Rotte DDT:
+ * - print: pagina wrapper che contiene iframe e apre la stampa
+ * - pdf: endpoint che streamma il PDF
+ *
+ * Usiamo rotte firmate per evitare aperture “a caso”.
+ */
+Route::middleware(['auth', 'signed'])
+    ->prefix('warehouse')
+    ->name('warehouse.')
+    ->group(function () {
+
+        Route::get('/ddt/{ddt}/print', [DdtController::class, 'print'])
+            ->name('ddt.print');
+
+        Route::get('/ddt/{ddt}/pdf', [DdtController::class, 'pdf'])
+            ->name('ddt.pdf');
+    });

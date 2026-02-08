@@ -13,11 +13,16 @@
 
 namespace App\Livewire\Warehouse;
 
-use App\Models\OrderItem;
 use App\Actions\AdvanceOrderItemPhaseAction;
 use App\Enums\ProductionPhase;
+use App\Models\Ddt;
+use App\Models\Order;
+use App\Models\OrderItem;
+use App\Services\Ddt\DdtService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\URL;
+use Illuminate\Validation\ValidationException;
 use Livewire\Component;
 use Livewire\WithPagination;
 
@@ -73,6 +78,14 @@ class ExitTable extends Component
     public string $rbReason  = ''; // motivo del rollback
     public bool   $rbReuse   = false; // modalità 'reuse' o 'scrap' 
 
+    /*──────────── Drawer DDT ──────────────*/
+    public bool $ddtDrawerOpen = false;
+    public ?int $ddtDrawerOrderId = null;
+    public ?string $ddtDrawerOrderNumber = null;
+
+    /** @var array<int,array{id:int,number:int,year:int,issued_at:string}> */
+    public array $ddtDrawerDdts = [];
+
     /* ───────────────────────────────────────────────────────────────*
      |  Eventi Livewire: rispondono a click su pulsanti o input    |
      *───────────────────────────────────────────────────────────────*/
@@ -80,6 +93,7 @@ class ExitTable extends Component
         'open-advance'   => 'openAdvance',
         'confirm-advance'=> 'confirmAdvance',
         'confirmRollback'=> 'confirmRollback',
+        'print-ddt'       => 'printDdt',
     ];
 
     /**
@@ -154,7 +168,7 @@ class ExitTable extends Component
             ->when($this->filters['customer'] ?? null, function ($q, $v) {
                 $q->where(function ($qq) use ($v) {
                     $qq->where('c.company',  'like', "%{$v}%")
-                    ->orWhere('oc.company','like', "%{$v}%");
+                        ->orWhere('oc.company','like', "%{$v}%");
                 });
             })
             ->when($this->filters['order_number']  ?? null,
@@ -338,6 +352,126 @@ class ExitTable extends Component
                 'trace' => $e->getTraceAsString(),
             ]);
             session()->flash('error',$e->getMessage());
+        }
+    }
+
+    /**
+     * Genera il DDT e apre la finestra di stampa.
+     *
+     * @param int $orderItemId ID della riga ordine cliccata (serve per risalire all’ordine).
+     */
+    public function printDdt(int $orderItemId): void
+    {
+        try {
+            /* Permesso: stessa logica “uscite” */
+            if (! auth()->user()->can('stock.exit')) {
+                throw ValidationException::withMessages([
+                    'auth' => 'Non hai il permesso per generare il DDT.',
+                ]);
+            }
+
+            /* 1) Genera DDT (DB) */
+            $ddt = app(DdtService::class)->createForOrderItem($orderItemId, auth()->user());
+
+            /* 2) Prepara URL firmato verso pagina stampa */
+            $printUrl = URL::temporarySignedRoute(
+                'warehouse.ddt.print',
+                now()->addMinutes(5),
+                ['ddt' => $ddt->id]
+            );
+
+            /* 3) Apri nuova finestra (browser) */
+            $this->dispatch('open-print-window', url: $printUrl);
+
+            session()->flash('success', "DDT nr. {$ddt->number} generato. Apertura stampa…");
+        } catch (\Throwable $e) {
+            Log::error('[printDdt] ERROR', [
+                'msg' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            session()->flash('error', $e->getMessage());
+        }
+    }
+
+    /*──────────────────────────── Drawer DDT: elenco e ristampa ───────────────────────────*/
+
+    public function openDdtDrawer(int $orderId): void
+    {
+        try {
+            if ($this->phase !== 6) {
+                return; // visibile solo in fase 6, ma sicurezza lato server
+            }
+
+            if (! auth()->user()->can('stock.exit')) {
+                throw ValidationException::withMessages(['auth' => 'Non hai il permesso per visualizzare i DDT.']);
+            }
+
+            $order = Order::query()
+                ->with('orderNumber')
+                ->findOrFail($orderId);
+
+            $this->ddtDrawerOrderId = $order->id;
+            $this->ddtDrawerOrderNumber = (string)($order->orderNumber?->number ?? $order->id);
+
+            $ddts = Ddt::query()
+                ->where('order_id', $order->id)
+                ->orderByDesc('issued_at')
+                ->orderByDesc('id')
+                ->get(['id', 'year', 'number', 'issued_at']);
+
+            $this->ddtDrawerDdts = $ddts->map(fn (Ddt $d) => [
+                'id'        => $d->id,
+                'year'      => (int) $d->year,
+                'number'    => (int) $d->number,
+                'issued_at' => $d->issued_at ? $d->issued_at->format('d/m/Y') : '',
+            ])->all();
+
+            $this->ddtDrawerOpen = true;
+        } catch (\Throwable $e) {
+            Log::error('[openDdtDrawer] ERROR', ['msg' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            session()->flash('error', $e->getMessage());
+        }
+    }
+
+    public function closeDdtDrawer(): void
+    {
+        $this->ddtDrawerOpen = false;
+        $this->reset('ddtDrawerOrderId', 'ddtDrawerOrderNumber', 'ddtDrawerDdts');
+    }
+
+    public function updatedDdtDrawerOpen($value): void
+    {
+        // se chiuso da Alpine via entangle
+        if (! $value) {
+            $this->reset('ddtDrawerOrderId', 'ddtDrawerOrderNumber', 'ddtDrawerDdts');
+        }
+    }
+
+    public function printExistingDdt(int $ddtId): void
+    {
+        try {
+            if (! auth()->user()->can('stock.exit')) {
+                throw ValidationException::withMessages(['auth' => 'Non hai il permesso per stampare i DDT.']);
+            }
+
+            $ddt = Ddt::query()->findOrFail($ddtId);
+
+            // sicurezza: ristampa solo DDT dell'ordine aperto nel drawer
+            if ($this->ddtDrawerOrderId !== null && (int)$ddt->order_id !== (int)$this->ddtDrawerOrderId) {
+                throw ValidationException::withMessages(['ddt' => 'DDT non coerente con l’ordine selezionato.']);
+            }
+
+            $printUrl = URL::temporarySignedRoute(
+                'warehouse.ddt.print',
+                now()->addMinutes(5),
+                ['ddt' => $ddt->id]
+            );
+
+            $this->dispatch('open-print-window', url: $printUrl);
+        } catch (\Throwable $e) {
+            Log::error('[printExistingDdt] ERROR', ['msg' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            session()->flash('error', $e->getMessage());
         }
     }
 }
