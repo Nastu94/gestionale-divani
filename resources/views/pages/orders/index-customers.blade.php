@@ -210,6 +210,26 @@
                                                         </button>
                                                     @endif
                                                 @endcan
+                                                
+                                                {{-- 🖨 Etichetta --}}
+                                                @can('orders.customer.view')
+                                                    @php
+                                                        $labelUrl = \Illuminate\Support\Facades\URL::temporarySignedRoute(
+                                                            'orders.customer.label.print',
+                                                            now()->addMinutes(5),
+                                                            ['order' => $order->id]
+                                                        );
+                                                    @endphp
+
+                                                    <button type="button"
+                                                            @click.stop="
+                                                                const w = window.open('{{ $labelUrl }}', '_blank', 'noopener,noreferrer');
+                                                                if (!w) alert('Popup bloccato: consenti i popup per stampare l’etichetta.');
+                                                            "
+                                                            class="inline-flex items-center hover:text-purple-600">
+                                                        <i class="fas fa-tag mr-1"></i> Stampa etichetta
+                                                    </button>
+                                                @endcan
 
                                                 {{-- Cancella --}}
                                                 @if ($canDelete)

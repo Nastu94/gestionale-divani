@@ -29,6 +29,7 @@ use App\Http\Controllers\OrderPricingController;
 use App\Http\Controllers\OrderPublicConfirmationController;
 use App\Http\Controllers\SupplyDashboardController;
 use App\Http\Controllers\ProductReturnController;
+use App\Http\Controllers\OrderCustomerLabelController;
 use App\Http\Controllers\Api\SupplierApiController;
 use App\Http\Controllers\Api\ComponentApiController;
 use App\Http\Controllers\Api\OrderNumberApiController;
@@ -1785,3 +1786,10 @@ Route::middleware(['auth', 'signed'])
         Route::get('/ddt/{ddt}/pdf', [DdtController::class, 'pdf'])
             ->name('ddt.pdf');
     });
+Route::middleware(['auth', 'signed'])->group(function () {
+    Route::get('/orders/customer/{order}/label/print', [OrderCustomerLabelController::class, 'print'])
+        ->name('orders.customer.label.print');
+
+    Route::get('/orders/customer/{order}/label/pdf', [OrderCustomerLabelController::class, 'pdf'])
+        ->name('orders.customer.label.pdf');
+});
