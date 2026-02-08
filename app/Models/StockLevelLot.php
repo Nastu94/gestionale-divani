@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use App\Models\Concerns\GeneratesLot;
 use Spatie\Activitylog\Traits\LogsActivity;
 use Spatie\Activitylog\LogOptions;
-use App\Models\stockLevel;
+use App\Models\StockLevel;
 use App\Models\LotNumber;
 use App\Models\Order;
 
