@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\OrderPublicConfirmationController;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\OrderNumber;
@@ -25,6 +26,7 @@ use App\Support\Pricing\CustomerPriceResolver;
 use App\Mail\Orders\OrderConfirmationRequestMail;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -178,6 +180,12 @@ class OrderCustomerController extends Controller
             'hash_flag'              => ['sometimes', 'boolean'],
             'note'                   => ['nullable', 'string'],
 
+            // NEW: zona spedizione (nota interna, solo stampa documenti)
+            'shipping_zone'          => ['nullable', 'string', 'max:255'],
+
+            // NEW: note colori per riga (multi-colore/dettagli interni)
+            'lines.*.color_notes'    => ['nullable', 'string'],
+
             'lines'                  => ['required', 'array', 'min:1'],
             'lines.*.product_id'     => ['required', 'integer', Rule::exists('products', 'id')],
             'lines.*.quantity'       => ['required', 'numeric', 'min:0.01'],
@@ -193,6 +201,27 @@ class OrderCustomerController extends Controller
             'lines.*.discount'       => ['sometimes', 'array'],
             'lines.*.discount.*'     => ['string','regex:/^\d+(\.\d+)?%?$/'],
         ]);
+
+        /*──────────────── NORMALIZZAZIONE CAMPI EXTRA ────────────────*/
+        // Normalizza shipping_zone: stringa vuota -> null
+        if (array_key_exists('shipping_zone', $data)) {
+            $data['shipping_zone'] = trim((string) $data['shipping_zone']);
+            if ($data['shipping_zone'] === '') {
+                $data['shipping_zone'] = null;
+            }
+        }
+
+        // Normalizza color_notes: stringa vuota -> null
+        if (array_key_exists('lines', $data)) {
+            foreach ($data['lines'] as &$line) {
+                if (array_key_exists('color_notes', $line)) {
+                    $line['color_notes'] = trim((string) $line['color_notes']);
+                    if ($line['color_notes'] === '') {
+                        $line['color_notes'] = null;
+                    }
+                }
+            }
+        }
 
         Log::debug('OrderCustomer@store – dati validati', $data);
 
@@ -307,6 +336,10 @@ class OrderCustomerController extends Controller
             $qty       = (float) $l['quantity'];
             $fabricId  = array_key_exists('fabric_id', $l) && $l['fabric_id'] !== null ? (int) $l['fabric_id'] : null;
             $colorId   = array_key_exists('color_id',  $l) && $l['color_id']  !== null ? (int) $l['color_id']  : null;
+            $colorNotes = array_key_exists('color_notes', $l) ? trim((string) $l['color_notes']) : null;
+            if ($colorNotes === '') {
+                $colorNotes = null;
+            }
 
             /** @var \App\Models\Product $product */
             $product   = Product::findOrFail($productId);
@@ -381,7 +414,7 @@ class OrderCustomerController extends Controller
 
                 'fabric_id'  => $fabricId,
                 'color_id'   => $colorId,
-
+                'color_notes' => $colorNotes,
                 // token sconto da salvare su order_items.discount
                 'discount'   => $tokens,
 
@@ -418,6 +451,7 @@ class OrderCustomerController extends Controller
                     'customer_id'            => $data['customer_id']            ?? null,
                     'occasional_customer_id' => $data['occasional_customer_id'] ?? null,
                     'shipping_address'       => $data['shipping_address'],
+                    'shipping_zone'          => $data['shipping_zone'] ?? null,
                     'total'                  => $total,
                     'ordered_at'             => now(),
                     'delivery_date'          => $deliveryDate,
@@ -440,6 +474,7 @@ class OrderCustomerController extends Controller
                     // Persisti le variabili della riga (se presenti)
                     $fabricId = $line['fabric_id'] ?? null;
                     $colorId  = $line['color_id']  ?? null;
+                    $colorNotes = $line['color_notes'] ?? null;
 
                     if ($fabricId !== null || $colorId !== null) {
                         $payload = [];
@@ -457,7 +492,9 @@ class OrderCustomerController extends Controller
                         if (Schema::hasColumn('order_product_variables', 'surcharge_total_applied')) {
                             $payload['surcharge_total_applied'] = $line['surcharge_total_applied'] ?? 0;
                         }
-
+                        if (Schema::hasColumn('order_product_variables', 'color_notes')) {
+                            $payload['color_notes'] = $colorNotes;
+                        }
                         if (!empty($payload)) {
                             $item->variables()->create($payload);
                         }
@@ -780,7 +817,7 @@ class OrderCustomerController extends Controller
         /* ── Eager-load con i campi che servono alla UI ── */
         $order->load([
             'items.product:id,sku,name,price',
-            'items.variable:id,order_item_id,fabric_id,color_id,resolved_component_id,surcharge_fixed_applied,surcharge_percent_applied,surcharge_total_applied',
+            'items.variable:id,order_item_id,fabric_id,color_id,color_notes,resolved_component_id,surcharge_fixed_applied,surcharge_percent_applied,surcharge_total_applied',
             'items.variable.fabric:id,name',
             'items.variable.color:id,name',
             'customer:id,company,email,vat_number,tax_code',
@@ -855,6 +892,7 @@ class OrderCustomerController extends Controller
                 'color_id'    => $it->variable?->color_id,
                 'fabric_name' => $it->variable?->fabric?->name,
                 'color_name'  => $it->variable?->color?->name,
+                'color_notes' => $it->variable?->color_notes,
             ];
         })->values();
 
@@ -867,7 +905,7 @@ class OrderCustomerController extends Controller
             'customer'         => $cust,
             'occ_customer'     => $occ,
             'shipping_address' => $order->shipping_address,
-
+            'shipping_zone'    => $order->shipping_zone ?? null,
             // NEW: campi header aggiunti/attesi dalla UI
             'hash_flag'        => (bool) ($order->hash_flag ?? false),
             'note'             => $order->note ?? null,
@@ -898,6 +936,7 @@ class OrderCustomerController extends Controller
             // header extra
             'hash_flag'          => ['sometimes','boolean'],
             'note'               => ['nullable','string'],
+            'shipping_zone'       => ['nullable', 'string', 'max:255'],
 
             // righe
             'lines'              => ['required','array','min:1'],
@@ -910,6 +949,7 @@ class OrderCustomerController extends Controller
             // variabili
             'lines.*.fabric_id'  => ['nullable','integer', Rule::exists('fabrics','id')],
             'lines.*.color_id'   => ['nullable','integer', Rule::exists('colors','id')],
+            'lines.*.color_notes' => ['nullable', 'string'],
 
             // sconti multi-token (array di stringhe "N%" | "N")
             'lines.*.discount'   => ['nullable','array'],
@@ -924,6 +964,7 @@ class OrderCustomerController extends Controller
         $order->fill([
             ...(array_key_exists('hash_flag', $data) ? ['hash_flag' => (bool)$data['hash_flag']] : []),
             ...(array_key_exists('note', $data)      ? ['note'      => $data['note']]           : []),
+            ...(array_key_exists('shipping_zone', $data) ? ['shipping_zone' => ($data['shipping_zone'] !== null ? trim((string)$data['shipping_zone']) : null)] : []),
         ]);
         $order->save();
 
@@ -1018,6 +1059,10 @@ class OrderCustomerController extends Controller
             $fabricId  = array_key_exists('fabric_id', $l) && $l['fabric_id'] !== null ? (int) $l['fabric_id'] : null;
             $colorId   = array_key_exists('color_id',  $l) && $l['color_id']  !== null ? (int) $l['color_id']  : null;
             $tokens    = $normalizeDiscountTokens($l['discount'] ?? []);
+            $colorNotes = array_key_exists('color_notes', $l) ? trim((string) $l['color_notes']) : null;
+            if ($colorNotes === '') {
+                $colorNotes = null;
+            }
 
             /** @var \App\Models\Product $product */
             $product   = Product::findOrFail($productId);
@@ -1078,7 +1123,7 @@ class OrderCustomerController extends Controller
                 'fabric_id'  => $fabricId,
                 'color_id'   => $colorId,
                 'resolved_component_id'     => $resolvedComponentId,
-
+                'color_notes' => $colorNotes,
                 // meta sovrapprezzi (diagnostica)
                 'surcharge_fixed_applied'   => $fixedSum,
                 'surcharge_percent_applied' => $percentSum,
@@ -1354,4 +1399,108 @@ class OrderCustomerController extends Controller
         }
     }
 
+    /**
+     * Conferma manualmente un ordine STANDARD (interno).
+     *
+     * Requisito: deve seguire lo stesso percorso della conferma via link.
+     * Strategia:
+     * - Se esiste un confirm_token, prova a chiamare direttamente
+     *   OrderPublicConfirmationController::confirm() (stesso identico flusso).
+     * - Se fallisce (token scaduto/non valido/altro), esegue un fallback "forzato"
+     *   che porta comunque l'ordine nello stato CONFERMATO (status=1).
+     *
+     * @param  Request  $request
+     * @param  Order    $order
+     * @return RedirectResponse
+     */
+    public function confirmManual(Request $request, Order $order): RedirectResponse
+    {
+        /*──────────────── AUTORIZZAZIONE ────────────────*/
+        // La rotta è già protetta dal middleware permission:orders.customer.update,
+        // ma facciamo comunque un guard di sicurezza lato controller.
+        abort_unless($request->user()?->can('orders.customer.update'), 403);
+
+        /*──────────────── VALIDAZIONI BUSINESS ────────────────*/
+        // Solo ordini STANDARD (gli occasionali sono già auto-confermati nel tuo flusso).
+        if (!is_null($order->occasional_customer_id)) {
+            return back()->with('error', 'Conferma manuale non prevista per ordini occasionali.');
+        }
+
+        // Idempotenza: se già confermato, non facciamo nulla.
+        if ((int) $order->status === 1) {
+            return back()->with('success', 'Ordine già confermato.');
+        }
+
+        /*──────────────── 1) TENTATIVO: stesso flusso della conferma via link ────────────────*/
+        // Se abbiamo un token, chiamiamo direttamente lo stesso controller usato dal link pubblico.
+        // Questo evita duplicazioni e garantisce “stesso percorso”.
+        if (!empty($order->confirm_token)) {
+            try {
+                // app()->call gestisce automaticamente l’ordine dei parametri nel metodo confirm()
+                // (Request + token oppure token + Request).
+                app()->call([OrderPublicConfirmationController::class, 'confirm'], [
+                    'request' => $request,
+                    'token'   => $order->confirm_token,
+                ]);
+
+                // Ricarica ordine per verificare l'esito reale della conferma.
+                $order->refresh();
+
+                if ((int) $order->status === 1) {
+                    return back()->with('success', 'Ordine confermato manualmente.');
+                }
+
+                // Se non è stato confermato, continuiamo con fallback.
+                Log::warning('confirmManual: chiamata al flusso pubblico eseguita ma ordine non risulta confermato', [
+                    'order_id' => $order->id,
+                    'token'    => $order->confirm_token,
+                ]);
+
+            } catch (\Throwable $e) {
+                // Se il token è scaduto/non valido o il controller lancia abort/exception,
+                // passiamo al fallback.
+                Log::warning('confirmManual: impossibile usare il flusso pubblico, fallback forzato', [
+                    'order_id' => $order->id,
+                    'token'    => $order->confirm_token,
+                    'error'    => $e->getMessage(),
+                ]);
+            }
+        }
+
+        /*──────────────── 2) FALLBACK: conferma forzata (token scaduto o assente) ────────────────*/
+        DB::transaction(function () use ($order, $request) {
+            /** @var Order $locked */
+            $locked = Order::query()
+                ->whereKey($order->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            // Idempotenza anche sotto lock (concorrenza: click link + conferma manuale).
+            if ((int) $locked->status === 1) {
+                return;
+            }
+
+            // Porta l'ordine in stato confermato.
+            $locked->status       = 1;
+            $locked->confirmed_at = now();
+            $locked->reason       = null;
+
+            // Se vuoi rendere il link non più utilizzabile, azzera il token (solo se colonna esiste).
+            if (Schema::hasColumn('orders', 'confirm_token')) {
+                $locked->confirm_token = null;
+            }
+
+            // (Opzionale) Tracciamento interno: chi ha confermato manualmente.
+            if (Schema::hasColumn('orders', 'confirmed_by_user_id')) {
+                $locked->confirmed_by_user_id = (int) $request->user()->id;
+            }
+            if (Schema::hasColumn('orders', 'confirmed_via')) {
+                $locked->confirmed_via = 'manual';
+            }
+
+            $locked->save();
+        });
+
+        return back()->with('success', 'Ordine confermato manualmente.');
+    }
 }

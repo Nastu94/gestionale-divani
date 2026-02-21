@@ -38,6 +38,7 @@ class Order extends Model
         'registration_date', // Data registrazione magazzino
         'bill_number', // Numero bolla di consegna
         'shipping_address', // Indirizzo di spedizione
+        'shipping_zone', // Zona di spedizione
         'min_phase', // Fase minima di produzione
         'status',       // Stato dell'ordine (completato o meno)
         'note',        // Note aggiuntive
@@ -78,6 +79,7 @@ class Order extends Model
         'registration_date', // Data registrazione magazzino
         'bill_number', // Numero bolla di consegna
         'shipping_address',
+        'shipping_zone',
         'min_phase', // Fase minima di produzione
         'status',
         'note',
@@ -98,6 +100,7 @@ class Order extends Model
         'status'        => 'boolean',
         'note'         => 'string',
         'reason'       => 'string',
+        'shipping_zone' => 'string',
         'confirmed_at' => 'datetime',
     ];
 

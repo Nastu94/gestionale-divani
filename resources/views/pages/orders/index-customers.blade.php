@@ -210,6 +210,22 @@
                                                         </button>
                                                     @endif
                                                 @endcan
+
+                                                @can('orders.customer.update')
+                                                    @if (is_null($order->occasional_customer_id) && (int) $order->status === 0)
+                                                        <form method="POST"
+                                                            action="{{ route('orders.customer.confirm.manual', $order) }}"
+                                                            onsubmit="return confirm('Confermare manualmente questo ordine?');"
+                                                            class="inline">
+                                                            @csrf
+
+                                                            <button type="submit"
+                                                                    class="inline-flex items-center hover:text-green-700">
+                                                                <i class="fas fa-circle-check mr-1"></i> Conferma
+                                                            </button>
+                                                        </form>
+                                                    @endif
+                                                @endcan
                                                 
                                                 {{-- 🖨 Etichetta --}}
                                                 @can('orders.customer.view')

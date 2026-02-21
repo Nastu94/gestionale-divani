@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class OrderProductVariable extends Model
 {
     protected $fillable = [
-        'order_item_id', 'slot', 'fabric_id', 'color_id', 'resolved_component_id',
+        'order_item_id', 'slot', 'fabric_id', 'color_id', 'resolved_component_id', 'color_notes',
         'surcharge_fixed_applied', 'surcharge_percent_applied', 'surcharge_total_applied', 'computed_at',
     ];
 
@@ -21,6 +21,7 @@ class OrderProductVariable extends Model
         'surcharge_percent_applied' => 'decimal:2',
         'surcharge_total_applied'   => 'decimal:2',
         'computed_at'               => 'datetime',
+        'color_notes'               => 'string',
     ];
 
     public function orderItem(): BelongsTo { return $this->belongsTo(OrderItem::class); }

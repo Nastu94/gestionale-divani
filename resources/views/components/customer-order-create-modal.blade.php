@@ -118,6 +118,16 @@
                         </template>
 
                     </div>
+
+                    {{-- Zona spedizione (orders.shipping_zone) - nota interna, solo stampa documenti --}}
+                    <div x-show="selectedCustomer" x-cloak>
+                        <label class="block text-sm font-medium">Zona spedizione</label>
+                        <input type="text"
+                            x-model="shipping_zone"
+                            placeholder="Es. Nord, Centro, Sud, Isole, o note logistiche interne…"
+                            class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
+                                    text-sm text-gray-900 dark:text-gray-100">
+                    </div>
                 </div>
 
                 {{-- Colonna DX --}}
@@ -173,6 +183,12 @@
                                             <span x-text="l.color_name || '—'"></span>
                                         </span>
                                     </div>
+                                    {{-- NEW: Visualizzazione note colori (solo se presente) --}}
+                                    <template x-if="l.color_notes">
+                                        <div class="mt-1 text-[11px] text-gray-600 whitespace-pre-line">
+                                            <span x-text="l.color_notes"></span>
+                                        </div>
+                                    </template>
                                 </td>
                                 <td class="px-2 py-1 text-right" x-text="l.qty"></td>
                                 <td class="px-2 py-1 text-right" x-text="formatCurrency(l.price)"></td>
@@ -187,7 +203,7 @@
                 </table>
             </div>
 
-            {{-- CARRENZE COMPONENTI --}}
+            {{-- CARENZE COMPONENTI --}}
             <div x-show="availabilityOk === false"
                 x-cloak
                 class="border-t pt-4 mt-4">
@@ -314,6 +330,17 @@
                         <p class="text-[11px] text-amber-600 mt-1" x-show="selectedProduct && colorOptions.length===0" x-cloak>
                             Nessun colore in whitelist per questo prodotto.
                         </p>
+                    </div>
+
+                    {{-- NEW: Note colori per riga (order_product_variables.color_notes) --}}
+                    <div class="md:col-span-2 mt-2">
+                        <label class="block text-sm font-medium">Note colori</label>
+                        <textarea x-model="color_notes"
+                                rows="2"
+                                placeholder="Es. stesso tessuto: seduta Blu, schienale Grigio… (nota interna)"
+                                class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
+                                        text-sm text-gray-900 dark:text-gray-100"
+                                :disabled="!selectedProduct"></textarea>
                     </div>
                 </div>
 
@@ -468,6 +495,7 @@
             order_number     : '—',
             hash_flag        : false,
             note             : '',
+            shipping_zone   : '', 
 
             /* ==== Cliente ==== */
             customerSearch   : '',
@@ -489,6 +517,7 @@
             colorOptions  : [],
             fabric_id     : '',
             color_id      : '',
+            color_notes     : '',
 
             /* ==== Verifica disponibilità ==== */
             availabilityOk : null,     // null = non ancora verificato
@@ -532,6 +561,7 @@
                     occasional_customer_id: this.occasional_customer_id ?? null,
                     delivery_date: this.delivery_date || null,
                     shipping_address: this.selectedCustomer ? (this.selectedCustomer.shipping_address || null) : null,
+                    shipping_zone: (this.shipping_zone && String(this.shipping_zone).trim()) || null,
                     hash_flag: !!this.hash_flag,
                     note: (this.note && String(this.note).trim()) || null,
                     lines: (this.lines || []).map(l => ({
@@ -540,6 +570,7 @@
                         price      : l.price !== '' && l.price !== null ? +l.price : null,
                         fabric_id  : l.fabric_id || null,
                         color_id   : l.color_id  || null,
+                        color_notes: (l.color_notes && String(l.color_notes).trim()) || null,
                         discount   : Array.isArray(l.discount) ? l.discount : [],
                     })),
                 });
@@ -625,6 +656,7 @@
                 this.customerSearch   = '';
                 this.lines            = [];
                 this.selectedProduct  = null;
+                this.shipping_zone    = '';
                 this.productSearch    = '';
                 this.price            = 0;
                 this.quantity         = 1;
@@ -638,6 +670,7 @@
                 this.colorOptions     = [];
                 this.fabric_id        = '';
                 this.color_id         = '';
+                this.color_notes      = '';
                 this.discountsDraft   = [];
                 this.hash_flag        = false;
                 this.note             = '';
@@ -729,6 +762,7 @@
                     color_id    : this.color_id  || null,
                     fabric_name : window.GD_findName(window.GD_VARIABLE_OPTIONS.fabrics, this.fabric_id),
                     color_name  : window.GD_findName(window.GD_VARIABLE_OPTIONS.colors,  this.color_id),
+                    color_notes : (this.color_notes && String(this.color_notes).trim().length) ? this.color_notes.trim() : null,
                     discount    : discountTokens,
                 });
 
@@ -736,6 +770,7 @@
                 this.availabilityOk = null;
                 this.selectedProduct=null; this.productSearch=''; this.price=0; this.quantity=1;
                 this.fabric_id=null; this.color_id=null; this.discountsDraft=[];
+                this.color_notes = '';
             },
 
             editLine(i){
@@ -748,6 +783,7 @@
                 this.price              = l.price;
                 this.quantity           = l.qty;
                 this.loadProductWhitelist(l.product.id, l.fabric_id ?? null, l.color_id ?? null);
+                this.color_notes        = l.color_notes ?? ''; 
                 this.productSearch      = '';
                 this.availabilityOk     = null;
                 this.discountsDraft     = Array.isArray(l.discount)
@@ -779,6 +815,7 @@
                     occasional_customer_id : this.occasional_customer_id ?? null,
                     delivery_date   : this.delivery_date,
                     shipping_address: this.selectedCustomer.shipping_address,
+                    shipping_zone: (this.shipping_zone && String(this.shipping_zone).trim().length) ? this.shipping_zone.trim() : null,
                     hash_flag       : this.hash_flag ? 1 : 0,
                     note            : (this.note && String(this.note).trim().length) ? this.note.trim() : null,
                     lines : this.lines.map(l => ({
@@ -787,6 +824,7 @@
                         price      : l.price,
                         fabric_id  : l.fabric_id || null,
                         color_id   : l.color_id  || null,
+                        color_notes: (l.color_notes && String(l.color_notes).trim().length) ? String(l.color_notes).trim() : null,
                         discount   : Array.isArray(l.discount) ? l.discount : [],
                     }))
                 };
@@ -889,7 +927,7 @@
 
                     this.hash_flag = !!o.hash_flag;
                     this.note      = o.note ?? '';
-
+                    this.shipping_zone = o.shipping_zone ?? '';
                     this.lines = (o.lines || []).map(l => ({
                         product  : { id:l.product_id, sku:l.sku, name:l.name },
                         qty      : l.quantity,
@@ -898,6 +936,7 @@
                         color_id : l.color_id,
                         fabric_name : window.GD_findName(window.GD_VARIABLE_OPTIONS.fabrics, l.fabric_id),
                         color_name  : window.GD_findName(window.GD_VARIABLE_OPTIONS.colors,  l.color_id),
+                        color_notes : l.color_notes ?? null,
                         subtotal : l.quantity * l.price,
                         discount : Array.isArray(l.discount) ? l.discount : [],
                     }));

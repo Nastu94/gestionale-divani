@@ -50,7 +50,7 @@ class OrderLabelPdfService
         })->values();
 
         // ✅ Come proforma (se vuoi fisso). Se invece lo vuoi dinamico col city del cliente, tieni la tua logica.
-        $brandCity = $isOccasional ? 'KOMODO PALERMO' : 'AL DIVANI ROMA';
+        $brandCity = $isOccasional ? 'KOMODO' : 'AL DIVANI';
 
         $pdf = Pdf::loadView('pdf.order-label', [
                 'brand'     => strtoupper($brand),

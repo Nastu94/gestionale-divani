@@ -14,6 +14,7 @@ use Illuminate\Contracts\Auth\Authenticatable as User;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema; 
 use Carbon\Carbon;
 
 class OrderUpdateService
@@ -145,37 +146,88 @@ class OrderUpdateService
                     'deletedCnt' => $deletedCnt,
                 ]);
 
+                // Evita di chiamare Schema::hasColumn() ad ogni giro di loop.
+                $hasColorNotesColumn = Schema::hasColumn('order_product_variables', 'color_notes');
+
                 /* 4.3 Upsert righe + variabili */
                 $upCnt = 0; $insCnt = 0;
+
                 foreach ($incoming as $k => $line) {
-                    $existing = OrderItem::query()
-                        ->where('order_id', $order->id)
-                        ->where('product_id', $line['product_id'])
-                        ->whereHas('variable', function($q) use ($line) {
-                            $q->where('fabric_id', $line['fabric_id'] ?? null)
-                            ->where('color_id',  $line['color_id']  ?? null);
-                        })
-                        ->first();
+                    /*──────────────── NEW: normalizzazione note colori ────────────────*/
+                    // Stringa vuota -> null (così non salviamo spazzatura tipo "   ").
+                    $colorNotes = array_key_exists('color_notes', $line) ? trim((string) $line['color_notes']) : null;
+                    if ($colorNotes === '') {
+                        $colorNotes = null;
+                    }
+
+                    /*──────────────── NEW: query $existing compatibile con righe senza variabile ────────────────*/
+                    // Caso "base" (fabric_id e color_id null):
+                    // in passato potresti avere OrderItem senza record in order_product_variables.
+                    // Con whereHas('variable') non lo troveresti → duplicati.
+                    $fabricId = $line['fabric_id'] ?? null;
+                    $colorId  = $line['color_id']  ?? null;
+
+                    if ($fabricId === null && $colorId === null) {
+                        $existing = OrderItem::query()
+                            ->where('order_id', $order->id)
+                            ->where('product_id', $line['product_id'])
+                            ->where(function ($q) {
+                                // Matcha sia righe senza variabile, sia variabile con fabric/color null
+                                $q->whereDoesntHave('variable')
+                                ->orWhereHas('variable', function ($q) {
+                                    $q->whereNull('fabric_id')
+                                        ->whereNull('color_id');
+                                });
+                            })
+                            ->first();
+                    } else {
+                        // Caso con variabili valorizzate: manteniamo la tua logica originale
+                        $existing = OrderItem::query()
+                            ->where('order_id', $order->id)
+                            ->where('product_id', $line['product_id'])
+                            ->whereHas('variable', function ($q) use ($line) {
+                                $q->where('fabric_id', $line['fabric_id'] ?? null)
+                                ->where('color_id',  $line['color_id']  ?? null);
+                            })
+                            ->first();
+                    }
+
+                    /*──────────────── NEW: payload variabile (additivo) ────────────────*/
+                    // Manteniamo tutti i campi già presenti, aggiungendo color_notes solo se la colonna esiste.
+                    $variablePayload = [
+                        'fabric_id'                 => $fabricId,
+                        'color_id'                  => $colorId,
+                        'resolved_component_id'     => $line['resolved_component_id'] ?? null,
+                        'surcharge_fixed_applied'   => $line['surcharge_fixed_applied']   ?? 0,
+                        'surcharge_percent_applied' => $line['surcharge_percent_applied'] ?? 0,
+                        'surcharge_total_applied'   => $line['surcharge_total_applied']   ?? 0,
+                    ];
+
+                    if ($hasColorNotesColumn) {
+                        $variablePayload['color_notes'] = $colorNotes; // NEW
+                    }
 
                     if ($existing) {
+
+                        /*──────────────── Update riga ────────────────*/
                         $existing->update([
                             'quantity'   => (float) $line['quantity'],
                             'unit_price' => (string) $line['price'],
                             'discount'   => $line['discount'] ?? [],
                         ]);
+
+                        /*──────────────── Update/Create variabile ────────────────*/
+                        // updateOrCreate crea la variabile anche se prima non esisteva (copre il caso storico).
                         $existing->variable()->updateOrCreate(
                             ['order_item_id' => $existing->id],
-                            [
-                                'fabric_id'                 => $line['fabric_id'] ?? null,
-                                'color_id'                  => $line['color_id'] ?? null,
-                                'resolved_component_id'     => $line['resolved_component_id'] ?? null,
-                                'surcharge_fixed_applied'   => $line['surcharge_fixed_applied']   ?? 0,
-                                'surcharge_percent_applied' => $line['surcharge_percent_applied'] ?? 0,
-                                'surcharge_total_applied'   => $line['surcharge_total_applied']   ?? 0,
-                            ]
+                            $variablePayload
                         );
+
                         $upCnt++;
+
                     } else {
+
+                        /*──────────────── Insert riga ────────────────*/
                         /** @var OrderItem $item */
                         $item = $order->items()->create([
                             'product_id' => (int) $line['product_id'],
@@ -183,14 +235,10 @@ class OrderUpdateService
                             'unit_price' => (string) $line['price'],
                             'discount'   => $line['discount'] ?? [],
                         ]);
-                        $item->variable()->create([
-                            'fabric_id'                 => $line['fabric_id'] ?? null,
-                            'color_id'                  => $line['color_id'] ?? null,
-                            'resolved_component_id'     => $line['resolved_component_id'] ?? null,
-                            'surcharge_fixed_applied'   => $line['surcharge_fixed_applied']   ?? 0,
-                            'surcharge_percent_applied' => $line['surcharge_percent_applied'] ?? 0,
-                            'surcharge_total_applied'   => $line['surcharge_total_applied']   ?? 0,
-                        ]);
+
+                        /*──────────────── Insert variabile ────────────────*/
+                        $item->variable()->create($variablePayload);
+
                         $insCnt++;
                     }
                 }

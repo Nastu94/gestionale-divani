@@ -224,6 +224,19 @@ Route::middleware([
 
     /*
     |--------------------------------------------------------------------------
+    | Gestione Ordini Cliente – Conferma manuale (stesso flusso della conferma via link)
+    |--------------------------------------------------------------------------
+    |
+    | Permette ad un operatore interno di confermare un ordine STANDARD
+    | eseguendo lo stesso percorso logico della conferma pubblica (accept).
+    |
+    */
+    Route::post('/orders/customer/{order}/confirm-manual', [OrderCustomerController::class, 'confirmManual'])
+        ->name('orders.customer.confirm.manual')
+        ->middleware('permission:orders.customer.update');
+        
+    /*
+    |--------------------------------------------------------------------------
     | Ricerca ordini cliente per modale Resi
     |--------------------------------------------------------------------------
     |
