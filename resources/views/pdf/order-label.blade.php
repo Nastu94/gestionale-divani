@@ -139,6 +139,16 @@
             word-wrap: break-word;
         }
 
+        .dest-zone {
+            font-weight: 700;
+            font-size: 14pt;
+            line-height: 1.10;
+            text-transform: uppercase;
+
+            white-space: normal;
+            word-wrap: break-word;
+        }
+
         /* PRODOTTO */
         .prod-main {
             font-weight: 800;
@@ -240,6 +250,10 @@
 
                                 @if(!empty($cityLine))
                                     <div class="dest-line">{{ $cityLine }}</div>
+                                @endif
+                                
+                                @if(!empty($shippingZone))
+                                    <div class="dest-zone">ZONA: {{ $shippingZone }}</div>
                                 @endif
                             </td>
                         </tr>

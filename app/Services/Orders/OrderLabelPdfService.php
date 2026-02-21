@@ -52,11 +52,15 @@ class OrderLabelPdfService
         // ✅ Come proforma (se vuoi fisso). Se invece lo vuoi dinamico col city del cliente, tieni la tua logica.
         $brandCity = $isOccasional ? 'KOMODO' : 'AL DIVANI';
 
+        $shippingZone = trim((string) ($order->shipping_zone ?? ''));
+        $shippingZone = $shippingZone !== '' ? $shippingZone : null;
+
         $pdf = Pdf::loadView('pdf.order-label', [
                 'brand'     => strtoupper($brand),
                 'name'      => strtoupper($name),
                 'street'    => strtoupper($street),
                 'cityLine'  => strtoupper($cityLine),
+                'shippingZone' => $shippingZone ? strtoupper($shippingZone) : null,
                 'brandCity' => strtoupper($brandCity),
                 'orderNo'   => strtoupper($orderNo),
                 'labels'    => $labels,

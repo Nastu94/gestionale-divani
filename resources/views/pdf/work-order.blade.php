@@ -113,6 +113,17 @@
         .footer-grid td:last-child { border-right: 0; }
         .footer-grid .lbl { font-weight: 800; margin-bottom: 4pt; }
 
+        .items tbody tr.comp td{
+            padding: 4pt 6pt 8pt 6pt;
+            font-size: 9pt;
+            color: #333;
+        }
+        .items tbody tr.comp td:first-child{
+            padding-left: 18pt; /* indent */
+        }
+        .items tbody tr.comp .comp-desc{
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
@@ -137,6 +148,8 @@
     // Destinazione: preferisci campi strutturati, fallback a shipping_address
     $street = '';
     $cityLine = '';
+    $shippingZone = trim((string)($order?->shipping_zone ?? ''));
+    $resolvedMap = $resolvedMap ?? collect();
 
     if ($order?->occasional_customer_id && $order?->occasionalCustomer) {
         $oc = $order->occasionalCustomer;
@@ -230,6 +243,9 @@
                 @if(trim($cityLine) !== '')
                     <div>{{ $cityLine }}</div>
                 @endif
+                @if(trim($shippingZone) !== '')
+                    <div class="muted"><strong>Zona:</strong> {{ $shippingZone }}</div>
+                @endif
             </div>
         </td>
     </tr>
@@ -254,19 +270,98 @@
         @foreach($wo->lines as $l)
             @php
                 $variants = trim(implode(' ', array_filter([$l->fabric, $l->color])));
+
+                // NEW: note colore da variabili riga (order_product_variables.color_notes)
+                $colorNotes = trim((string)($l->orderItem?->variable?->color_notes ?? ''));
+
+                // NEW: componenti legati alla fase (fase 0 = Inserito => niente)
+                $phase = (int) $wo->phase;
+                $phaseComps = [];
+
+                $orderItem = $l->orderItem;
+                $productModel = $orderItem?->product;
+                $resolvedId = $orderItem?->variable?->resolved_component_id;
+
+                if ($phase > 0 && $productModel) {
+                    foreach ($productModel->components as $comp) {
+
+                        // Se componente BOM è variabile, sostituisci con quello risolto nell'ordine
+                        $isVar = (bool) ($comp->pivot->is_variable ?? false);
+                        $eff = ($isVar && $resolvedId && $resolvedMap->has($resolvedId))
+                            ? $resolvedMap->get($resolvedId)
+                            : $comp;
+
+                        // Categoria -> fasi: usa component_category_phase (cast enum)
+                        $links = $eff?->category?->phaseLinks ?? collect();
+
+                        $matchesPhase = $links->contains(function ($ln) use ($phase) {
+                            // $ln->phase è enum ProductionPhase (value int) oppure int
+                            $p = $ln->phase;
+                            if (is_object($p) && property_exists($p, 'value')) {
+                                return (int) $p->value === (int) $phase;
+                            }
+                            return (int) $p === (int) $phase;
+                        });
+
+                        if (! $matchesPhase) continue;
+
+                        // quantità componente = qty riga * qty BOM
+                        $qtyComp = (float) $l->qty * (float) ($comp->pivot->quantity ?? 0);
+                        if ($qtyComp <= 0) continue;
+
+                        $phaseComps[] = [
+                            'code' => $eff->code ?? '—',
+                            'desc' => $eff->description ?? '—',
+                            'qty'  => $qtyComp,
+                            'unit' => $eff->unit_of_measure ?? 'pz',
+                        ];
+                    }
+                }
+
+                $hasPhaseComps = count($phaseComps) > 0;
+                $prodTdStyle = $hasPhaseComps ? 'border-bottom:0;' : '';
             @endphp
+
+            {{-- Riga PRODOTTO --}}
             <tr>
-                <td>{{ $l->product_sku ?: '—' }}</td>
-                <td>
+                <td style="{{ $prodTdStyle }}">{{ $l->product_sku ?: '—' }}</td>
+                <td style="{{ $prodTdStyle }}">
                     <div class="desc-strong">{{ $l->product_name ?: '—' }}</div>
+
                     @if($variants !== '')
                         <div class="muted">{{ $variants }}</div>
                     @endif
+
+                    {{-- NEW: note colore --}}
+                    @if($colorNotes !== '')
+                        <div class="muted"><strong>Note colore:</strong> {{ $colorNotes }}</div>
+                    @endif
                 </td>
-                <td class="right">
+                <td class="right" style="{{ $prodTdStyle }}">
                     <strong>{{ rtrim(rtrim(number_format((float)$l->qty, 2, ',', '.'), '0'), ',') }}</strong>
                 </td>
             </tr>
+
+            {{-- NEW: Riga/e COMPONENTE/i legati alla fase --}}
+            @if($hasPhaseComps)
+                @foreach($phaseComps as $idx => $c)
+                    @php
+                        // Evita righe di separazione multiple: bordino solo sull'ultima riga componente
+                        $isLast = ($idx === count($phaseComps) - 1);
+                        $compTdStyle = $isLast ? '' : 'border-bottom:0;';
+                    @endphp
+                    <tr class="comp">
+                        <td style="{{ $compTdStyle }}">{{ $c['code'] }}</td>
+                        <td class="comp-desc" style="{{ $compTdStyle }}">
+                            ↳ {{ $c['desc'] }}
+                        </td>
+                        <td class="right" style="{{ $compTdStyle }}">
+                            {{ rtrim(rtrim(number_format((float)$c['qty'], 2, ',', '.'), '0'), ',') }}
+                            <span class="muted">{{ strtoupper($c['unit']) }}</span>
+                        </td>
+                    </tr>
+                @endforeach
+            @endif
         @endforeach
     </tbody>
 </table>
