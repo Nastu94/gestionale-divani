@@ -45,6 +45,8 @@ class ExitTable extends Component
         'order_date'    => null,
         'delivery_date' => null,
         'value'         => null,
+        'qty_in_phase'  => null,
+        'shipping_zone'  => null,
     ];
     public int     $perPage = 100;    // righe per pagina (100 / 250 / 500)
 
@@ -63,6 +65,7 @@ class ExitTable extends Component
         'filters.delivery_date'  => ['except' => ''],
         'filters.value'          => ['except' => ''],
         'filters.qty_in_phase'   => ['except' => ''],
+        'filters.shipping_zone'  => ['except' => ''],
         'page'     => ['except' => 1],
         'perPage'  => ['except' => 100],
     ];
@@ -136,7 +139,7 @@ class ExitTable extends Component
         /*― White-list dei campi ordinabili ―*/
         $allowedSorts = [
             'customer', 'order_number', 'product',
-            'order_date', 'delivery_date',
+            'order_date', 'delivery_date', 'shipping_zone',
             'value', 'qty_in_phase',
         ];
         if ($this->sort !== '' && ! in_array($this->sort, $allowedSorts, true)) {
@@ -172,6 +175,7 @@ class ExitTable extends Component
                 'p.name           as product_name',
                 'o.ordered_at     as order_date',
                 'o.delivery_date',
+                'o.shipping_zone  as shipping_zone',                
             ])
 
             /*―――― Filtri dinamici ――――*/
@@ -180,6 +184,9 @@ class ExitTable extends Component
                     $qq->where('c.company',  'like', "%{$v}%")
                         ->orWhere('oc.company','like', "%{$v}%");
                 });
+            })
+            ->when($this->filters['shipping_zone'] ?? null, function ($q, $v) {
+                $q->where('o.shipping_zone', 'like', "%{$v}%");
             })
             ->when($this->filters['order_number']  ?? null,
                 fn ($q, $v) => $q->where('on.number', 'like', "%{$v}%"))
@@ -209,6 +216,7 @@ class ExitTable extends Component
                     'order_date'    => $q->orderBy('o.ordered_at',    $this->dir),
                     'delivery_date' => $q->orderBy('o.delivery_date', $this->dir),
                     'value'         => $q->orderBy('value',           $this->dir),
+                    'shipping_zone'  => $q->orderBy('o.shipping_zone',  $this->dir),
                     default         => null, // nessun ordinamento
                 };
             })

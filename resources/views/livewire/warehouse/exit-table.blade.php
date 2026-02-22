@@ -72,6 +72,16 @@
                                     :align="'left'"
                                 />
 
+                                {{-- ZONA SPEDIZIONE --}}
+                                <x-th-menu-live
+                                    field="shipping_zone"
+                                    label="Zona spedizione"
+                                    :sort="$sort"
+                                    :dir="$dir"
+                                    :filters="$filters"
+                                    :align="'left'"
+                                />
+
                                 {{-- NUMERO ORDINE --}}
                                 <x-th-menu-live
                                     field="order_number"
@@ -160,6 +170,10 @@
                                         {{ $row->customer ?? '—' }}
                                     </td>
 
+                                    <td class="px-6 py-2 whitespace-nowrap">
+                                        {{ $row->shipping_zone ?? '—' }}
+                                    </td>
+
                                     {{-- Nr. ordine --}}
                                     <td class="px-6 py-2 text-center">
                                         {{ $row->order_number ?? '—' }}
@@ -189,7 +203,7 @@
                                 {{-- RIGA TOOLBAR --}}
                                 @if($canToggle)
                                     <tr wire:key="tb-{{ $row->id }}" x-show="openId === {{ $row->id }}" x-cloak>
-                                        <td :colspan="9" class="px-6 py-3 bg-gray-200 dark:bg-gray-700">
+                                        <td :colspan="8" class="px-6 py-3 bg-gray-200 dark:bg-gray-700">
                                             <div class="flex items-center space-x-4 text-xs">
                                                 {{-- ► Avanza fase (qty default 100 %) --}}
                                                 @if($canAdvance)
@@ -247,7 +261,7 @@
                             {{-- RIGA NESSUN RISULTATO --}}
                             @if ($exitRows->isEmpty())
                                 <tr>
-                                    <td colspan="6" class="px-6 py-2 text-center text-gray-500">Nessun risultato trovato.</td>
+                                    <td colspan="8" class="px-6 py-2 text-center text-gray-500">Nessun risultato trovato.</td>
                                 </tr>
                             @endif
                         </tbody>
