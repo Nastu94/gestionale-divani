@@ -39,14 +39,54 @@ class WorkOrderPdfService
             ->get()
             ->keyBy('id');
 
+        $logoDataUri = null;
+
+        /**
+         * Percorsi possibili del logo.
+         * - 1) public/img/logo.png
+         * - 2) storage/app/public/img/logo.png (se lo tieni su storage pubblica)
+         */
+        $tryPaths = [
+            public_path('images/aldivani-logo.png'),
+            storage_path('app/public/images/aldivani-logo.png'),
+        ];
+
+        /**
+         * Cerca il primo file esistente e costruisce una data-uri.
+         */
+        foreach ($tryPaths as $p) {
+            $real = is_string($p) ? realpath($p) : false;
+
+            // File trovato e leggibile
+            if ($real && is_file($real) && is_readable($real)) {
+
+                // Mime type minimale (aggiungi altri formati se ti servono)
+                $ext = strtolower(pathinfo($real, PATHINFO_EXTENSION));
+                $mime = match ($ext) {
+                    'png'         => 'image/png',
+                    'jpg', 'jpeg' => 'image/jpeg',
+                    default       => null,
+                };
+
+                if ($mime) {
+                    $logoDataUri = 'data:' . $mime . ';base64,' . base64_encode((string) file_get_contents($real));
+                }
+
+                break;
+            }
+        }
+
         $pdf = Pdf::loadView('pdf.work-order', [
                 'wo' => $workOrder,
                 'resolvedMap' => $resolvedMap,
+                'logoDataUri' => $logoDataUri,
             ])
             ->setPaper('a4', 'portrait')
             ->setOptions([
                 'defaultFont' => 'DejaVu Sans',
                 'isHtml5ParserEnabled' => true,
+                'isRemoteEnabled' => true,
+                'chroot' => [public_path(), storage_path('app/public'), base_path()],
             ]);
 
         $filename = sprintf('BUONO_%d-%d.pdf', $workOrder->year, $workOrder->number);

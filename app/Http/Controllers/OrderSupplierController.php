@@ -16,6 +16,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema; 
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 
@@ -85,27 +86,100 @@ class OrderSupplierController extends Controller
     {
         abort_unless(
             $order->orderNumber->order_type === 'supplier',
-            403, 'Non è un ordine fornitore'
+            403,
+            'Non è un ordine fornitore'
         );
 
-        /* 1‧ eager load componenti e lotti --------------------------- */
+        /*─────────────────────────────────────────────────────────────
+        | 1) Eager-load componenti e lotti (come prima)
+        ──────────────────────────────────────────────────────────────*/
         $order->load([
             'items.component:id,code,description,unit_of_measure',
-            'stockLevelLots.stockLevel',      // lotti già registrati
+            'stockLevelLots.stockLevel', // lotti già registrati
         ]);
 
-        /* 2‧ bucket lotti per componente ----------------------------- */
+        /*─────────────────────────────────────────────────────────────
+        | 2) NEW: Mappa note colori provenienti dagli ordini cliente
+        |
+        | - La nota "vive" nell'ordine cliente: order_product_variables.color_notes
+        | - Match:
+        |   OC:  order_items.order_id = generated_by_order_customer_id (riga PO)
+        |   Comp: order_product_variables.resolved_component_id = order_items.component_id (riga PO)
+        |
+        | Chiave mappa: "<oc_id>:<component_id>" => "note"
+        ──────────────────────────────────────────────────────────────*/
+        $notesMap = [];
+
+        // Safety: se la colonna non esiste (ambiente non aggiornato), non rompiamo la response.
+        if (Schema::hasColumn('order_product_variables', 'color_notes')) {
+
+            $ocIds = $order->items
+                ->pluck('generated_by_order_customer_id')
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+
+            $compIds = $order->items
+                ->pluck('component_id')
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+
+            if (!empty($ocIds) && !empty($compIds)) {
+
+                $rows = DB::table('order_items as oi')
+                    ->join('order_product_variables as opv', 'opv.order_item_id', '=', 'oi.id')
+                    ->whereIn('oi.order_id', $ocIds)                         // ordini cliente collegati
+                    ->whereIn('opv.resolved_component_id', $compIds)         // componente risolto
+                    ->whereNotNull('opv.color_notes')
+                    ->where('opv.color_notes', '<>', '')
+                    ->select([
+                        'oi.order_id as oc_id',
+                        'opv.resolved_component_id as component_id',
+                        'opv.color_notes',
+                    ])
+                    ->get();
+
+                // Raggruppa + deduplica (se più righe OC matchano lo stesso componente)
+                $bucket = []; // key => array<string>
+                foreach ($rows as $r) {
+                    $key = (int) $r->oc_id . ':' . (int) $r->component_id;
+                    $bucket[$key] = $bucket[$key] ?? [];
+                    $bucket[$key][] = trim((string) $r->color_notes);
+                }
+
+                foreach ($bucket as $k => $arr) {
+                    $uniq = array_values(array_unique(array_filter($arr)));
+                    $notesMap[$k] = count($uniq) ? implode("\n", $uniq) : null;
+                }
+            }
+        }
+
+        /*─────────────────────────────────────────────────────────────
+        | 3) Bucket lotti per componente (come prima)
+        ──────────────────────────────────────────────────────────────*/
         $lotsByComp = $order->stockLevelLots
             ->groupBy(fn ($lot) => $lot->stockLevel->component_id);
 
-        /* 3‧ genera righe (una per lotto) ---------------------------- */
+        /*─────────────────────────────────────────────────────────────
+        | 4) Genera righe (una per lotto) + NEW color_notes
+        ──────────────────────────────────────────────────────────────*/
         $rows = collect();
 
         foreach ($order->items as $item) {
 
+            // Key mappa note (se la riga PO è collegata a un OC)
+            $ocId = (int) ($item->generated_by_order_customer_id ?? 0);
+            $cid  = (int) ($item->component_id ?? 0);
+            $key  = ($ocId > 0 && $cid > 0) ? ($ocId . ':' . $cid) : null;
+
+            $colorNotes = $key ? ($notesMap[$key] ?? null) : null;
+
             $lots = $lotsByComp->get($item->component_id) ?? collect();
 
-            // se nessun lotto: riga “vuota” per componente
+            // Se nessun lotto: riga “vuota” per componente
             if ($lots->isEmpty()) {
                 $rows->push([
                     'id'            => $item->id,
@@ -116,11 +190,15 @@ class OrderSupplierController extends Controller
                     'qty_received'  => 0,
                     'lot_supplier'  => null,
                     'internal_lot'  => null,
-                    'price'           => (float) $item->unit_price,
-                    'subtot'          => $item->quantity * $item->unit_price,
+                    'price'         => (float) $item->unit_price,
+                    'subtot'        => $item->quantity * $item->unit_price,
+
+                    // NEW: note colori (da ordine cliente)
+                    'color_notes'   => $colorNotes,
                 ]);
             }
 
+            // Se ci sono lotti: una riga per lotto
             foreach ($lots as $lot) {
                 $rows->push([
                     'id'            => $item->id,
@@ -133,6 +211,9 @@ class OrderSupplierController extends Controller
                     'internal_lot'  => $lot->internal_lot_code,
                     'price'         => (float) $item->unit_price,
                     'subtot'        => $item->quantity * $item->unit_price,
+
+                    // NEW: note colori (da ordine cliente)
+                    'color_notes'   => $colorNotes,
                 ]);
             }
         }
@@ -395,27 +476,95 @@ class OrderSupplierController extends Controller
     {
         try {
             $order = Order::with([
-                        'supplier:id,name,vat_number,email,address',
-                        'orderNumber:id,number,order_type',
-                        'items.component:id,code,description,unit_of_measure',
-                        'stockLevelLots.stockLevel:id,component_id'
-                    ])
-                    ->whereHas('orderNumber', fn ($q) => $q->where('order_type','supplier'))
-                    ->findOrFail($id);
+                    'supplier:id,name,vat_number,email,address',
+                    'orderNumber:id,number,order_type',
+                    'items.component:id,code,description,unit_of_measure',
+                    'stockLevelLots.stockLevel:id,component_id'
+                ])
+                ->whereHas('orderNumber', fn ($q) => $q->where('order_type','supplier'))
+                ->findOrFail($id);
 
-            // trasforma righe per il front-end
-            $lines = $order->items->map(fn ($it) => [
-                'component' => [
-                    'id'          => $it->component->id,
-                    'code'        => $it->component->code,
-                    'description' => $it->component->description,
-                    'unit_of_measure'        => $it->component->unit_of_measure,
-                ],
-                'qty'      => $it->quantity,
-                'unit_of_measure' => $it->component->unit_of_measure,
-                'last_cost' => $it->unit_price,
-                'subtotal' => $it->quantity * $it->unit_price,
-            ]);
+            /*──────────────── NEW: Mappa note colori da Ordini Cliente ────────────────
+            | Chiave: "<oc_id>:<component_id>"
+            | Valore: string|null (note deduplicate, join con "\n")
+            ───────────────────────────────────────────────────────────────────────*/
+            $notesMap = [];
+
+            // Safety: se la colonna non esiste in qualche ambiente, non rompiamo nulla
+            if (Schema::hasColumn('order_product_variables', 'color_notes')) {
+
+                // OC collegati alle righe di questo PO
+                $ocIds = $order->items
+                    ->pluck('generated_by_order_customer_id')
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->all();
+
+                // componenti presenti nel PO
+                $compIds = $order->items
+                    ->pluck('component_id')
+                    ->filter()
+                    ->unique()
+                    ->values()
+                    ->all();
+
+                if (!empty($ocIds) && !empty($compIds)) {
+
+                    $rows = DB::table('order_items as oi')
+                        ->join('order_product_variables as opv', 'opv.order_item_id', '=', 'oi.id')
+                        ->whereIn('oi.order_id', $ocIds)                         // ordini cliente collegati
+                        ->whereIn('opv.resolved_component_id', $compIds)         // componente variabile risolto
+                        ->whereNotNull('opv.color_notes')
+                        ->where('opv.color_notes', '<>', '')
+                        ->select([
+                            'oi.order_id as oc_id',
+                            'opv.resolved_component_id as component_id',
+                            'opv.color_notes',
+                        ])
+                        ->get();
+
+                    $bucket = []; // key => array note
+                    foreach ($rows as $r) {
+                        $key = (int) $r->oc_id . ':' . (int) $r->component_id;
+                        $bucket[$key] = $bucket[$key] ?? [];
+                        $bucket[$key][] = trim((string) $r->color_notes);
+                    }
+
+                    foreach ($bucket as $k => $arr) {
+                        $uniq = array_values(array_unique(array_filter($arr)));
+                        $notesMap[$k] = count($uniq) ? implode("\n", $uniq) : null;
+                    }
+                }
+            }
+
+            /*──────────────── Trasforma righe per il front-end ────────────────*/
+            $lines = $order->items->map(function ($it) use ($notesMap) {
+
+                // Key per recuperare la nota dall’ordine cliente
+                $ocId = (int) ($it->generated_by_order_customer_id ?? 0);
+                $cid  = (int) ($it->component_id ?? 0);
+                $key  = ($ocId > 0 && $cid > 0) ? ($ocId . ':' . $cid) : null;
+
+                return [
+                    'id' => $it->id,
+
+                    'component' => [
+                        'id'             => $it->component->id,
+                        'code'           => $it->component->code,
+                        'description'    => $it->component->description,
+                        'unit_of_measure'=> $it->component->unit_of_measure,
+                    ],
+
+                    'qty'            => $it->quantity,
+                    'unit_of_measure'=> $it->component->unit_of_measure,
+                    'last_cost'      => $it->unit_price,
+                    'subtotal'       => $it->quantity * $it->unit_price,
+
+                    // NEW: note colori (vive sull’ordine cliente)
+                    'color_notes'    => $key ? ($notesMap[$key] ?? null) : null,
+                ];
+            })->values();
 
             return response()->json([
                 'id'              => $order->id,
@@ -425,16 +574,16 @@ class OrderSupplierController extends Controller
                 'delivery_date'   => $order->delivery_date->format('Y-m-d'),
                 'lines'           => $lines,
             ]);
-        }
-        catch (ModelNotFoundException $e) {
+
+        } catch (ModelNotFoundException $e) {
             return response()->json(['message' => 'Ordine non trovato'], 404);
-        }
-        catch (\Throwable $e) {
-            report($e);                                 // log errori server
+
+        } catch (\Throwable $e) {
+            report($e);
             return response()->json(['message' => 'Errore interno'], 500);
         }
     }
-    
+
     /**
      * Display the specified resource.
      */
@@ -465,6 +614,9 @@ class OrderSupplierController extends Controller
             'lines.*.component_id'       => ['required','distinct','exists:components,id'],
             'lines.*.quantity'           => ['required','numeric','min:0.01'],
             'lines.*.last_cost'          => ['required','numeric','min:0'],
+
+            // NEW: note colore (vive sull’ordine cliente)
+            'lines.*.color_notes'        => ['nullable','string'],
         ],
         [
             'delivery_date.required' => 'La data di consegna è obbligatoria.',
@@ -478,19 +630,20 @@ class OrderSupplierController extends Controller
 
         /* ── Verifica che nel "set finale" (DB + input) non restino duplicati ─ */
         $orderId = $order->id;
-        $incoming = collect($request->input('lines', []))
+
+        // FIX: qui usavi $request ma il parametro è $req
+        $incoming = collect($req->input('lines', []))
             ->map(fn ($row) => (int) ($row['component_id'] ?? 0))
             ->filter()
             ->values()
             ->all();
 
-        $excludeIds = collect($request->input('lines', []))
+        $excludeIds = collect($req->input('lines', []))
             ->map(fn ($row) => (int) ($row['id'] ?? 0))
             ->filter()
             ->values()
             ->all();
 
-        // Righe già a DB diverse da quelle che stai aggiornando/creando ora
         $already = OrderItem::query()
             ->where('order_id', $orderId)
             ->when(!empty($excludeIds), fn ($q) => $q->whereNotIn('id', $excludeIds))
@@ -526,16 +679,23 @@ class OrderSupplierController extends Controller
                 $subtotal = $row['quantity'] * $row['last_cost'];
                 $total   += $subtotal;
 
-                // se l’id esiste aggiorno, altrimenti creo
+                /** @var \App\Models\OrderItem $item */
                 $item = $order->items()->updateOrCreate(
-                    ['id' => $row['id'] ?? 0],      // condizione
+                    ['id' => $row['id'] ?? 0],
                     [
                         'component_id' => $row['component_id'],
                         'quantity'     => $row['quantity'],
                         'unit_price'   => $row['last_cost'],
                     ]
                 );
+
                 $keepIds[] = $item->id;
+
+                /*──────────────── NEW: sync note colori sull’ordine cliente ────────────────*/
+                $this->syncCustomerColorNotesFromSupplierItem(
+                    supplierItem: $item,
+                    noteRaw: $row['color_notes'] ?? null
+                );
             }
 
             // elimina righe rimosse dall’utente
@@ -693,5 +853,44 @@ class OrderSupplierController extends Controller
         });
 
         return back()->with('success', 'Ordine eliminato con successo.');
+    }
+
+    /**
+     * NEW: Aggiorna order_product_variables.color_notes sull’ordine cliente collegato
+     * partendo da una riga PO.
+     *
+     * Match:
+     * - OC = order_items.generated_by_order_customer_id (sulla riga PO)
+     * - componente variabile = order_product_variables.resolved_component_id == order_items.component_id (PO)
+     *
+     * Se più righe OC matchano lo stesso componente, aggiorna tutte (coerente con nota “di commessa”).
+     */
+    private function syncCustomerColorNotesFromSupplierItem(OrderItem $supplierItem, ?string $noteRaw): void
+    {
+        // Safety: se la colonna non esiste in qualche ambiente, non facciamo nulla
+        if (!Schema::hasColumn('order_product_variables', 'color_notes')) {
+            return;
+        }
+
+        $ocId        = (int) ($supplierItem->generated_by_order_customer_id ?? 0);
+        $componentId = (int) ($supplierItem->component_id ?? 0);
+
+        // Se la riga PO non è collegata a un ordine cliente, non possiamo sincronizzare
+        if ($ocId <= 0 || $componentId <= 0) {
+            return;
+        }
+
+        // Normalizza: stringa vuota -> null
+        $note = trim((string) $noteRaw);
+        $note = $note !== '' ? $note : null;
+
+        // Aggiorna tutte le variabili delle righe cliente che risolvono quel componente
+        DB::table('order_product_variables as opv')
+            ->join('order_items as oi', 'oi.id', '=', 'opv.order_item_id')
+            ->where('oi.order_id', $ocId)
+            ->where('opv.resolved_component_id', $componentId)
+            ->update([
+                'opv.color_notes' => $note,
+            ]);
     }
 }

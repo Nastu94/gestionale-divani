@@ -296,7 +296,16 @@
                                 <template x-for="row in sidebarLines" :key="row.code">
                                     <tr>
                                         <td class="px-2 py-1" x-text="row.code"></td>
-                                        <td class="px-2 py-1" x-text="row.desc"></td>
+                                        <td class="px-2 py-1">
+                                            <div x-text="row.desc"></div>
+
+                                            {{-- NEW: note colore --}}
+                                            <template x-if="row.color_notes">
+                                                <div class="mt-1 text-[11px] text-gray-600 whitespace-pre-line">
+                                                    <span x-text="row.color_notes"></span>
+                                                </div>
+                                            </template>
+                                        </td>
                                         <td class="px-2 py-1 text-right" x-text="row.qty"></td>
                                         <td class="px-2 py-1 uppercase" x-text="row.unit"></td>
                                         <td class="px-2 py-1 text-right"

@@ -128,6 +128,11 @@
 </head>
 <body>
 @php
+
+    /* Logo (quando lo avrai) */
+    $logoPath = public_path('images/aldivani-logo.png');
+    $hasLogo  = is_file($logoPath);
+    
     $order = $wo->order;
     $orderNo = $order?->orderNumber?->number ?? $wo->order_id;
 
@@ -178,13 +183,25 @@
     $issuerLine1 = 'SP 231 per Bitonto, Km 3 - 70032 Bitonto (BA)';
     $issuerLine2 = 'e-mail: info@aldivani.it     Pec: aldivani@legalmail.it';
     $issuerLine3 = 'C.F./P.Iva 08137940725';
+    $blue = '#1f4eaa';
 @endphp
 
 {{-- HEADER (stile DDT) --}}
 <table class="head">
     <tr>
-        <td style="width: 84pt;">
-            <div class="logo"></div>
+        <td style="width: 120px;">
+            {{-- Logo inline base64 (DomPDF safe) --}}
+            @if(!empty($logoDataUri))
+                <img src="{{ $logoDataUri }}" style="width: 105px; height: 105px;" alt="Logo">
+            @else
+                {{-- Fallback: placeholder se non trovato --}}
+                <div class="logo" style="width:105px;height:105px;border:1px solid #ccc;display:flex;align-items:center;justify-content:center;">
+                    <span style="font-size:10px;color:#666;">LOGO</span>
+                </div>
+            @endif
+            <div style="font-size:9px;color:#999;">
+    DEBUG logoDataUri: {{ empty($logoDataUri) ? 'NO' : 'YES' }}
+</div>
         </td>
         <td class="company">
             <div class="name">{{ $issuerName }}</div>

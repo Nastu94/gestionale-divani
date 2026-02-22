@@ -124,7 +124,17 @@
                         <template x-for="(line,idx) in lines" :key="idx">
                             <tr>
                                 <td class="px-2 py-1" x-text="line.component.code"></td>
-                                <td class="px-2 py-1" x-text="line.component.description"></td>
+                                <td class="px-2 py-1">
+                                    <div x-text="line.component.description"></div>
+
+                                    {{-- NEW: Note colore (derivate dall'ordine cliente e modificabili nel modale) --}}
+                                    <template x-if="line.color_notes">
+                                        <div class="mt-1 text-[11px] text-gray-600 whitespace-pre-line">
+                                            <i class="fas fa-note-sticky mr-1"></i>
+                                            <span x-text="line.color_notes"></span>
+                                        </div>
+                                    </template>
+                                </td>
                                 <td class="px-2 py-1 text-right" x-text="line.qty"></td>
                                 <td class="px-2 py-1 uppercase" x-text="line.unit_of_measure"></td>
                                 <td class="px-2 py-1 text-right" x-text="formatCurrency(line.last_cost)"></td>
@@ -209,6 +219,22 @@
                         <p class="text-xs mt-1" x-text="unit_of_measure ? 'Unità: ' + unit_of_measure : ''"></p>
                     </div>
 
+                    {{-- NEW: Note colore (solo per PO collegati ad ordini cliente) --}}
+                    <div class="md:col-span-3">
+                        <label class="block text-sm font-medium">Note colore</label>
+
+                        <textarea x-model="color_notes"
+                                rows="2"
+                                placeholder="Es. seduta Blu / schienale Grigio… (nota interna)"
+                                class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
+                                        text-sm text-gray-900 dark:text-gray-100"
+                                :disabled="!editMode || !canAddLines || !selectedComponent"></textarea>
+
+                        <p class="text-[11px] text-gray-500 mt-1">
+                            Disponibile in modifica: la nota viene salvata nell’ordine cliente collegato.
+                        </p>
+                    </div>
+
                     {{-- Prezzo + pulsante --}}
                     <div class="flex flex-col">
                         <label class="block text-sm font-medium">Prezzo (€)</label>
@@ -268,6 +294,7 @@ function supplierOrderModal() {
         unit_of_measure  : '',
         last_cost        : 0,
         quantity         : 1,
+        color_notes      : '',
 
         /* ==== Errori di validazione ==== */
         errors: {},
@@ -463,6 +490,9 @@ function supplierOrderModal() {
                 unit_of_measure : this.unit_of_measure,
                 last_cost : this.last_cost,
                 subtotal  : this.last_cost * this.quantity
+                color_notes: (this.color_notes && String(this.color_notes).trim().length)
+                    ? String(this.color_notes).trim()
+                    : null,
             });
             // reset input
             this.selectedComponent = null; 
@@ -470,6 +500,7 @@ function supplierOrderModal() {
             this.unit_of_measure = ''; 
             this.last_cost = 0; 
             this.quantity = 1;
+            this.color_notes = ''; 
         },
         editLine(i) {
             // 1. estrai e rimuovi la riga
@@ -480,6 +511,7 @@ function supplierOrderModal() {
             this.unit_of_measure  = line.unit_of_measure;
             this.last_cost = line.last_cost;
             this.quantity = line.qty;
+            this.color_notes = line.color_notes ?? ''; 
 
             // 3. mostra nuovamente l'input di ricerca vuoto
             this.componentSearch = '';
@@ -567,6 +599,7 @@ function supplierOrderModal() {
                     qty             : l.qty,
                     unit_of_measure : l.unit_of_measure,    // ora esiste
                     last_cost       : Number(l.last_cost),      // coerente con addLine()
+                    color_notes     : l.color_notes ?? null,
                     subtotal        : l.subtotal
                 }));
 
@@ -594,7 +627,8 @@ function supplierOrderModal() {
                     id           : l.id ?? null,          // id riga se già esiste
                     component_id : l.component.id,
                     quantity     : l.qty,
-                    last_cost    : l.last_cost
+                    last_cost    : l.last_cost,
+                    color_notes  : l.color_notes ?? null                    
                 }))
             };
 
