@@ -271,19 +271,8 @@
                 {{-- PAGINAZIONE --}}
                 <div class="flex items-center justify-between px-6 py-2">
                     <div>
-                        {{ $exitRows->links('vendor.pagination.tailwind-compact') }}
+                        {{ $exitRows->links('vendor.livewire.tailwind-compact') }}
                     </div>
-
-                    @if($exitRows->hasMorePages())
-                        <div>
-                            <label class="text-xs mr-1 p-1">Righe:</label>
-                            <select wire:model="perPage" class="border rounded px-5 py-1 text-xs">
-                                <option value="100">100</option>
-                                <option value="250">250</option>
-                                <option value="500">500</option>
-                            </select>
-                        </div>
-                    @endif
                 </div>
             </div>
         </div>
@@ -663,4 +652,3 @@
         }
     </script>
 @endpush
-

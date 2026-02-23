@@ -48,7 +48,7 @@ class ExitTable extends Component
         'qty_in_phase'  => null,
         'shipping_zone'  => null,
     ];
-    public int     $perPage = 100;    // righe per pagina (100 / 250 / 500)
+    public int     $perPage = 100;    // righe per pagina (50 / 100 / 250 / 500)
 
     /**
      * Mappa proprietà ⇄ query-string.
@@ -66,7 +66,7 @@ class ExitTable extends Component
         'filters.value'          => ['except' => ''],
         'filters.qty_in_phase'   => ['except' => ''],
         'filters.shipping_zone'  => ['except' => ''],
-        'page'     => ['except' => 1],
+        //'page'     => ['except' => 1],
         'perPage'  => ['except' => 100],
     ];
 
@@ -110,17 +110,29 @@ class ExitTable extends Component
     ];
 
     /**
-     * Qualsiasi variazione diversa da `page` resetta la paginazione.
+     * Qualsiasi variazione diversa dalla paginazione resetta la pagina corrente.
+     *
+     * Nota Livewire 3:
+     * - la paginazione aggiorna proprietà interne tipo "paginators.page"
+     *   (non esiste più una property pubblica $page).
      */
     public function updating(string $prop): void
     {
-        if ($prop !== 'page') {
+        /*──────────────────────────────────────────────────────────────*
+        |  1) Evita reset quando l’update è solo di paginazione        |
+        *──────────────────────────────────────────────────────────────*/
+        $isPaginationUpdate =
+            $prop === 'paginators' || str_starts_with($prop, 'paginators.');
+
+        if (! $isPaginationUpdate) {
             $this->resetPage();
         }
 
-        // chiudi toolbar se l’utente cambia KPI fase
+        /*──────────────────────────────────────────────────────────────*
+        |  2) Chiudi toolbar se l’utente cambia KPI fase               |
+        *──────────────────────────────────────────────────────────────*/
         if ($prop === 'phase') {
-            $this->dispatch('close-row');   // evento JS → Alpine imposta openId = null
+            $this->dispatch('close-row'); // evento JS → Alpine imposta openId = null
         }
     }
 
