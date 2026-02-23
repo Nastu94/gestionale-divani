@@ -489,7 +489,7 @@ function supplierOrderModal() {
                 qty       : this.quantity,
                 unit_of_measure : this.unit_of_measure,
                 last_cost : this.last_cost,
-                subtotal  : this.last_cost * this.quantity
+                subtotal  : this.last_cost * this.quantity,
                 color_notes: (this.color_notes && String(this.color_notes).trim().length)
                     ? String(this.color_notes).trim()
                     : null,
