@@ -21,6 +21,7 @@
 namespace App\Actions;
 
 use App\Enums\ProductionPhase;
+use App\Exceptions\ForceReservationRequiredException;
 use App\Models\Component;
 use App\Models\OrderItem;
 use App\Models\OrderItemPhaseEvent;
@@ -125,11 +126,24 @@ final readonly class AdvanceOrderItemPhaseAction
 
                 /* verifica prenotazioni componenti fase destinazione */
                 $missing = $this->checkReservations($item, $destPhase);
-                if ($missing) {
-                    throw ValidationException::withMessages([
-                        'stock' => "I seguenti componenti non sono ancora disponibili: "
-                                   . implode(', ', $missing) . '.',
-                    ]);
+
+                if (!empty($missing)) {
+
+                    /* -------------------------------------------------------------
+                    | Messaggio UI: elenco codici in modo leggibile.
+                    | (I dettagli completi sono nel payload dell'eccezione)
+                    *------------------------------------------------------------- */
+                    $codes = collect($missing)
+                        ->pluck('code')
+                        ->unique()
+                        ->values()
+                        ->all();
+
+                    $msg = "Prenotazioni insufficienti per la fase successiva. Componenti mancanti: "
+                        . implode(', ', $codes) . '.';
+
+                    /* Eccezione “di dominio” per abilitare il pulsante Forza Prenotazione */
+                    throw new ForceReservationRequiredException($missing, $msg);
                 }
 
                 /* scarico fisico lotti (eccetto passaggio fase 0→1) */
@@ -358,7 +372,20 @@ final readonly class AdvanceOrderItemPhaseAction
             ]);
 
             if ($reserved + 1e-6 < $needed) {
-                $missing[] = $effective->code;
+
+                /* -------------------------------------------------------------
+                | Dati strutturati per UI/UX "Forza Prenotazione".
+                | missing viene arrotondato in sicurezza e mai negativo.
+                *------------------------------------------------------------- */
+                $missingQty = max(0.0, (float) $needed - (float) $reserved);
+
+                $missing[] = [
+                    'component_id' => (int) $effective->id,
+                    'code'         => (string) $effective->code,
+                    'needed'       => (float) $needed,
+                    'reserved'     => (float) $reserved,
+                    'missing'      => (float) $missingQty,
+                ];
             }
         }
 

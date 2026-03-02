@@ -15,10 +15,13 @@ namespace App\Livewire\Warehouse;
 
 use App\Actions\AdvanceOrderItemPhaseAction;
 use App\Enums\ProductionPhase;
+use App\Exceptions\ForceReservationRequiredException;
 use App\Models\Ddt;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\WorkOrder;
+use App\Services\ForceReservationPlanner;
+use App\Services\ForceReservationExecutor;
 use App\Services\Ddt\DdtService;
 use App\Services\WorkOrders\WorkOrderService;
 use Illuminate\Support\Facades\DB;
@@ -108,6 +111,31 @@ class ExitTable extends Component
         'confirmRollback'=> 'confirmRollback',
         'print-ddt'       => 'printDdt',
     ];
+
+    /**
+     * Mancanti strutturati (payload) per mostrare il pulsante "Forza Prenotazione"
+     * e, nel prossimo step, costruire il piano di riallocazione.
+     *
+     * @var array<int, array<string, int|float|string>>
+     */
+    public array $forceMissingComponents = [];
+
+    /**
+     * Flag UI: se true mostri il pulsante "Forza Prenotazione".
+     */
+    public bool $canForceReservation = false;
+
+    /**
+     * Piano di riallocazione calcolato (solo preview).
+     *
+     * @var array<string, mixed>|null
+     */
+    public ?array $forcePlan = null;
+
+    /**
+     * True se la UI deve mostrare la modale di conferma riallocazione.
+     */
+    public bool $showForceReservationModal = false;
 
     /**
      * Qualsiasi variazione diversa dalla paginazione resetta la pagina corrente.
@@ -305,8 +333,165 @@ class ExitTable extends Component
             $this->dispatch('close-row');  
             $this->reset('advItemId','advMaxQty','advQuantity', 'advOperator');
             $this->resetPage();               // refresh KPI + righe
+        } catch (ForceReservationRequiredException $e) {
+
+            /* -------------------------------------------------------------
+            | Caso atteso: mancano prenotazioni.
+            | Salviamo il payload per UI e abilitiamo il pulsante.
+            *------------------------------------------------------------- */
+            $this->forceMissingComponents = $e->missingComponents();
+            $this->canForceReservation    = true;
+
+            Log::warning('[confirmAdvance] ForceReservationRequired', [
+                'item_id'   => $this->advItemId,
+                'missing'   => $this->forceMissingComponents,
+                'message'   => $e->getMessage(),
+            ]);
+
+            session()->flash('error', $e->getMessage());
+
         } catch (\Throwable $e) {
             Log::error('[confirmAdvance] ERROR', [
+                'msg'   => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            session()->flash('error', $e->getMessage());
+        }
+    }
+
+    /**
+     * Step 3: Precalcola il piano (A+B) e apre la modale riepilogativa.
+     */
+    public function openForceReservation(): void
+    {
+        /* -------------------------------------------------------------
+        * Guardia: il pulsante deve essere attivo e dobbiamo avere i mancanti.
+        *------------------------------------------------------------- */
+        if (!$this->canForceReservation || empty($this->forceMissingComponents)) {
+            session()->flash('error', 'Nessuna riallocazione disponibile: ripeti l’avanzamento per ricalcolare i mancanti.');
+            return;
+        }
+
+        try {
+            /** @var OrderItem $item */
+            $item = OrderItem::with('order')->findOrFail($this->advItemId);
+
+            Log::info('[openForceReservation] start', [
+                'order_id'     => $item->order_id,
+                'order_item_id'=> $item->id,
+                'qty'          => $this->advQuantity,
+                'missing_cnt'  => count($this->forceMissingComponents),
+            ]);
+
+            /** @var ForceReservationPlanner $planner */
+            $planner = app(ForceReservationPlanner::class);
+
+            $result = $planner->plan(
+                urgentItem: $item,
+                moveQty: (float) $this->advQuantity,
+                missingComponents: $this->forceMissingComponents
+            );
+
+            if (($result['ok'] ?? false) !== true) {
+                // Caso 4A: stop se non copriamo al 100%
+                $this->forcePlan = null;
+                $this->showForceReservationModal = false;
+
+                session()->flash('error', $result['message'] ?? 'Impossibile calcolare un piano di riallocazione.');
+                return;
+            }
+
+            // Caso 4B: mostriamo cosa verrà rubato e a chi.
+            $this->forcePlan = $result['plan'];
+            $this->showForceReservationModal = true;
+
+            /* -------------------------------------------------------------
+            * Se usi modali via JS, dispatchiamo un evento browser.
+            * (Non è invasivo: se non lo ascolti, puoi usare direttamente $showForceReservationModal)
+            *------------------------------------------------------------- */
+            $this->dispatch('show-force-reservation-modal');
+
+        } catch (\Throwable $e) {
+            Log::error('[openForceReservation] ERROR', [
+                'msg'   => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            session()->flash('error', $e->getMessage());
+        }
+    }
+
+    /**
+     * Step 5: Conferma definitiva.
+     * - Applica riallocazione (transaction + lock)
+     * - Ritenta l'avanzamento di fase
+     */
+    public function commitForceReservation(): void
+    {
+        if (empty($this->forcePlan) || empty($this->forceMissingComponents)) {
+            session()->flash('error', 'Nessun piano disponibile: ricalcola la riallocazione.');
+            return;
+        }
+
+        try {
+            /** @var OrderItem $item */
+            $item = OrderItem::with('order')->findOrFail($this->advItemId);
+
+            Log::info('[commitForceReservation] start', [
+                'order_id'     => $item->order_id,
+                'order_item_id'=> $item->id,
+                'qty'          => $this->advQuantity,
+            ]);
+
+            /** @var ForceReservationExecutor $executor */
+            $executor = app(ForceReservationExecutor::class);
+
+            $result = $executor->execute(
+                urgentItem: $item,
+                moveQty: (float) $this->advQuantity,
+                plan: (array) $this->forcePlan,
+                user: auth()->user()
+            );
+
+            // Reset stato UI forzatura (chiudiamo definitivamente il flusso "force")
+            $this->showForceReservationModal = false;
+            $this->canForceReservation = false;
+            $this->forcePlan = null;
+            $this->forceMissingComponents = [];
+
+            // Ritenta l’avanzamento, ora che le prenotazioni ci sono
+            app(AdvanceOrderItemPhaseAction::class, [
+                'item'       => OrderItem::findOrFail($this->advItemId),
+                'quantity'   => $this->advQuantity,
+                'user'       => auth()->user(),
+                'fromPhase'  => ProductionPhase::from($this->phase),
+                'isRollback' => false,
+                'operator'   => $this->advOperator ? trim($this->advOperator) : null,
+            ])->execute();
+
+            $poNums = $result['procurement_po_numbers'] ?? collect();
+
+            if ($poNums->isNotEmpty()) {
+                session()->flash(
+                    'success',
+                    'Riallocazione completata e fase avanzata. Creati PO: ' . $poNums->implode(', ')
+                );
+            } else {
+                session()->flash('success', 'Riallocazione completata e fase avanzata.');
+            }
+
+            $this->dispatch('close-row');
+            $this->reset('advItemId','advMaxQty','advQuantity','advOperator');
+            $this->resetPage();
+
+        } catch (ValidationException $e) {
+            // Messaggio business pulito
+            session()->flash('error', $e->validator->errors()->first());
+            Log::warning('[commitForceReservation] validation', ['errors' => $e->errors()]);
+
+        } catch (\Throwable $e) {
+            Log::error('[commitForceReservation] ERROR', [
                 'msg'   => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
