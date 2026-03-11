@@ -37,9 +37,19 @@ class DdtService
      * @param Authenticatable $user Utente che genera il DDT.
      * @param array<int,float>|null $requestedQtyByItemId (opzionale) quantità richieste per riga.
      */
-    public function createForOrderItem(int $orderItemId, Authenticatable $user, ?array $requestedQtyByItemId = null): Ddt
+    public function createForOrderItem(
+        int $orderItemId,
+        Authenticatable $user,
+        ?array $requestedQtyByItemId = null,
+        ?array $unitPriceOverrideByItemId = null
+    ): Ddt
     {
-        return DB::transaction(function () use ($orderItemId, $user, $requestedQtyByItemId): Ddt {
+        return DB::transaction(function () use (
+            $orderItemId,
+            $user,
+            $requestedQtyByItemId,
+            $unitPriceOverrideByItemId
+        ): Ddt {
 
             /* 1) Recupera la riga e risali all’ordine (lock per concorrenza) */
             $seedItem = OrderItem::query()
@@ -161,11 +171,21 @@ class DdtService
                     continue; // riga sparita? non blocchiamo l’intero documento
                 }
 
+                /**
+                 * Prezzo snapshot della riga DDT.
+                 *
+                 * Se è stato fornito un override per la riga corrente, usiamo quello.
+                 * Altrimenti manteniamo il prezzo originale della riga ordine.
+                 */
+                $unitPrice = (is_array($unitPriceOverrideByItemId) && array_key_exists($it->id, $unitPriceOverrideByItemId))
+                    ? (float) $unitPriceOverrideByItemId[$it->id]
+                    : (float) ($it->unit_price ?? 0);
+
                 DdtRow::create([
                     'ddt_id' => $ddt->id,
                     'order_item_id' => $it->id,
                     'quantity' => (float) $r->qty,
-                    'unit_price' => (float) ($it->unit_price ?? 0),
+                    'unit_price' => $unitPrice,
                     'vat' => 22,
                 ]);
             }

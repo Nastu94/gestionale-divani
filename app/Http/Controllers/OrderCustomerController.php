@@ -179,7 +179,7 @@ class OrderCustomerController extends Controller
             // NEW: flag "#" (ordine nero) e note ordine
             'hash_flag'              => ['sometimes', 'boolean'],
             'note'                   => ['nullable', 'string'],
-
+            'reference'             => ['nullable', 'string', 'max:255'],
             // NEW: zona spedizione (nota interna, solo stampa documenti)
             'shipping_zone'          => ['nullable', 'string', 'max:255'],
 
@@ -208,6 +208,14 @@ class OrderCustomerController extends Controller
             $data['shipping_zone'] = trim((string) $data['shipping_zone']);
             if ($data['shipping_zone'] === '') {
                 $data['shipping_zone'] = null;
+            }
+        }
+
+        // Normalizza reference: stringa vuota -> null
+        if (array_key_exists('reference', $data)) {
+            $data['reference'] = trim((string) $data['reference']);
+            if ($data['reference'] === '') {
+                $data['reference'] = null;
             }
         }
 
@@ -452,6 +460,7 @@ class OrderCustomerController extends Controller
                     'occasional_customer_id' => $data['occasional_customer_id'] ?? null,
                     'shipping_address'       => $data['shipping_address'],
                     'shipping_zone'          => $data['shipping_zone'] ?? null,
+                    'reference'              => $data['reference'] ?? null,
                     'total'                  => $total,
                     'ordered_at'             => now(),
                     'delivery_date'          => $deliveryDate,
@@ -802,6 +811,7 @@ class OrderCustomerController extends Controller
             'rows'   => $rows->values(),
             'note'   => $order->note,      // TEXT/nullable
             'reason' => $order->reason,    // TEXT/nullable → popolata in caso di rifiuto
+            'reference' => $order->reference,
         ]);
     }
 
@@ -906,6 +916,7 @@ class OrderCustomerController extends Controller
             'occ_customer'     => $occ,
             'shipping_address' => $order->shipping_address,
             'shipping_zone'    => $order->shipping_zone ?? null,
+            'reference'        => $order->reference ?? null,
             // NEW: campi header aggiunti/attesi dalla UI
             'hash_flag'        => (bool) ($order->hash_flag ?? false),
             'note'             => $order->note ?? null,
@@ -937,7 +948,7 @@ class OrderCustomerController extends Controller
             'hash_flag'          => ['sometimes','boolean'],
             'note'               => ['nullable','string'],
             'shipping_zone'       => ['nullable', 'string', 'max:255'],
-
+            'reference'          => ['nullable', 'string', 'max:255'],
             // righe
             'lines'              => ['required','array','min:1'],
             'lines.*.product_id' => ['required','integer', Rule::exists('products','id')],
@@ -960,12 +971,34 @@ class OrderCustomerController extends Controller
         $delivery    = Carbon::parse($data['delivery_date']);
         $canOverride = $request->user()->can('orders.price.override');
 
-        /*──────── Header: aggiorno hash_flag e note (se presenti) ────────*/
+        /**
+         * Aggiorna i campi header dell'ordine.
+         *
+         * I campi testuali opzionali vengono normalizzati:
+         * - stringa vuota => null
+         */
         $order->fill([
-            ...(array_key_exists('hash_flag', $data) ? ['hash_flag' => (bool)$data['hash_flag']] : []),
-            ...(array_key_exists('note', $data)      ? ['note'      => $data['note']]           : []),
-            ...(array_key_exists('shipping_zone', $data) ? ['shipping_zone' => ($data['shipping_zone'] !== null ? trim((string)$data['shipping_zone']) : null)] : []),
+            ...(array_key_exists('hash_flag', $data) ? [
+                'hash_flag' => (bool) $data['hash_flag']
+            ] : []),
+
+            ...(array_key_exists('note', $data) ? [
+                'note' => $data['note']
+            ] : []),
+
+            ...(array_key_exists('shipping_zone', $data) ? [
+                'shipping_zone' => ($data['shipping_zone'] !== null && trim((string) $data['shipping_zone']) !== '')
+                    ? trim((string) $data['shipping_zone'])
+                    : null
+            ] : []),
+
+            ...(array_key_exists('reference', $data) ? [
+                'reference' => ($data['reference'] !== null && trim((string) $data['reference']) !== '')
+                    ? trim((string) $data['reference'])
+                    : null
+            ] : []),
         ]);
+
         $order->save();
 
         /*──────── Helper sconti ────────*/

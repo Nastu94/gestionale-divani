@@ -243,6 +243,7 @@
                     {{ $orders->links('vendor.pagination.tailwind-compact') }}
                 </div>
             </div>
+            
             {{-- Modale per la creazione/modifica ordine fornitore --}}
             <x-supplier-order-create-modal />
 

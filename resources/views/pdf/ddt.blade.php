@@ -236,9 +236,11 @@
                     Rif. Conferma d'ordine {{ $orderNo }} @if($orderDate) del {{ $orderDate }} @endif
                 </div>
 
-                {{-- Nota interna (orders.note) solo se presente --}}
+                {{-- Nota ordine / DDT: stampata solo se presente --}}
                 @if(!empty($order->note))
-                    <div class="order-note">{{ $order->note }}</div>
+                    <div class="order-note" style="white-space: pre-line;">
+                        {{ $order->note }}
+                    </div>
                 @endif
             @endif
 

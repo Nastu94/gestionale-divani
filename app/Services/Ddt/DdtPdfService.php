@@ -42,6 +42,12 @@ class DdtPdfService
         $rowsPerPage = 10;
         $pages = $ddt->rows->values()->chunk($rowsPerPage);
 
+        /**
+         * Dati passati alla view PDF.
+         *
+         * La nota viene letta dall'ordine collegato al DDT e resa disponibile
+         * esplicitamente alla blade per semplificare il template.
+         */
         $data = [
             'ddt' => $ddt,
 
@@ -53,6 +59,9 @@ class DdtPdfService
 
             /* Pagine */
             'pages' => $pages,
+
+            /* Meta documento */
+            'orderNote' => $ddt->order?->note,
         ];
 
         $pdf = Pdf::loadView('pdf.ddt', $data)

@@ -78,6 +78,7 @@ class Order extends Model
         'delivery_date', // Data prevista di consegna
         'registration_date', // Data registrazione magazzino
         'bill_number', // Numero bolla di consegna
+        'reference', // Riferimento testuale usato per tabelle e documenti stampati
         'shipping_address',
         'shipping_zone',
         'min_phase', // Fase minima di produzione
@@ -101,6 +102,7 @@ class Order extends Model
         'note'         => 'string',
         'reason'       => 'string',
         'shipping_zone' => 'string',
+        'reference'    => 'string',
         'confirmed_at' => 'datetime',
     ];
 

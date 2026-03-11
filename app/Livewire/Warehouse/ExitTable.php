@@ -86,6 +86,15 @@ class ExitTable extends Component
     public string $rbReason  = ''; // motivo del rollback
     public bool   $rbReuse   = false; // modalità 'reuse' o 'scrap' 
 
+    /*──────────── Modal conferma DDT ──────────────*/
+    public ?int $ddtConfirmOrderItemId = null;      // Riga ordine selezionata per il DDT
+    public ?int $ddtConfirmOrderId = null;          // Ordine padre della riga
+    public ?string $ddtConfirmOrderNumber = null;   // Numero ordine mostrato nel modale
+    public ?string $ddtConfirmCustomer = null;      // Cliente mostrato nel modale
+    public ?string $ddtConfirmNote = null;          // Note da salvare su orders.note
+    public ?string $ddtConfirmUnitPriceOverride = null; // Sovrascrittura prezzo unitario (opzionale)
+    public bool $ddtConfirmOpen = false;            // Apertura/chiusura modale
+
     /*──────────── Drawer DDT ──────────────*/
     public bool $ddtDrawerOpen = false;
     public ?int $ddtDrawerOrderId = null;
@@ -571,42 +580,194 @@ class ExitTable extends Component
     }
 
     /**
-     * Genera il DDT e apre la finestra di stampa.
+     * Apre il modale di conferma stampa DDT.
      *
-     * @param int $orderItemId ID della riga ordine cliccata (serve per risalire all’ordine).
+     * L'utente può:
+     * - inserire/aggiornare le note dell'ordine
+     * - sovrascrivere il totale finale dell'ordine
+     *
+     * @param int $orderItemId ID della riga ordine cliccata.
      */
-    public function printDdt(int $orderItemId): void
+    public function openDdtConfirm(int $orderItemId): void
     {
         try {
-            /* Permesso: stessa logica “uscite” */
             if (! auth()->user()->can('stock.exit')) {
                 throw ValidationException::withMessages([
                     'auth' => 'Non hai il permesso per generare il DDT.',
                 ]);
             }
 
-            /* 1) Genera DDT (DB) */
-            $ddt = app(DdtService::class)->createForOrderItem($orderItemId, auth()->user());
+            /**
+             * Carichiamo la riga con l'ordine padre e i riferimenti utili al modale.
+             */
+            $item = OrderItem::query()
+                ->with([
+                    'order.orderNumber',
+                    'order.customer',
+                    'order.occasionalCustomer',
+                ])
+                ->findOrFail($orderItemId);
 
-            /* 2) Prepara URL firmato verso pagina stampa */
+            $order = $item->order;
+
+            $this->ddtConfirmOrderItemId = $item->id;
+            $this->ddtConfirmOrderId = $order?->id;
+            $this->ddtConfirmOrderNumber = (string) ($order?->orderNumber?->number ?? $order?->id ?? '—');
+            $this->ddtConfirmCustomer = $order?->customer?->company
+                ?? $order?->occasionalCustomer?->company
+                ?? '—';
+
+            /**
+             * Precompiliamo il modale con:
+             * - note attuali dell'ordine
+             * - prezzo unitario attuale della riga cliccata
+             */
+            $this->ddtConfirmNote = $order?->note;
+            $this->ddtConfirmUnitPriceOverride = $item->unit_price !== null
+                ? number_format((float) $item->unit_price, 2, '.', '')
+                : null;
+
+            $this->ddtConfirmOpen = true;
+        } catch (\Throwable $e) {
+            Log::error('[openDdtConfirm] ERROR', [
+                'msg'   => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+
+            session()->flash('error', $e->getMessage());
+        }
+    }
+
+    /**
+     * Chiude il modale di conferma DDT e resetta il suo stato.
+     */
+    public function closeDdtConfirm(): void
+    {
+        $this->ddtConfirmOpen = false;
+
+        $this->reset(
+            'ddtConfirmOrderItemId',
+            'ddtConfirmOrderId',
+            'ddtConfirmOrderNumber',
+            'ddtConfirmCustomer',
+            'ddtConfirmNote',
+            'ddtConfirmUnitPriceOverride'
+        );
+    }
+
+    /**
+     * Conferma la stampa del DDT:
+     * - salva la nota su orders.note
+     * - sovrascrive orders.total se viene inserito un totale finale override
+     * - genera il DDT e apre la finestra di stampa
+     */
+    public function confirmDdtPrint(): void
+    {
+        $this->validate([
+            'ddtConfirmNote' => ['nullable', 'string'],
+            'ddtConfirmUnitPriceOverride' => ['nullable', 'numeric', 'min:0'],
+        ], [], [
+            'ddtConfirmNote' => 'note',
+            'ddtConfirmUnitPriceOverride' => 'prezzo unitario finale',
+        ]);
+
+        try {
+            if (! auth()->user()->can('stock.exit')) {
+                throw ValidationException::withMessages([
+                    'auth' => 'Non hai il permesso per generare il DDT.',
+                ]);
+            }
+
+            if (! $this->ddtConfirmOrderItemId) {
+                throw ValidationException::withMessages([
+                    'ddt' => 'Riga ordine non valida per la generazione del DDT.',
+                ]);
+            }
+
+            /**
+             * Carichiamo la riga e l'ordine padre.
+             */
+            $item = OrderItem::query()
+                ->with('order')
+                ->findOrFail($this->ddtConfirmOrderItemId);
+
+            $order = $item->order;
+
+            if (! $order) {
+                throw ValidationException::withMessages([
+                    'ddt' => 'Ordine non trovato.',
+                ]);
+            }
+
+            /**
+             * Normalizzazione input:
+             * - note vuote => null
+             * - override vuoto => nessuna modifica del totale
+             */
+            $normalizedNote = $this->ddtConfirmNote !== null && trim($this->ddtConfirmNote) !== ''
+                ? trim($this->ddtConfirmNote)
+                : null;
+
+            $normalizedUnitPriceOverride = $this->ddtConfirmUnitPriceOverride !== null
+                && trim((string) $this->ddtConfirmUnitPriceOverride) !== ''
+                    ? (float) $this->ddtConfirmUnitPriceOverride
+                    : null;
+
+            DB::transaction(function () use ($order, $normalizedNote): void {
+                /**
+                 * Salviamo solo la nota sull'header ordine.
+                 *
+                 * Il prezzo unitario override NON appartiene a orders:
+                 * verrà invece scritto nello snapshot della riga DDT.
+                 */
+                $order->note = $normalizedNote;
+                $order->save();
+            });
+
+            /**
+             * Genera il DDT usando il flusso esistente.
+             */
+            $ddt = app(DdtService::class)->createForOrderItem(
+                $item->id,
+                auth()->user(),
+                requestedQtyByItemId: null,
+                unitPriceOverrideByItemId: $normalizedUnitPriceOverride !== null
+                    ? [$item->id => $normalizedUnitPriceOverride]
+                    : null
+            );
+
+            /**
+             * URL firmato per la pagina di stampa.
+             */
             $printUrl = URL::temporarySignedRoute(
                 'warehouse.ddt.print',
                 now()->addMinutes(5),
                 ['ddt' => $ddt->id]
             );
 
-            /* 3) Apri nuova finestra (browser) */
             $this->dispatch('open-print-window', url: $printUrl);
+
+            $this->closeDdtConfirm();
 
             session()->flash('success', "DDT nr. {$ddt->number} generato. Apertura stampa…");
         } catch (\Throwable $e) {
-            Log::error('[printDdt] ERROR', [
-                'msg' => $e->getMessage(),
+            Log::error('[confirmDdtPrint] ERROR', [
+                'msg'   => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ]);
 
             session()->flash('error', $e->getMessage());
         }
+    }
+
+    /**
+     * Compatibilità: il flusso DDT passa ora dal modale di conferma.
+     *
+     * @param int $orderItemId ID della riga ordine cliccata.
+     */
+    public function printDdt(int $orderItemId): void
+    {
+        $this->openDdtConfirm($orderItemId);
     }
 
     /*──────────────────────────── Drawer DDT: elenco e ristampa ───────────────────────────*/

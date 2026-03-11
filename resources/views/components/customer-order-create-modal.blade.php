@@ -128,6 +128,16 @@
                             class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
                                     text-sm text-gray-900 dark:text-gray-100">
                     </div>
+
+                    {{-- Riferimento (orders.reference) - usato per tabelle e documenti stampati --}}
+                    <div x-show="selectedCustomer" x-cloak>
+                        <label class="block text-sm font-medium">Riferimento</label>
+                        <input type="text"
+                            x-model="reference"
+                            placeholder="Inserisci un riferimento"
+                            class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
+                                    text-sm text-gray-900 dark:text-gray-100">
+                    </div>
                 </div>
 
                 {{-- Colonna DX --}}
@@ -489,13 +499,16 @@
             _initialSnapshot: null,
             _snapshotReady: false,
 
-            /* ==== Header ordine ==== */
+            /**
+             * Campi header dell'ordine.
+             */
             delivery_date    : '',
             order_number_id  : null,
             order_number     : '—',
             hash_flag        : false,
             note             : '',
-            shipping_zone   : '', 
+            shipping_zone    : '',
+            reference        : '',
 
             /* ==== Cliente ==== */
             customerSearch   : '',
@@ -562,6 +575,7 @@
                     delivery_date: this.delivery_date || null,
                     shipping_address: this.selectedCustomer ? (this.selectedCustomer.shipping_address || null) : null,
                     shipping_zone: (this.shipping_zone && String(this.shipping_zone).trim()) || null,
+                    reference: (this.reference && String(this.reference).trim()) || null,
                     hash_flag: !!this.hash_flag,
                     note: (this.note && String(this.note).trim()) || null,
                     lines: (this.lines || []).map(l => ({
@@ -657,6 +671,7 @@
                 this.lines            = [];
                 this.selectedProduct  = null;
                 this.shipping_zone    = '';
+                this.reference        = '';
                 this.productSearch    = '';
                 this.price            = 0;
                 this.quantity         = 1;
@@ -809,13 +824,20 @@
                     alert('Esegui prima la verifica disponibilità.'); return;
                 }
 
+                /**
+                 * Payload di salvataggio ordine.
+                 *
+                 * I campi testuali opzionali vengono normalizzati:
+                 * - stringa vuota => null
+                 */
                 const payload = {
                     order_number_id : this.order_number_id,
                     customer_id     : this.occasional_customer_id ? null : this.selectedCustomer.id,
                     occasional_customer_id : this.occasional_customer_id ?? null,
                     delivery_date   : this.delivery_date,
                     shipping_address: this.selectedCustomer.shipping_address,
-                    shipping_zone: (this.shipping_zone && String(this.shipping_zone).trim().length) ? this.shipping_zone.trim() : null,
+                    shipping_zone   : (this.shipping_zone && String(this.shipping_zone).trim().length) ? this.shipping_zone.trim() : null,
+                    reference       : (this.reference && String(this.reference).trim().length) ? this.reference.trim() : null,
                     hash_flag       : this.hash_flag ? 1 : 0,
                     note            : (this.note && String(this.note).trim().length) ? this.note.trim() : null,
                     lines : this.lines.map(l => ({
@@ -928,6 +950,7 @@
                     this.hash_flag = !!o.hash_flag;
                     this.note      = o.note ?? '';
                     this.shipping_zone = o.shipping_zone ?? '';
+                    this.reference     = o.reference ?? '';
                     this.lines = (o.lines || []).map(l => ({
                         product  : { id:l.product_id, sku:l.sku, name:l.name },
                         qty      : l.quantity,

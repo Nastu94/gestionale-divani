@@ -242,7 +242,7 @@
                                                 @if($showDdT)
                                                     <button type="button"
                                                             class="inline-flex items-center hover:text-purple-600"
-                                                            wire:click.stop="printDdt({{ $row->id }})">
+                                                            wire:click.stop="openDdtConfirm({{ $row->id }})">
                                                         <i class="fas fa-print mr-1"></i> Stampa DdT
                                                     </button>
 
@@ -325,172 +325,172 @@
         </form>
     </dialog>
 
-{{-- Modal Forza Prenotazione (preview) ------------------------------------- --}}
-<dialog  wire:ignore.self
-        x-data="forceReservationModal()"
-        x-init="init()"
-        @click.outside="close"
-        @keydown.escape.window="close"
-        class="rounded-lg shadow-lg w-[44rem] max-w-full p-5
-               bg-white dark:bg-gray-800 backdrop:bg-black/40">
+    {{-- Modal Forza Prenotazione (preview) ------------------------------------- --}}
+    <dialog  wire:ignore.self
+            x-data="forceReservationModal()"
+            x-init="init()"
+            @click.outside="close"
+            @keydown.escape.window="close"
+            class="rounded-lg shadow-lg w-[44rem] max-w-full p-5
+                bg-white dark:bg-gray-800 backdrop:bg-black/40"
+    >
+        <h2 class="text-lg font-semibold mb-2">Forza prenotazione</h2>
+        <p class="text-sm text-gray-600 dark:text-gray-300 mb-4">
+            Stai per riallocare componenti per consentire l’avanzamento di fase.
+            Prima di confermare, controlla il riepilogo.
+        </p>
 
-    <h2 class="text-lg font-semibold mb-2">Forza prenotazione</h2>
-    <p class="text-sm text-gray-600 dark:text-gray-300 mb-4">
-        Stai per riallocare componenti per consentire l’avanzamento di fase.
-        Prima di confermare, controlla il riepilogo.
-    </p>
+        @if(!empty($forcePlan))
+            <div class="space-y-5 text-sm">
 
-    @if(!empty($forcePlan))
-        <div class="space-y-5 text-sm">
-
-            {{-- 1) Componenti che servono --}}
-            <div>
-                <div class="font-semibold mb-1">Componenti necessari</div>
-                <ul class="list-disc pl-5 space-y-1">
-                    @foreach($forcePlan['missing'] as $m)
-                        <li>
-                            <span class="font-semibold">{{ $m['code'] }}</span>
-                            — mancano <span class="font-semibold">{{ rtrim(rtrim(number_format($m['missing'], 4, '.', ''), '0'), '.') }}</span>
-                            <span class="text-xs text-gray-500">
-                                (richiesti: {{ rtrim(rtrim(number_format($m['needed'], 4, '.', ''), '0'), '.') }},
-                                già prenotati: {{ rtrim(rtrim(number_format($m['reserved'], 4, '.', ''), '0'), '.') }})
-                            </span>
-                        </li>
-                    @endforeach
-                </ul>
-            </div>
-
-            {{-- 2) Da giacenza libera --}}
-            <div>
-                <div class="font-semibold mb-1">Copertura da giacenza disponibile</div>
-
-                @php
-                    $freeTotal = 0;
-                    foreach (($forcePlan['from_free'] ?? []) as $allocs) {
-                        foreach ($allocs as $a) { $freeTotal += (float) $a['qty']; }
-                    }
-                @endphp
-
-                @if(empty($forcePlan['from_free']))
-                    <div class="text-gray-500">Nessuna giacenza disponibile utilizzabile.</div>
-                @else
-                    <div class="text-gray-700 dark:text-gray-200 mb-2">
-                        Verranno prenotate da giacenza disponibile:
-                        <span class="font-semibold">{{ rtrim(rtrim(number_format($freeTotal, 4, '.', ''), '0'), '.') }}</span>
-                        unità complessive.
-                    </div>
-
-                    {{-- Dettaglio per componente, senza tecnicismi --}}
+                {{-- 1) Componenti che servono --}}
+                <div>
+                    <div class="font-semibold mb-1">Componenti necessari</div>
                     <ul class="list-disc pl-5 space-y-1">
                         @foreach($forcePlan['missing'] as $m)
-                            @php
-                                $cid = $m['component_id'];
-                                $qty = 0;
-                                foreach (($forcePlan['from_free'][$cid] ?? []) as $a) { $qty += (float) $a['qty']; }
-                            @endphp
-                            @if($qty > 0)
-                                <li>
-                                    <span class="font-semibold">{{ $m['code'] }}</span>
-                                    — da giacenza: {{ rtrim(rtrim(number_format($qty, 4, '.', ''), '0'), '.') }}
-                                </li>
-                            @endif
-                        @endforeach
-                    </ul>
-                @endif
-            </div>
-
-            {{-- 3) Riallocazione da ordini penalizzati --}}
-            <div>
-                <div class="font-semibold mb-1">Riallocazione da altri ordini (ordini penalizzati)</div>
-
-                @if(empty($forcePlan['from_donors']))
-                    <div class="text-gray-500">Non è necessario togliere prenotazioni ad altri ordini.</div>
-                @else
-                    <p class="text-gray-700 dark:text-gray-200 mb-2">
-                        Verranno spostate prenotazioni dai seguenti ordini:
-                    </p>
-
-                    {{-- Riepilogo per ordine penalizzato --}}
-                    @php
-                        $donors = collect($forcePlan['from_donors'])
-                            ->groupBy('donor_order_id')
-                            ->map(function($rows) {
-                                $first = $rows->first();
-                                $total = $rows->sum('qty');
-                                return [
-                                    'order_id'      => $first['donor_order_id'],
-                                    'delivery_date' => $first['donor_delivery_date'],
-                                    'total'         => (float) $total,
-                                    'rows'          => $rows,
-                                ];
-                            })->values();
-                    @endphp
-
-                    <ul class="space-y-2">
-                        @foreach($donors as $d)
-                            <li class="border rounded p-2">
-                                <div class="flex flex-wrap items-center justify-between gap-2">
-                                    <div>
-                                        <span class="font-semibold">Ordine #{{ $d['order_id'] }}</span>
-                                        <span class="text-xs text-gray-500">
-                                            (consegna: {{ $d['delivery_date'] }})
-                                        </span>
-                                    </div>
-                                    <div>
-                                        Totale riallocato:
-                                        <span class="font-semibold">{{ rtrim(rtrim(number_format($d['total'], 4, '.', ''), '0'), '.') }}</span>
-                                    </div>
-                                </div>
-
-                                <div class="mt-2 text-xs text-gray-600 dark:text-gray-300">
-                                    Dettaglio componenti:
-                                    <ul class="list-disc pl-5 mt-1 space-y-1">
-                                        @foreach($d['rows'] as $row)
-                                            <li>
-                                                <span class="font-semibold">{{ $row['code'] }}</span>
-                                                — {{ rtrim(rtrim(number_format($row['qty'], 4, '.', ''), '0'), '.') }}
-                                            </li>
-                                        @endforeach
-                                    </ul>
-                                </div>
+                            <li>
+                                <span class="font-semibold">{{ $m['code'] }}</span>
+                                — mancano <span class="font-semibold">{{ rtrim(rtrim(number_format($m['missing'], 4, '.', ''), '0'), '.') }}</span>
+                                <span class="text-xs text-gray-500">
+                                    (richiesti: {{ rtrim(rtrim(number_format($m['needed'], 4, '.', ''), '0'), '.') }},
+                                    già prenotati: {{ rtrim(rtrim(number_format($m['reserved'], 4, '.', ''), '0'), '.') }})
+                                </span>
                             </li>
                         @endforeach
                     </ul>
-                @endif
+                </div>
+
+                {{-- 2) Da giacenza libera --}}
+                <div>
+                    <div class="font-semibold mb-1">Copertura da giacenza disponibile</div>
+
+                    @php
+                        $freeTotal = 0;
+                        foreach (($forcePlan['from_free'] ?? []) as $allocs) {
+                            foreach ($allocs as $a) { $freeTotal += (float) $a['qty']; }
+                        }
+                    @endphp
+
+                    @if(empty($forcePlan['from_free']))
+                        <div class="text-gray-500">Nessuna giacenza disponibile utilizzabile.</div>
+                    @else
+                        <div class="text-gray-700 dark:text-gray-200 mb-2">
+                            Verranno prenotate da giacenza disponibile:
+                            <span class="font-semibold">{{ rtrim(rtrim(number_format($freeTotal, 4, '.', ''), '0'), '.') }}</span>
+                            unità complessive.
+                        </div>
+
+                        {{-- Dettaglio per componente, senza tecnicismi --}}
+                        <ul class="list-disc pl-5 space-y-1">
+                            @foreach($forcePlan['missing'] as $m)
+                                @php
+                                    $cid = $m['component_id'];
+                                    $qty = 0;
+                                    foreach (($forcePlan['from_free'][$cid] ?? []) as $a) { $qty += (float) $a['qty']; }
+                                @endphp
+                                @if($qty > 0)
+                                    <li>
+                                        <span class="font-semibold">{{ $m['code'] }}</span>
+                                        — da giacenza: {{ rtrim(rtrim(number_format($qty, 4, '.', ''), '0'), '.') }}
+                                    </li>
+                                @endif
+                            @endforeach
+                        </ul>
+                    @endif
+                </div>
+
+                {{-- 3) Riallocazione da ordini penalizzati --}}
+                <div>
+                    <div class="font-semibold mb-1">Riallocazione da altri ordini (ordini penalizzati)</div>
+
+                    @if(empty($forcePlan['from_donors']))
+                        <div class="text-gray-500">Non è necessario togliere prenotazioni ad altri ordini.</div>
+                    @else
+                        <p class="text-gray-700 dark:text-gray-200 mb-2">
+                            Verranno spostate prenotazioni dai seguenti ordini:
+                        </p>
+
+                        {{-- Riepilogo per ordine penalizzato --}}
+                        @php
+                            $donors = collect($forcePlan['from_donors'])
+                                ->groupBy('donor_order_id')
+                                ->map(function($rows) {
+                                    $first = $rows->first();
+                                    $total = $rows->sum('qty');
+                                    return [
+                                        'order_id'      => $first['donor_order_id'],
+                                        'delivery_date' => $first['donor_delivery_date'],
+                                        'total'         => (float) $total,
+                                        'rows'          => $rows,
+                                    ];
+                                })->values();
+                        @endphp
+
+                        <ul class="space-y-2">
+                            @foreach($donors as $d)
+                                <li class="border rounded p-2">
+                                    <div class="flex flex-wrap items-center justify-between gap-2">
+                                        <div>
+                                            <span class="font-semibold">Ordine #{{ $d['order_id'] }}</span>
+                                            <span class="text-xs text-gray-500">
+                                                (consegna: {{ $d['delivery_date'] }})
+                                            </span>
+                                        </div>
+                                        <div>
+                                            Totale riallocato:
+                                            <span class="font-semibold">{{ rtrim(rtrim(number_format($d['total'], 4, '.', ''), '0'), '.') }}</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="mt-2 text-xs text-gray-600 dark:text-gray-300">
+                                        Dettaglio componenti:
+                                        <ul class="list-disc pl-5 mt-1 space-y-1">
+                                            @foreach($d['rows'] as $row)
+                                                <li>
+                                                    <span class="font-semibold">{{ $row['code'] }}</span>
+                                                    — {{ rtrim(rtrim(number_format($row['qty'], 4, '.', ''), '0'), '.') }}
+                                                </li>
+                                            @endforeach
+                                        </ul>
+                                    </div>
+                                </li>
+                            @endforeach
+                        </ul>
+                    @endif
+                </div>
+
+                {{-- Avviso --}}
+                <div class="text-xs text-gray-600 dark:text-gray-300 border-t pt-3">
+                    <span class="font-semibold">Nota:</span>
+                    per gli ordini penalizzati verrà generata automaticamente una proposta di approvvigionamento
+                    per coprire la nuova mancanza.
+                </div>
+
+                {{-- Footer --}}
+                <div class="flex justify-end gap-2 pt-1">
+                    <button type="button"
+                            @click="close"
+                            class="px-3 py-1 bg-gray-300 rounded">
+                        Annulla
+                    </button>
+
+                    <button type="button"
+                            @click="confirm"
+                            class="px-3 py-1 bg-red-600 text-white rounded">
+                        Conferma e continua
+                    </button>
+                </div>
+            </div>
+        @else
+            <div class="text-sm text-gray-500">
+                Nessun piano di riallocazione disponibile.
             </div>
 
-            {{-- Avviso --}}
-            <div class="text-xs text-gray-600 dark:text-gray-300 border-t pt-3">
-                <span class="font-semibold">Nota:</span>
-                per gli ordini penalizzati verrà generata automaticamente una proposta di approvvigionamento
-                per coprire la nuova mancanza.
+            <div class="flex justify-end gap-2 pt-4">
+                <button type="button" @click="close" class="px-3 py-1 bg-gray-300 rounded">Chiudi</button>
             </div>
-
-            {{-- Footer --}}
-            <div class="flex justify-end gap-2 pt-1">
-                <button type="button"
-                        @click="close"
-                        class="px-3 py-1 bg-gray-300 rounded">
-                    Annulla
-                </button>
-
-                <button type="button"
-                        @click="confirm"
-                        class="px-3 py-1 bg-red-600 text-white rounded">
-                    Conferma e continua
-                </button>
-            </div>
-        </div>
-    @else
-        <div class="text-sm text-gray-500">
-            Nessun piano di riallocazione disponibile.
-        </div>
-
-        <div class="flex justify-end gap-2 pt-4">
-            <button type="button" @click="close" class="px-3 py-1 bg-gray-300 rounded">Chiudi</button>
-        </div>
-    @endif
-</dialog>
+        @endif
+    </dialog>
 
     {{--  Modal Rollback  ----------------------------------------------------}}
     <dialog  wire:ignore
@@ -543,6 +543,103 @@
                 </button>
             </div>
         </form>
+    </dialog>
+
+    {{-- Modal conferma stampa DDT ----------------------------------------------------}}
+    <dialog
+        wire:ignore.self
+        x-data="{ open: @entangle('ddtConfirmOpen') }"
+        x-effect="open ? $el.showModal?.() : $el.close?.()"
+        @close="$wire.closeDdtConfirm()"
+        @click.outside="open = false; $wire.closeDdtConfirm()"
+        @keydown.escape.window="open = false; $wire.closeDdtConfirm()"
+        class="rounded-lg shadow-lg w-[34rem] max-w-full p-5
+            bg-white dark:bg-gray-800 backdrop:bg-black/40"
+    >
+        <div class="flex items-start justify-between mb-4">
+            <div>
+                <h2 class="text-lg font-semibold">Conferma stampa DDT</h2>
+                <p class="text-sm text-gray-500 mt-1">
+                    Ordine n. {{ $ddtConfirmOrderNumber ?? '—' }}
+                    @if(!empty($ddtConfirmCustomer))
+                        — {{ $ddtConfirmCustomer }}
+                    @endif
+                </p>
+            </div>
+
+            <button type="button"
+                    wire:click="closeDdtConfirm"
+                    class="px-2 py-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+
+        <div class="space-y-4">
+            {{-- Note ordine --}}
+            <div>
+                <label for="ddtConfirmNote" class="block text-sm font-medium mb-1">
+                    Note
+                </label>
+
+                <textarea
+                    id="ddtConfirmNote"
+                    wire:model.defer="ddtConfirmNote"
+                    rows="4"
+                    placeholder="Inserisci eventuali note da riportare sull'ordine / DDT"
+                    class="w-full border rounded px-3 py-2
+                        focus:ring-indigo-500 focus:border-indigo-500"
+                ></textarea>
+
+                @error('ddtConfirmNote')
+                    <div class="text-xs text-red-600 mt-1">{{ $message }}</div>
+                @enderror
+            </div>
+
+            {{-- Override prezzo unitario --}}
+            <div>
+                <label for="ddtConfirmUnitPriceOverride" class="block text-sm font-medium mb-1">
+                    Prezzo unitario override
+                </label>
+
+                <input
+                    id="ddtConfirmUnitPriceOverride"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    wire:model.defer="ddtConfirmUnitPriceOverride"
+                    placeholder="Inserisci il prezzo unitario da usare per il DDT"
+                    class="w-full border rounded px-3 py-2
+                        focus:ring-indigo-500 focus:border-indigo-500"
+                />
+
+                <p class="text-xs text-gray-500 mt-1">
+                    Se lasci vuoto, verrà mantenuto il prezzo unitario attuale dell’ordine.
+                </p>
+
+                @error('ddtConfirmUnitPriceOverride')
+                    <div class="text-xs text-red-600 mt-1">{{ $message }}</div>
+                @enderror
+            </div>
+        </div>
+
+        <div class="flex justify-end gap-2 text-sm pt-5">
+            <button type="button"
+                    wire:click="closeDdtConfirm"
+                    class="px-3 py-1 bg-gray-300 rounded">
+                Annulla
+            </button>
+
+            <button type="button"
+                    wire:click="confirmDdtPrint"
+                    wire:loading.attr="disabled"
+                    wire:target="confirmDdtPrint"
+                    class="px-3 py-1 bg-purple-600 text-white rounded hover:bg-purple-500 disabled:opacity-60">
+                <span wire:loading.remove wire:target="confirmDdtPrint">Conferma e stampa</span>
+                <span wire:loading wire:target="confirmDdtPrint">
+                    <i class="fas fa-circle-notch fa-spin mr-1"></i> Generazione...
+                </span>
+            </button>
+        </div>
     </dialog>
 
     {{-- Drawer DDT (destra) --}}

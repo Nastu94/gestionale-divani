@@ -56,6 +56,7 @@
                     sidebarLoading     : false,
                     sidebarNote        : null,
                     sidebarReason      : null,
+                    sidebarReference   : null,
                     formatCurrency(v)  { return Intl.NumberFormat('it-IT', { minimumFractionDigits: 2 }).format(v) },
                     openSidebar(id, num) {
                         this.sidebarOpen        = true
@@ -64,6 +65,7 @@
                         this.sidebarOrderNumber = num
                         this.sidebarNote        = null
                         this.sidebarReason      = null
+                        this.sidebarReference   = null
 
                         fetch(`/orders/customer/${id}/lines`, {
                             headers     : { Accept: 'application/json' },
@@ -73,13 +75,15 @@
                         .then(js => {
                             // Compat: se è un array (vecchio), usa come rows; altrimenti usa il nuovo oggetto
                             if (Array.isArray(js)) {
-                                this.sidebarLines = js;
-                                this.sidebarNote  = null;
-                                this.sidebarReason= null;
+                                this.sidebarLines      = js;
+                                this.sidebarNote       = null;
+                                this.sidebarReason     = null;
+                                this.sidebarReference  = null;
                             } else {
-                                this.sidebarLines = Array.isArray(js.rows) ? js.rows : [];
-                                this.sidebarNote  = js.note ?? null;
-                                this.sidebarReason= js.reason ?? null;
+                                this.sidebarLines      = Array.isArray(js.rows) ? js.rows : [];
+                                this.sidebarNote       = js.note ?? null;
+                                this.sidebarReason     = js.reason ?? null;
+                                this.sidebarReference  = js.reference ?? null;
                             }
                             this.sidebarLoading = false;
                         })
@@ -119,6 +123,7 @@
                                            :sort="$sort" :dir="$dir" :filters="$filters"
                                            reset-route="orders.customer.index" />
                                 <th>Indirizzo Spedizione</th>
+                                <th>Riferimento</th>
                                 <x-th-menu field="ordered_at" label="Data Ordine"
                                            :sort="$sort" :dir="$dir" :filters="$filters"
                                            reset-route="orders.customer.index"
@@ -165,6 +170,9 @@
                                     <td class="px-6 py-2">
                                         {{ $order->shipping_address ?? '—' }}
                                     </td>
+                                    <td class="px-6 py-2">
+                                        {{ $order->reference ?? '—' }}
+                                    </td>
                                     <td class="px-6 py-2">{{ $order->ordered_at?->format('d/m/Y') }}</td>
                                     <td class="px-6 py-2">{{ $order->delivery_date?->format('d/m/Y') }}</td>
                                     <td class="px-6 py-2 text-center">{{ number_format($order->total, 2, ',', '.') }}</td>
@@ -188,7 +196,7 @@
                                 {{-- RIGA ESPANSA CON AZIONI --}}
                                 @if ($canCrud || auth()->user()->can('orders.customer.view'))
                                     <tr x-show="openId === {{ $order->id }}" x-cloak>
-                                        <td :colspan="7" class="px-6 py-3 bg-gray-200 dark:bg-gray-700">
+                                        <td :colspan="8" class="px-6 py-3 bg-gray-200 dark:bg-gray-700">
                                             <div class="flex items-center space-x-4 text-xs">
 
                                                 {{-- Visualizza --}}
@@ -269,7 +277,7 @@
                             {{-- RIGA NESSUN RISULTATO --}}
                             @if ($orders->isEmpty())
                                 <tr>
-                                    <td colspan="7" class="px-6 py-2 text-center text-gray-500">Nessun risultato trovato.</td>
+                                    <td colspan="8" class="px-6 py-2 text-center text-gray-500">Nessun risultato trovato.</td>
                                 </tr>
                             @endif
                         </tbody>
@@ -380,6 +388,17 @@
                                 </template>
                             </tbody>
                         </table>
+
+                        {{-- Riferimento ordine --}}
+                        <div class="rounded border border-gray-200 bg-gray-50 p-3">
+                            <div class="flex items-center gap-2 mb-1">
+                                <i class="fas fa-bookmark text-gray-600"></i>
+                                <span class="font-semibold">Riferimento</span>
+                            </div>
+
+                            <p class="text-sm text-gray-900 whitespace-pre-line"
+                            x-text="sidebarReference || '—'"></p>
+                        </div>
                     </div>
                 </div>
             </div>
