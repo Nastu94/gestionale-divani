@@ -534,10 +534,19 @@ class OrderCustomerController extends Controller
 
             if (is_null($order->occasional_customer_id)) {
                 // Invia mail di conferma con token (code + locale)
-                Mail::to($order->customer->email)->queue(new OrderConfirmationRequestMail(
+                Log::info('OrderCustomer@store – ordine standard salvato, preparo invio mail', [
+                    'order_id' => $order->id,
+                    'customer_email' => $order->customer->email ?? null,
+                ]);
+
+                Mail::to($order->customer->email)->send(new OrderConfirmationRequestMail(
                     order: $order,
-                    replacePrevious: $isUpdate ?? false // true nell'update standard non confermato
+                    replacePrevious: $isUpdate ?? false
                 ));
+
+                Log::info('OrderCustomer@store – mail accodata correttamente', [
+                    'order_id' => $order->id,
+                ]);
                 return response()->json([
                     'order_id'   => $order->id,
                     'po_numbers' => [],
@@ -569,8 +578,6 @@ class OrderCustomerController extends Controller
                     }
                 }
             }
-            // ============================================================================
-            // OCCASIONALI: prosegue il TUO flusso attuale (explode BOM → reserve → check → PO)
 
             // ⬇️ ADATTA le righe usate per la disponibilità: sottrai la qty coperta coi resi
             $usedLines = collect($resolvedLines)
