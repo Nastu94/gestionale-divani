@@ -58,7 +58,6 @@ class StockLevelsTable extends Component
         'filters.reserved_quantity'             => ['except' => ''],
         'filters.fabric'                        => ['except' => ''],
         'filters.color'                         => ['except' => ''],
-        'page'                                  => ['except' => 1],
         'perPage'                               => ['except' => 50],
     ];
 
@@ -72,23 +71,30 @@ class StockLevelsTable extends Component
         abort_unless(auth()->user()->can('stock.view'), 403);
     }
 
-    /** Qualsiasi variazione ≠ page ⇒ resetta paginazione. */
+    /**
+     * Gestisce il reset della paginazione quando cambiano filtri,
+     * ordinamento o modalità di visualizzazione.
+     *
+     * @param string $prop Nome della proprietà aggiornata.
+     * @return void
+     */
     public function updating(string $prop): void
     {
         if ($prop !== 'page') {
-            $this->resetPage();
+            $this->resetPage(pageName: 'stock-levels-page');
         }
+
         if ($prop === 'mode') {
             $this->expandedId = null;
             $this->lots = [];
             $this->sort = '';
 
             if ($this->mode === 'components') {
-                // passando a COMPONENTI: i filtri prodotti non servono
+                // Passando a COMPONENTI: i filtri prodotti non servono.
                 $this->filters['fabric'] = '';
                 $this->filters['color']  = '';
             } else {
-                // passando a PRODOTTI: l'UM non c'è
+                // Passando a PRODOTTI: l'unità di misura non è presente.
                 $this->filters['uom'] = '';
             }
         }
@@ -228,13 +234,18 @@ class StockLevelsTable extends Component
         return $q;
     }
 
-    /*──────────────────────────────────────────────────────────────*
-     |  Getter paginato (propagate query-string)                    |
-     *──────────────────────────────────────────────────────────────*/
+    /**
+     * Restituisce i livelli di stock paginati.
+     *
+     * Usiamo un pageName esplicito per evitare collisioni con altri
+     * componenti Livewire eventualmente presenti nella stessa pagina.
+     *
+     * @return \Illuminate\Contracts\Pagination\LengthAwarePaginator
+     */
     public function getStockLevelsProperty()
     {
         return $this->query()
-            ->paginate($this->perPage)
+            ->paginate($this->perPage, pageName: 'stock-levels-page')
             ->withQueryString();
     }
 
