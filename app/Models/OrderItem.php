@@ -57,7 +57,7 @@ class OrderItem extends Model
      */
     public function component()
     {
-        return $this->belongsTo(Component::class);
+        return $this->belongsTo(Component::class)->withTrashed();
     }
 
     /**

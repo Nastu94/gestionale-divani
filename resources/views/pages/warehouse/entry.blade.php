@@ -173,31 +173,34 @@
                                                                 address        : @js($order->supplier->address),
 
                                                                 /* righe dell’ordine (solo i campi necessari) */
-                                                                items: @js(
-                                                                    $order->items->map(function ($i) use ($order) {
+items: @js(
+    $order->items->map(function ($i) use ($order) {
 
-                                                                        // tutti i lotti dell’ordine relativi a **quel componente**
-                                                                        $lots = $order->stockLevelLots
-                                                                            ->filter(fn($lot) =>
-                                                                                optional($lot->stockLevel)->component_id === $i->component_id
-                                                                            )
-                                                                            ->map(fn($lot) => [
-                                                                                'code'     => $lot->internal_lot_code,
-                                                                                'supplier' => $lot->supplier_lot_code,
-                                                                                'qty'      => $lot->received_quantity,
-                                                                            ])
-                                                                            ->values();   // rimuove eventuali chiavi sparse
+        {{-- Recupero il componente in modo sicuro per evitare errori in vista. --}}
+        $component = $i->component;
 
-                                                                        return [
-                                                                            'id'          => $i->id,
-                                                                            'code'        => $i->component->code,
-                                                                            'name'        => $i->component->description,
-                                                                            'qty_ordered' => $i->quantity,
-                                                                            'lots'        => $lots,
-                                                                            'unit'        => $i->component->unit_of_measure,
-                                                                        ];
-                                                                    })
-                                                                ),
+        // tutti i lotti dell’ordine relativi a **quel componente**
+        $lots = $order->stockLevelLots
+            ->filter(fn($lot) =>
+                optional($lot->stockLevel)->component_id === $i->component_id
+            )
+            ->map(fn($lot) => [
+                'code'     => $lot->internal_lot_code,
+                'supplier' => $lot->supplier_lot_code,
+                'qty'      => $lot->received_quantity,
+            ])
+            ->values();
+
+        return [
+            'id'          => $i->id,
+            'code'        => $component?->code ?? 'N/D',
+            'name'        => $component?->description ?? 'Componente non disponibile',
+            'qty_ordered' => $i->quantity,
+            'lots'        => $lots,
+            'unit'        => $component?->unit_of_measure ?? '-',
+        ];
+    })
+),
                                                             })"
                                                             class="inline-flex items-center hover:text-green-700">
                                                         <i class="fas fa-arrow-down mr-1"></i> Registra ricevimento
@@ -264,24 +267,30 @@
                                                             vat_number     : @js($order->supplier->vat_number),
                                                             address        : @js($order->supplier->address),
 
-                                                            items: @js($order->items->map(fn ($i) => [
-                                                                'id'          => $i->id,
-                                                                'code'        => $i->component->code,
-                                                                'name'        => $i->component->description,
-                                                                'qty_ordered' => $i->quantity,
-                                                                'lots'        => $order->stockLevelLots
-                                                                                    ->filter(fn($lot) =>
-                                                                                        optional($lot->stockLevel)->component_id === $i->component_id
-                                                                                    )
-                                                                                    ->map(fn($lot) => [
-                                                                                        'id'       => $lot->id,          // ↑ ci servirà in PATCH
-                                                                                        'code'     => $lot->internal_lot_code,
-                                                                                        'supplier' => $lot->supplier_lot_code,
-                                                                                        'qty'      => $lot->received_quantity,
-                                                                                    ])
-                                                                                    ->values(),
-                                                                'unit'        => $i->component->unit_of_measure,
-                                                            ])),
+                                                            items: @js(
+                                                                $order->items->map(function ($i) use ($order) {
+                                                                    $component = $i->component;
+
+                                                                    return [
+                                                                        'id'          => $i->id,
+                                                                        'code'        => $component?->code ?? 'N/D',
+                                                                        'name'        => $component?->description ?? 'Componente non disponibile',
+                                                                        'qty_ordered' => $i->quantity,
+                                                                        'lots'        => $order->stockLevelLots
+                                                                                            ->filter(fn($lot) =>
+                                                                                                optional($lot->stockLevel)->component_id === $i->component_id
+                                                                                            )
+                                                                                            ->map(fn($lot) => [
+                                                                                                'id'       => $lot->id,
+                                                                                                'code'     => $lot->internal_lot_code,
+                                                                                                'supplier' => $lot->supplier_lot_code,
+                                                                                                'qty'      => $lot->received_quantity,
+                                                                                            ])
+                                                                                            ->values(),
+                                                                        'unit'        => $component?->unit_of_measure ?? '-',
+                                                                    ];
+                                                                })
+                                                            ),
                                                         })">
                                                         <i class="fas fa-pencil-alt mr-1"></i> Modifica
                                                     </button>
