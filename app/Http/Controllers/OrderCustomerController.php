@@ -34,6 +34,8 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
+use Throwable;
 
 class OrderCustomerController extends Controller
 {
@@ -533,26 +535,56 @@ class OrderCustomerController extends Controller
             // === Branching post-transazione ===
 
             if (is_null($order->occasional_customer_id)) {
-                // Invia mail di conferma con token (code + locale)
+                /**
+                 * Per gli ordini standard l'ordine è già stato salvato correttamente.
+                 * L'eventuale errore di invio mail NON deve trasformare il salvataggio
+                 * dell'ordine in un falso errore 500 applicativo.
+                 */
                 Log::info('OrderCustomer@store – ordine standard salvato, preparo invio mail', [
                     'order_id' => $order->id,
                     'customer_email' => $order->customer->email ?? null,
                 ]);
 
-                Mail::to($order->customer->email)->send(new OrderConfirmationRequestMail(
-                    order: $order,
-                    replacePrevious: $isUpdate ?? false
-                ));
+                try {
+                    /**
+                     * Invio della mail di conferma al cliente.
+                     */
+                    Mail::to($order->customer->email)->send(new OrderConfirmationRequestMail(
+                        order: $order,
+                        replacePrevious: $isUpdate ?? false
+                    ));
 
-                Log::info('OrderCustomer@store – mail accodata correttamente', [
-                    'order_id' => $order->id,
-                ]);
-                return response()->json([
-                    'order_id'   => $order->id,
-                    'po_numbers' => [],
-                    'awaiting_confirmation'  => true,
-                    'message'    => 'Richiesta conferma inviata al cliente.',
-                ], 201);
+                    Log::info('OrderCustomer@store – mail inviata correttamente', [
+                        'order_id' => $order->id,
+                    ]);
+
+                    return response()->json([
+                        'order_id' => $order->id,
+                        'po_numbers' => [],
+                        'awaiting_confirmation' => true,
+                        'mail_sent' => true,
+                        'message' => 'Ordine salvato e richiesta conferma inviata al cliente.',
+                    ], 201);
+
+                } catch (Throwable $mailException) {
+                    /**
+                     * L'ordine è già stato creato: segnaliamo il problema mail senza
+                     * mascherarlo come errore interno di salvataggio ordine.
+                     */
+                    Log::error('OrderCustomer@store – ordine salvato ma invio mail fallito', [
+                        'order_id' => $order->id,
+                        'customer_email' => $order->customer->email ?? null,
+                        'error' => $mailException->getMessage(),
+                    ]);
+
+                    return response()->json([
+                        'order_id' => $order->id,
+                        'po_numbers' => [],
+                        'awaiting_confirmation' => true,
+                        'mail_sent' => false,
+                        'message' => 'Ordine salvato correttamente, ma l\'invio email di conferma è fallito.',
+                    ], 201);
+                }
             }
 
             // OCCASIONALI: prosegue il TUO flusso attuale (explode BOM → reserve → check → PO)
@@ -676,13 +708,33 @@ class OrderCustomerController extends Controller
                 'po_numbers' => $poNumbers,
             ], 201);
 
+        } catch (HttpExceptionInterface $e) {
+            /**
+             * Gestisce correttamente gli errori HTTP applicativi già previsti
+             * dal flusso, ad esempio il conflitto 409 su OrderNumber già assegnato.
+             *
+             * In questo modo non trasformiamo un errore di business noto
+             * in un generico 500 interno.
+             */
+            Log::warning('OrderCustomer@store – errore HTTP gestito', [
+                'status'  => $e->getStatusCode(),
+                'message' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'message'              => $e->getMessage() ?: 'Richiesta non valida.',
+                'refresh_order_number' => $e->getStatusCode() === 409,
+            ], $e->getStatusCode());
+
         } catch (\Throwable $e) {
             Log::error('OrderCustomer@store – eccezione', [
                 'error' => $e->getMessage(),
                 'trace' => substr($e->getTraceAsString(), 0, 2048),
             ]);
 
-            return response()->json(['message' => 'Errore interno durante il salvataggio dell’ordine.'], 500);
+            return response()->json([
+                'message' => 'Errore interno durante il salvataggio dell’ordine.'
+            ], 500);
         }
     }
 
