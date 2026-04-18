@@ -149,6 +149,25 @@
             word-wrap: break-word;
         }
 
+        .dest-ref {
+            font-weight: 700;
+            font-size: 14pt;
+            line-height: 1.10;
+            text-transform: uppercase;
+
+            white-space: normal;
+            word-wrap: break-word;
+        }
+
+        .prod-notes {
+            margin-top: 6pt;
+            font-weight: 600;
+            font-size: 18pt;
+            line-height: 1.08;
+            text-transform: uppercase;
+            word-wrap: break-word;
+        }
+
         /* PRODOTTO */
         .prod-main {
             font-weight: 800;
@@ -255,6 +274,10 @@
                                 @if(!empty($shippingZone))
                                     <div class="dest-zone">ZONA: {{ $shippingZone }}</div>
                                 @endif
+
+                                @if(!empty($reference))
+                                    <div class="dest-ref">RIF.: {{ $reference }}</div>
+                                @endif
                             </td>
                         </tr>
 
@@ -264,6 +287,9 @@
                                 <div class="prod-main">{{ $label['main'] }}</div>
                                 @if(!empty($label['var']))
                                     <div class="prod-var">{{ $label['var'] }}</div>
+                                @endif
+                                @if(!empty($label['notes']))
+                                    <div class="prod-notes">{{ $label['notes'] }}</div>
                                 @endif
                             </td>
                         </tr>

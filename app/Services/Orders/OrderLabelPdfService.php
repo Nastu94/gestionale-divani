@@ -44,8 +44,16 @@ class OrderLabelPdfService
             $varLine = trim(implode(' ', array_filter([(string)$fabric, (string)$color])));
 
             return [
-                'main' => trim($prefix . $prod),
-                'var'  => $varLine !== '' ? strtoupper($varLine) : null,
+                'main'  => trim($prefix . $prod),
+                'var'   => $varLine !== '' ? strtoupper($varLine) : null,
+
+                /**
+                 * Note colore della riga ordine.
+                 * Vengono lette dalla variabile prodotto associata alla riga.
+                 */
+                'notes' => filled(optional($it->variable)->color_notes)
+                    ? strtoupper((string) optional($it->variable)->color_notes)
+                    : null,
             ];
         })->values();
 
@@ -55,15 +63,22 @@ class OrderLabelPdfService
         $shippingZone = trim((string) ($order->shipping_zone ?? ''));
         $shippingZone = $shippingZone !== '' ? $shippingZone : null;
 
+        /**
+         * Riferimento ordine da mostrare nel blocco indirizzo.
+         */
+        $reference = trim((string) ($order->reference ?? ''));
+        $reference = $reference !== '' ? strtoupper($reference) : null;
+
         $pdf = Pdf::loadView('pdf.order-label', [
-                'brand'     => strtoupper($brand),
-                'name'      => strtoupper($name),
-                'street'    => strtoupper($street),
-                'cityLine'  => strtoupper($cityLine),
+                'brand'        => strtoupper($brand),
+                'name'         => strtoupper($name),
+                'street'       => strtoupper($street),
+                'cityLine'     => strtoupper($cityLine),
+                'reference'    => $reference,
                 'shippingZone' => $shippingZone ? strtoupper($shippingZone) : null,
-                'brandCity' => strtoupper($brandCity),
-                'orderNo'   => strtoupper($orderNo),
-                'labels'    => $labels,
+                'brandCity'    => strtoupper($brandCity),
+                'orderNo'      => strtoupper($orderNo),
+                'labels'       => $labels,
             ])
             ->setPaper(self::PAPER)
             ->setOptions([
