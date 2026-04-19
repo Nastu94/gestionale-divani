@@ -1,61 +1,330 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Gestionale Divani
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Applicazione web sviluppata con **Laravel 12** per la gestione operativa di una realtà produttiva nel settore dei divani.
 
-## About Laravel
+Il progetto copre i principali flussi aziendali legati a:
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+- anagrafiche clienti e fornitori;
+- catalogo prodotti e componenti;
+- varianti tessuto / colore;
+- ordini cliente e ordini fornitore;
+- magazzino, lotti, movimenti e prenotazioni stock;
+- approvvigionamenti e riconciliazione fabbisogni;
+- etichette PDF, DDT e reportistica;
+- ruoli, permessi, audit log e ricerca globale.
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+---
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+## Panoramica
 
-## Learning Laravel
+**Gestionale Divani** nasce per centralizzare in un'unica piattaforma la gestione commerciale, produttiva e logistica.
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+L'applicazione consente di:
 
-You may also try the [Laravel Bootcamp](https://bootcamp.laravel.com), where you will be guided through building a modern Laravel application from scratch.
+- gestire prodotti finiti e componenti di produzione;
+- monitorare disponibilità, movimenti e riserve di magazzino;
+- inserire ordini cliente standard e occasionali;
+- generare approvvigionamenti in base alla copertura reale di stock;
+- tracciare flussi operativi con permessi e log attività;
+- produrre documenti operativi come etichette ordine e documenti di trasporto.
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+---
 
-## Laravel Sponsors
+## Funzionalità principali
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+### Anagrafiche e catalogo
 
-### Premium Partners
+- gestione **clienti**;
+- gestione **fornitori**;
+- gestione **categorie componenti**;
+- gestione **componenti** con attributi tecnici;
+- gestione **prodotti** con varianti configurabili;
+- amministrazione centralizzata di **tessuti** e **colori**.
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+### Ordini
 
-## Contributing
+- **ordini cliente**;
+- **ordini fornitore**;
+- supporto a clienti **standard** e **occasionali**;
+- conferma pubblica degli ordini standard tramite **link con token**;
+- flusso di accettazione / rifiuto ordine con invio notifiche;
+- ricalcolo approvvigionamenti sugli ordini.
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+### Magazzino e logistica
 
-## Code of Conduct
+- gestione **magazzini**;
+- livelli stock e disponibilità per componente;
+- movimenti di carico / scarico;
+- gestione **lotti**;
+- prenotazioni di stock su ordini;
+- resi prodotto e gestione giacenze dedicate;
+- generazione **etichette PDF** ordine;
+- supporto a **DDT** e documenti operativi di magazzino.
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+### Controllo e amministrazione
 
-## Security Vulnerabilities
+- sistema di **ruoli e permessi**;
+- **activity log** delle modifiche;
+- ricerca globale;
+- report su ordini e magazzino;
+- job schedulati per la riconciliazione settimanale del fabbisogno.
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+---
 
-## License
+## Stack tecnologico
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+### Backend
+
+- PHP **8.2+**
+- Laravel **12**
+- Laravel Jetstream
+- Laravel Sanctum
+- Livewire **3**
+- Spatie Laravel Permission
+- Spatie Laravel Activitylog
+- Laravel Scout + TNTSearch
+- Barryvdh DomPDF
+- PhpSpreadsheet
+
+### Frontend
+
+- Vite
+- Tailwind CSS
+- Alpine.js
+
+---
+
+## Requisiti
+
+Per eseguire il progetto in locale servono almeno:
+
+- PHP 8.2 o superiore;
+- Composer;
+- Node.js e npm;
+- un database compatibile con Laravel.
+
+> Il file `.env.example` è predisposto di default per **SQLite**, con sessioni, cache e queue su database.
+
+---
+
+## Installazione
+
+### 1. Clona la repository
+
+```bash
+git clone https://github.com/Nastu94/gestionale-divani.git
+cd gestionale-divani
+```
+
+### 2. Installa le dipendenze backend
+
+```bash
+composer install
+```
+
+### 3. Installa le dipendenze frontend
+
+```bash
+npm install
+```
+
+### 4. Crea il file di ambiente
+
+```bash
+cp .env.example .env
+```
+
+### 5. Genera la chiave applicativa
+
+```bash
+php artisan key:generate
+```
+
+### 6. Configura il database
+
+Nel file `.env` imposta i parametri del database che vuoi utilizzare.
+
+Esempio con SQLite:
+
+```env
+DB_CONNECTION=sqlite
+```
+
+Esempio con MySQL / MariaDB:
+
+```env
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=gestionale_divani
+DB_USERNAME=root
+DB_PASSWORD=
+```
+
+### 7. Esegui le migration
+
+```bash
+php artisan migrate
+```
+
+### 8. Compila gli asset frontend
+
+Per sviluppo:
+
+```bash
+npm run dev
+```
+
+Per build produzione:
+
+```bash
+npm run build
+```
+
+### 9. Avvia l'applicazione
+
+Avvio completo in ambiente di sviluppo:
+
+```bash
+composer dev
+```
+
+Il comando avvia:
+
+- server Laravel;
+- listener delle code;
+- log viewer via Pail;
+- Vite in modalità sviluppo.
+
+In alternativa puoi avviare i processi separatamente:
+
+```bash
+php artisan serve
+php artisan queue:work
+php artisan schedule:work
+npm run dev
+```
+
+---
+
+## Configurazioni utili
+
+### Conferma ordini cliente
+
+Il progetto include un flusso pubblico di conferma / rifiuto ordine per i clienti standard.
+
+Variabili utili:
+
+```env
+ORDERS_CONFIRMATION_TTL_DAYS=14
+```
+
+Questa configurazione controlla la durata del link pubblico inviato al cliente.
+
+### Riconciliazione approvvigionamenti
+
+È disponibile una riconciliazione schedulata per verificare la copertura degli ordini confermati in una finestra temporale configurabile.
+
+Variabili utili:
+
+```env
+SUPPLY_RECONCILE_ENABLED=true
+SUPPLY_RECONCILE_WINDOW_DAYS=30
+SUPPLY_RECONCILE_SCHEDULE_TIME=06:00
+SUPPLY_RECONCILE_TZ=Europe/Rome
+SUPPLY_RECONCILE_DRY_RUN=false
+SUPPLY_RECONCILE_LOG_CHANNEL=supply
+```
+
+Esecuzione manuale:
+
+```bash
+php artisan reservations:weekly-reconcile
+```
+
+Esecuzione di test senza scritture:
+
+```bash
+php artisan reservations:weekly-reconcile --dry
+```
+
+---
+
+## Flussi principali del dominio
+
+### Ordini standard
+
+Per gli ordini cliente standard il sistema può:
+
+- inviare una richiesta di conferma al cliente;
+- esporre una pagina pubblica con token;
+- registrare conferma o rifiuto;
+- notificare i destinatari interni;
+- generare approvvigionamenti aggiuntivi quando necessario.
+
+### Ordini occasionali
+
+Gli ordini per clienti occasionali seguono un flusso separato, orientato a una gestione più diretta e operativa.
+
+### Etichette e documenti
+
+Il progetto genera etichette ordine in PDF con dati di spedizione, riferimenti, prodotto, varianti e note colore.
+
+### Magazzino
+
+Il sistema traccia disponibilità, riserve, movimenti e lotti per supportare produzione, logistica e approvvigionamento.
+
+---
+
+## Struttura del progetto
+
+Alcune aree rilevanti della codebase:
+
+```text
+app/
+├── Http/Controllers/        # Controller applicativi e API interne
+├── Livewire/                # Componenti Livewire
+├── Models/                  # Modelli Eloquent
+├── Services/                # Logiche applicative e servizi di dominio
+├── Console/Commands/        # Comandi Artisan personalizzati
+
+database/
+├── migrations/              # Struttura del database
+
+resources/
+├── views/                   # Blade views e template PDF
+
+routes/
+├── web.php                  # Rotte web e aree protette
+├── console.php              # Scheduler e comandi console
+```
+
+---
+
+## Sicurezza e autorizzazioni
+
+L'applicazione utilizza un modello a permessi granulari per limitare l'accesso alle diverse sezioni operative.
+
+Le autorizzazioni sono gestite tramite ruoli e permessi, mentre le modifiche significative possono essere tracciate tramite activity log.
+
+---
+
+## Note per lo sviluppo
+
+- mantenere allineate migration, model e permessi quando si introduce una nuova funzionalità;
+- documentare i nuovi flussi di dominio nel README;
+- verificare l'impatto delle modifiche sui job schedulati e sulle code;
+- aggiornare la documentazione dei flussi ordine quando cambiano conferme, etichette o approvvigionamenti.
+
+---
+
+## Stato del README
+
+Questo README descrive la repository in base alla struttura attuale del progetto e sostituisce il README standard generato da Laravel.
+
+Con l'evoluzione del gestionale è consigliato aggiornarlo ogni volta che vengono introdotti:
+
+- nuovi moduli;
+- nuovi comandi Artisan;
+- nuove integrazioni;
+- cambiamenti nei flussi ordini / magazzino / approvvigionamenti.
