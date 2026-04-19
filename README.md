@@ -445,14 +445,3 @@ Quando introduci nuove funzionalità è consigliato:
 - aggiornare le configurazioni `.env.example` quando vengono aggiunte nuove variabili;
 - esplicitare eventuali dipendenze tra ordini, magazzino e approvvigionamenti.
 
----
-
-## Possibili estensioni del README
-
-Se la repository verrà usata anche come vetrina pubblica, si possono aggiungere in seguito:
-
-- screenshot del gestionale;
-- diagramma dei flussi ordine → stock → approvvigionamento;
-- sezione dedicata ai permessi principali;
-- guida rapida per deploy e ambienti staging / produzione;
-- changelog o roadmap.
