@@ -62,10 +62,14 @@ class OrderItem extends Model
 
     /**
      * Prodotto associato alla riga ordine.
+     *
+     * Include anche i prodotti archiviati tramite soft delete.
+     * Questo è necessario perché gli ordini storici devono continuare
+     * a mostrare e usare il prodotto originario.
      */
     public function product()
     {
-        return $this->belongsTo(Product::class);
+        return $this->belongsTo(Product::class)->withTrashed();
     }
     
     /**

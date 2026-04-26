@@ -94,10 +94,24 @@ class InventoryService
             $have = ($available[$cid] ?? 0) + ($incoming[$cid] ?? 0) + ($incomingMine[$cid] ?? 0);
 
             if ($need > $have + 1e-6) {
+                /**
+                 * Recupera il componente anche se archiviato.
+                 *
+                 * Serve per non bloccare disponibilità e riconciliazioni su ordini storici
+                 * che puntano ancora a componenti non più attivi in anagrafica.
+                 */
+                $component = Component::withTrashed()->find((int) $cid);
+
+                if (! $component) {
+                    throw new \RuntimeException(
+                        "Componente #{$cid} non trovato durante il calcolo disponibilità."
+                    );
+                }
+
                 $shortage->push([
                     'component_id' => $cid,
-                    'code'         => Component::findOrFail($cid)->code,
-                    'description'  => Component::findOrFail($cid)->description,
+                    'code'         => $component->code,
+                    'description'  => $component->description,
                     'needed'       => $need,
                     'available'    => $available[$cid]    ?? 0,
                     'incoming'     => $incoming[$cid]     ?? 0,
@@ -129,10 +143,37 @@ class InventoryService
             $productId = (int) $line['product_id'];
             $qtyProd   = (float) $line['quantity'];
 
-            /** @var \App\Models\Product $product */
-            $product = Product::with(['components' => function ($q) {
-                $q->withPivot(['quantity', 'is_variable', 'variable_slot']);
-            }])->findOrFail($productId);
+            /**
+             * Recupera il prodotto anche se è stato archiviato tramite soft delete.
+             *
+             * Gli ordini già creati devono restare lavorabili anche se, in seguito,
+             * il prodotto viene disattivato o archiviato dall'anagrafica.
+             */
+            $product = Product::withTrashed()
+                ->with(['components' => function ($q) {
+                    /**
+                     * Manteniamo gli stessi pivot già usati dalla BOM.
+                     *
+                     * Nota:
+                     * non cambiamo la struttura della relazione, ma permettiamo al prodotto
+                     * storico di caricare comunque i componenti necessari all'esplosione BOM.
+                     */
+                    $q->withPivot(['quantity', 'is_variable', 'variable_slot']);
+                }])
+                ->find($productId);
+
+            if (! $product) {
+                /**
+                 * Se il prodotto non esiste nemmeno con withTrashed(), allora non è solo
+                 * archiviato: manca proprio dal database.
+                 *
+                 * In quel caso è corretto lanciare un errore più leggibile rispetto
+                 * al generico ModelNotFoundException.
+                 */
+                throw new \RuntimeException(
+                    "Prodotto #{$productId} non trovato durante l'esplosione BOM."
+                );
+            }
 
             // Variabili selezionate per la riga; fallback ai default del prodotto
             $fabricId = array_key_exists('fabric_id', $line) && $line['fabric_id'] !== null
@@ -172,15 +213,46 @@ class InventoryService
                         );
                     }
 
-                    // Cerca il componente REALE: stessa categoria del placeholder + coppia tessuto/colore
+                    /**
+                     * Cerca prima il componente reale attivo.
+                     *
+                     * Questo resta il comportamento preferito per ordini nuovi e dati puliti.
+                     */
                     $real = Component::query()
                         ->where('is_active', 1)
                         ->whereNull('deleted_at')
-                        ->where('category_id', $comp->category_id) // stesso “tipo” del placeholder
-                        ->where('fabric_id',  $fabricId)
-                        ->where('color_id',   $colorId)
+                        ->where('category_id', $comp->category_id)
+                        ->where('fabric_id', $fabricId)
+                        ->where('color_id', $colorId)
                         ->orderBy('id')
                         ->first();
+
+                    /**
+                     * Fallback per ordini storici.
+                     *
+                     * Se il componente reale è stato archiviato dopo la creazione dell'ordine,
+                     * la riconciliazione deve poter comunque calcolare il fabbisogno.
+                     */
+                    if (! $real) {
+                        $real = Component::withTrashed()
+                            ->where('category_id', $comp->category_id)
+                            ->where('fabric_id', $fabricId)
+                            ->where('color_id', $colorId)
+                            ->orderBy('id')
+                            ->first();
+
+                        if ($real) {
+                            Log::warning('explodeBom – componente reale archiviato/inattivo usato per ordine storico', [
+                                'product_id'  => $productId,
+                                'category_id' => $comp->category_id,
+                                'fabric_id'   => $fabricId,
+                                'color_id'    => $colorId,
+                                'component_id'=> $real->id,
+                                'is_active'   => $real->is_active ?? null,
+                                'deleted_at'  => $real->deleted_at ?? null,
+                            ]);
+                        }
+                    }
 
                     if (! $real) {
                         throw new \RuntimeException(

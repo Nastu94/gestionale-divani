@@ -1,5 +1,4 @@
 {{-- resources/views/pages/orders/supply/dashboard.blade.php --}}
-
 <x-app-layout>
     {{-- Header pagina --}}
     <x-slot name="header">
