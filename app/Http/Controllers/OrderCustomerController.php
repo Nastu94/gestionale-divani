@@ -147,6 +147,91 @@ class OrderCustomerController extends Controller
     }
 
     /**
+     * Stampa le righe selezionate nella tabella Ordini Cliente.
+     *
+     * La stampa non genera etichette: crea una pagina HTML stampabile
+     * con le stesse colonne visibili nell'elenco principale.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\View\View|\Illuminate\Http\RedirectResponse
+     */
+    public function printSelected(Request $request): \Illuminate\View\View|RedirectResponse
+    {
+        /*
+        * La rotta è già protetta dal middleware permission:orders.customer.view,
+        * ma manteniamo anche un controllo esplicito lato controller.
+        */
+        abort_unless($request->user()?->can('orders.customer.view'), 403);
+
+        /*
+        * Validiamo gli ID ricevuti dal form.
+        *
+        * Laravel, con $request->validate(), interrompe automaticamente
+        * l'esecuzione se la validazione fallisce e reindirizza indietro
+        * nelle richieste HTTP tradizionali.
+        */
+        $data = $request->validate([
+            'ids'   => ['required', 'array', 'min:1', 'max:100'],
+            'ids.*' => ['required', 'integer', 'distinct', 'exists:orders,id'],
+        ]);
+
+        /*
+        * Normalizziamo gli ID:
+        * - cast a intero
+        * - rimozione duplicati
+        * - reset degli indici
+        */
+        $ids = collect($data['ids'])
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+
+        /*
+        * Carichiamo solo ordini cliente.
+        *
+        * Manteniamo anche il calcolo has_started_prod usato nella tabella
+        * principale, così la stampa resta coerente con la vista elenco.
+        */
+        $orders = Order::query()
+            ->with([
+                'customer:id,company',
+                'occasionalCustomer:id,company',
+                'orderNumber:id,number,order_type',
+            ])
+            ->whereHas('orderNumber', fn ($q) => $q->where('order_type', 'customer'))
+            ->select('orders.*')
+            ->selectRaw(
+                'EXISTS (
+                    SELECT 1
+                    FROM   order_items oi
+                    JOIN   v_order_item_phase_qty v
+                        ON v.order_item_id = oi.id
+                    WHERE  oi.order_id    = orders.id
+                    AND    v.phase        > 0
+                    AND    v.qty_in_phase > 0
+                ) AS has_started_prod'
+            )
+            ->whereIn('orders.id', $ids)
+            ->get()
+            /*
+            * Manteniamo l'ordine con cui gli ID sono arrivati dal frontend.
+            */
+            ->sortBy(fn (Order $order) => $ids->search((int) $order->id))
+            ->values();
+
+        /*
+        * Se qualcuno prova a inviare ID non coerenti con ordini cliente,
+        * blocchiamo la stampa.
+        */
+        abort_if($orders->count() !== $ids->count(), 404, 'Uno o più ordini selezionati non sono disponibili.');
+
+        return view('pages.orders.print-selected-customers', [
+            'orders' => $orders,
+            'printedAt' => now(),
+        ]);
+    }
+
+    /**
      * Show the form for creating a new resource.
      */
     public function create()

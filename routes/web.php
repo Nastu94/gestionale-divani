@@ -30,6 +30,7 @@ use App\Http\Controllers\OrderPublicConfirmationController;
 use App\Http\Controllers\SupplyDashboardController;
 use App\Http\Controllers\ProductReturnController;
 use App\Http\Controllers\OrderCustomerLabelController;
+use App\Http\Controllers\WarehouseExitPrintController;
 use App\Http\Controllers\Api\SupplierApiController;
 use App\Http\Controllers\Api\ComponentApiController;
 use App\Http\Controllers\Api\OrderNumberApiController;
@@ -935,6 +936,18 @@ Route::middleware([
         ->middleware('permission:orders.customer.returns_manage');
 
     /*
+    |--------------------------------------------------------------------------
+    | Stampa righe selezionate Ordini Cliente
+    |--------------------------------------------------------------------------
+    |
+    | Riceve gli ID selezionati dalla tabella ordini cliente e apre
+    | una pagina HTML stampabile con solo quelle righe.
+    |
+    */
+    Route::post('/orders/customer/print-selected', [OrderCustomerController::class, 'printSelected'])
+        ->name('orders.customer.print.selected')
+        ->middleware('permission:orders.customer.view');
+    /*
 |--------------------------------------------------------------------------
     | Ordini Fornitore
 |--------------------------------------------------------------------------
@@ -1144,6 +1157,19 @@ Route::middleware([
     Route::put('stock-movements-exit/{stock_movement}', [StockLevelController::class, 'updateExit'])
         ->name('stock-movements-exit.update')
         ->middleware('permission:stock.exit');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Stampa righe selezionate uscite di magazzino
+    |--------------------------------------------------------------------------
+    |
+    | La rotta viene aperta da Livewire tramite URL firmata temporanea.
+    | Il token identifica temporaneamente gli ID selezionati salvati in cache.
+    |
+    */
+    Route::get('/warehouse/exits/print-selected/{token}', [WarehouseExitPrintController::class, 'show'])
+        ->name('warehouse.exits.print.selected')
+        ->middleware(['signed', 'permission:stock.exit']);
 
     /*
     |--------------------------------------------------------------------------

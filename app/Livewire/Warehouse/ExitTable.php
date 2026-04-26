@@ -24,9 +24,11 @@ use App\Services\ForceReservationPlanner;
 use App\Services\ForceReservationExecutor;
 use App\Services\Ddt\DdtService;
 use App\Services\WorkOrders\WorkOrderService;
+use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\URL;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\ValidationException;
 use Livewire\Component;
 use Livewire\WithPagination;
@@ -122,6 +124,17 @@ class ExitTable extends Component
     ];
 
     /**
+     * ID delle righe ordine selezionate nella tabella uscite.
+     *
+     * La selezione è pensata per la pagina corrente:
+     * quando cambiano fase, filtri, ordinamento, paginazione o perPage,
+     * viene svuotata per evitare stampe incoerenti.
+     *
+     * @var array<int, int>
+     */
+    public array $selectedExitRowIds = [];
+
+    /**
      * Mancanti strutturati (payload) per mostrare il pulsante "Forza Prenotazione"
      * e, nel prossimo step, costruire il piano di riallocazione.
      *
@@ -147,30 +160,226 @@ class ExitTable extends Component
     public bool $showForceReservationModal = false;
 
     /**
-     * Qualsiasi variazione diversa dalla paginazione resetta la pagina corrente.
+     * Qualsiasi variazione diversa dalla paginazione e dalla selezione
+     * resetta la pagina corrente.
      *
      * Nota Livewire 3:
      * - la paginazione aggiorna proprietà interne tipo "paginators.page"
-     *   (non esiste più una property pubblica $page).
+     * - la selezione checkbox aggiorna selectedExitRowIds
      */
     public function updating(string $prop): void
     {
-        /*──────────────────────────────────────────────────────────────*
-        |  1) Evita reset quando l’update è solo di paginazione        |
-        *──────────────────────────────────────────────────────────────*/
+        /*
+        * Livewire aggiorna la paginazione usando proprietà interne
+        * come "paginators" o "paginators.page".
+        */
         $isPaginationUpdate =
             $prop === 'paginators' || str_starts_with($prop, 'paginators.');
 
-        if (! $isPaginationUpdate) {
-            $this->resetPage();
+        /*
+        * Le checkbox aggiornano selectedExitRowIds.
+        * Non dobbiamo resettare pagina o selezione quando l'utente
+        * sta semplicemente selezionando/deselezionando righe.
+        */
+        $isSelectionUpdate =
+            $prop === 'selectedExitRowIds' || str_starts_with($prop, 'selectedExitRowIds.');
+
+        /*
+        * Se l'utente cambia pagina, svuotiamo la selezione.
+        * Così "seleziona tutto" resta riferito alle righe visibili.
+        */
+        if ($isPaginationUpdate) {
+            $this->clearSelectedExitRows();
+
+            return;
         }
 
-        /*──────────────────────────────────────────────────────────────*
-        |  2) Chiudi toolbar se l’utente cambia KPI fase               |
-        *──────────────────────────────────────────────────────────────*/
-        if ($prop === 'phase') {
-            $this->dispatch('close-row'); // evento JS → Alpine imposta openId = null
+        /*
+        * Se l'utente cambia filtri, fase, ordinamento o perPage,
+        * resettiamo pagina e selezione.
+        */
+        if (! $isSelectionUpdate) {
+            $this->resetPage();
+            $this->clearSelectedExitRows();
         }
+
+        /*
+        * Quando cambia KPI/fase, chiudiamo anche la toolbar della riga.
+        */
+        if ($prop === 'phase') {
+            $this->dispatch('close-row');
+        }
+    }
+
+    /**
+     * Normalizza la selezione ogni volta che Livewire aggiorna
+     * l'array selectedExitRowIds.
+     *
+     * @param  mixed  $value
+     * @return void
+     */
+    public function updatedSelectedExitRowIds(mixed $value = null): void
+    {
+        $this->normalizeSelectedExitRows();
+    }
+
+    /**
+     * Seleziona o deseleziona tutte le righe visibili nella pagina corrente.
+     *
+     * @param  array<int, int|string>  $visibleIds
+     * @return void
+     */
+    public function toggleVisibleRows(array $visibleIds): void
+    {
+        /*
+        * Normalizza gli ID visibili ricevuti dalla view.
+        */
+        $visibleIds = collect($visibleIds)
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn ($id) => $id > 0)
+            ->unique()
+            ->values();
+
+        if ($visibleIds->isEmpty()) {
+            return;
+        }
+
+        /*
+        * Normalizza la selezione corrente.
+        */
+        $selectedIds = collect($this->selectedExitRowIds)
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn ($id) => $id > 0)
+            ->unique()
+            ->values();
+
+        /*
+        * Se tutte le righe visibili sono già selezionate,
+        * allora la checkbox master le deseleziona.
+        */
+        $allVisibleSelected = $visibleIds->every(
+            fn (int $id) => $selectedIds->contains($id)
+        );
+
+        if ($allVisibleSelected) {
+            $this->selectedExitRowIds = $selectedIds
+                ->reject(fn (int $id) => $visibleIds->contains($id))
+                ->values()
+                ->all();
+
+            return;
+        }
+
+        /*
+        * Altrimenti aggiungiamo tutte le righe visibili alla selezione.
+        */
+        $this->selectedExitRowIds = $selectedIds
+            ->merge($visibleIds)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Genera una richiesta di stampa per le righe selezionate.
+     *
+     * Gli ID non vengono passati direttamente nella query string:
+     * vengono salvati temporaneamente in cache e recuperati tramite token.
+     *
+     * @return void
+     */
+    public function printSelectedRows(): void
+    {
+        /*
+        * Controllo permesso coerente con le azioni di uscita magazzino.
+        */
+        if (! auth()->user()?->can('stock.exit')) {
+            session()->flash('error', 'Non hai il permesso per stampare le uscite di magazzino.');
+            return;
+        }
+
+        $this->normalizeSelectedExitRows();
+
+        if (empty($this->selectedExitRowIds)) {
+            session()->flash('error', 'Seleziona almeno una riga da stampare.');
+            return;
+        }
+
+        /*
+        * Limite prudenziale per evitare stampe troppo grandi.
+        * Puoi alzarlo se serve, ma partirei così.
+        */
+        if (count($this->selectedExitRowIds) > 500) {
+            session()->flash('error', 'Puoi stampare al massimo 500 righe per volta.');
+            return;
+        }
+
+        /*
+        * Token temporaneo per recuperare gli ID lato controller.
+        */
+        $token = (string) Str::uuid();
+
+        Cache::put(
+            $this->printCacheKey($token),
+            [
+                'user_id' => auth()->id(),
+                'ids'     => $this->selectedExitRowIds,
+                'phase'   => $this->phase,
+            ],
+            now()->addMinutes(5)
+        );
+
+        /*
+        * URL firmata temporanea.
+        * La rotta ha middleware signed, quindi non è modificabile
+        * senza invalidare la firma.
+        */
+        $printUrl = URL::temporarySignedRoute(
+            'warehouse.exits.print.selected',
+            now()->addMinutes(5),
+            ['token' => $token]
+        );
+
+        /*
+        * Riutilizziamo il listener JS già presente nella view.
+        */
+        $this->dispatch('open-print-window', url: $printUrl);
+    }
+
+    /**
+     * Svuota la selezione delle righe.
+     *
+     * @return void
+     */
+    public function clearSelectedExitRows(): void
+    {
+        $this->selectedExitRowIds = [];
+    }
+
+    /**
+     * Normalizza gli ID selezionati.
+     *
+     * @return void
+     */
+    private function normalizeSelectedExitRows(): void
+    {
+        $this->selectedExitRowIds = collect($this->selectedExitRowIds)
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn ($id) => $id > 0)
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Restituisce la chiave cache per la stampa selezionata.
+     *
+     * @param  string  $token
+     * @return string
+     */
+    private function printCacheKey(string $token): string
+    {
+        return "warehouse_exit_print:{$token}";
     }
 
     /*──────────────────────────────────────────────────────────────*

@@ -40,20 +40,96 @@
         <div class="max-w-full mx-auto sm:px-6 lg:px-8">
             <div class="bg-white dark:bg-gray-800 shadow sm:rounded-lg">
                 <div class="p-4 overflow-x-auto">
+                    @php
+                        /*
+                        * ID visibili nella pagina corrente.
+                        * Servono per la checkbox master nell'head.
+                        */
+                        $visibleExitRowIds = $exitRows
+                            ->pluck('id')
+                            ->map(fn ($id) => (int) $id)
+                            ->values();
+
+                        /*
+                        * Selezione corrente normalizzata.
+                        */
+                        $selectedExitIds = collect($selectedExitRowIds ?? [])
+                            ->map(fn ($id) => (int) $id)
+                            ->values();
+
+                        /*
+                        * Conteggio righe visibili selezionate.
+                        */
+                        $visibleSelectedCount = $visibleExitRowIds
+                            ->filter(fn ($id) => $selectedExitIds->contains($id))
+                            ->count();
+
+                        /*
+                        * True quando tutte le righe visibili sono selezionate.
+                        */
+                        $allVisibleSelected = $visibleExitRowIds->isNotEmpty()
+                            && $visibleSelectedCount === $visibleExitRowIds->count();
+
+                        /*
+                        * Conteggio totale selezionate nello stato Livewire.
+                        */
+                        $selectedCount = $selectedExitIds->count();
+                    @endphp
                     {{-- ─────────── Toolbar azioni globali ─────────── --}}
-                    <div class="flex justify-end mb-2">
-                        <button  wire:click="$refresh"
-                                class="inline-flex items-center px-3 py-1.5
+                    <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+
+                        {{-- Azione bulk: stampa righe selezionate --}}
+                        <div>
+                            @if($selectedCount > 0)
+                                <div class="inline-flex items-center gap-3 rounded-md border border-purple-200 bg-purple-50 px-3 py-2 text-xs text-purple-900">
+                                    <span>
+                                        <strong>{{ $selectedCount }}</strong>
+                                        {{ $selectedCount === 1 ? 'riga selezionata' : 'righe selezionate' }}
+                                    </span>
+
+                                    <button type="button"
+                                            wire:click="printSelectedRows"
+                                            wire:loading.attr="disabled"
+                                            wire:target="printSelectedRows"
+                                            class="inline-flex items-center rounded-md bg-purple-600 px-3 py-1.5
+                                                font-semibold uppercase text-white hover:bg-purple-500
+                                                focus:outline-none focus:ring-2 focus:ring-purple-300
+                                                disabled:opacity-60">
+                                        <span wire:loading.remove wire:target="printSelectedRows">
+                                            <i class="fas fa-print mr-1"></i>
+                                            Stampa selezionate
+                                        </span>
+
+                                        <span wire:loading wire:target="printSelectedRows">
+                                            <i class="fas fa-circle-notch fa-spin mr-1"></i>
+                                            Preparazione...
+                                        </span>
+                                    </button>
+
+                                    <button type="button"
+                                            wire:click="clearSelectedExitRows"
+                                            class="inline-flex items-center hover:text-red-600">
+                                        <i class="fas fa-times mr-1"></i>
+                                        Annulla
+                                    </button>
+                                </div>
+                            @endif
+                        </div>
+
+                        {{-- Aggiorna --}}
+                        <div>
+                            <button wire:click="$refresh"
+                                    class="inline-flex items-center px-3 py-1.5
                                         bg-indigo-600 hover:bg-indigo-500
                                         text-xs font-semibold text-white rounded-md">
 
-                            <i class="fas fa-sync-alt mr-1"></i> Aggiorna
+                                <i class="fas fa-sync-alt mr-1"></i> Aggiorna
 
-                            {{-- spinner mentre Livewire elabora --}}
-                            <span wire:loading.inline wire:target="$refresh" class="ml-2">
-                                <i class="fas fa-circle-notch fa-spin"></i>
-                            </span>
-                        </button>
+                                <span wire:loading.inline wire:target="$refresh" class="ml-2">
+                                    <i class="fas fa-circle-notch fa-spin"></i>
+                                </span>
+                            </button>
+                        </div>
                     </div>
                     
                     {{-- ─────────── Tabella dati ─────────── --}}
@@ -61,6 +137,24 @@
                         {{-- HEAD --}}
                         <thead class="bg-gray-300 dark:bg-gray-700 uppercase tracking-wider">
                             <tr>
+                                {{-- SELEZIONE --}}
+                                <th class="px-3 py-2 text-center w-12">
+                                    <button type="button"
+                                            wire:click="toggleVisibleRows(@js($visibleExitRowIds->all()))"
+                                            class="inline-flex items-center justify-center gap-1"
+                                            title="Seleziona le righe visibili">
+
+                                        <input type="checkbox"
+                                            class="rounded border-gray-300 text-purple-600 focus:ring-purple-500 pointer-events-none"
+                                            @checked($allVisibleSelected)>
+
+                                        @if($selectedCount > 0)
+                                            <span class="text-[10px] normal-case">
+                                                ({{ $selectedCount }})
+                                            </span>
+                                        @endif
+                                    </button>
+                                </th>
 
                                 {{-- CLIENTE --}}
                                 <x-th-menu-live
@@ -164,7 +258,17 @@
                                          @click="$dispatch('open-row', {{ $row->id }})"
                                          class="cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700"
                                          :class="openId === {{ $row->id }} ? 'bg-gray-200 dark:bg-gray-700' : ''"
-                                     @endif>
+                                     @endif
+                                >
+                                    {{-- Selezione --}}
+                                    <td class="px-3 py-2 text-center">
+                                        <input type="checkbox"
+                                            value="{{ $row->id }}"
+                                            wire:model.live="selectedExitRowIds"
+                                            wire:key="select-exit-row-{{ $row->id }}"
+                                            @click.stop
+                                            class="rounded border-gray-300 text-purple-600 focus:ring-purple-500">
+                                    </td>
                                     {{-- Cliente --}}
                                     <td class="px-6 py-2 whitespace-nowrap">
                                         {{ $row->customer ?? '—' }}
@@ -203,7 +307,7 @@
                                 {{-- RIGA TOOLBAR --}}
                                 @if($canToggle)
                                     <tr wire:key="tb-{{ $row->id }}" x-show="openId === {{ $row->id }}" x-cloak>
-                                        <td :colspan="8" class="px-6 py-3 bg-gray-200 dark:bg-gray-700">
+                                        <td :colspan="9" class="px-6 py-3 bg-gray-200 dark:bg-gray-700">
                                             <div class="flex items-center space-x-4 text-xs">
                                                 {{-- ► Avanza fase (qty default 100 %) --}}
                                                 @if($canAdvance)
@@ -261,7 +365,7 @@
                             {{-- RIGA NESSUN RISULTATO --}}
                             @if ($exitRows->isEmpty())
                                 <tr>
-                                    <td colspan="8" class="px-6 py-2 text-center text-gray-500">Nessun risultato trovato.</td>
+                                    <td colspan="9" class="px-6 py-2 text-center text-gray-500">Nessun risultato trovato.</td>
                                 </tr>
                             @endif
                         </tbody>
@@ -787,7 +891,7 @@
 
             /* Se il popup blocker interviene */
             if (!w) {
-                alert('Popup bloccato: consenti i popup per stampare il DDT.');
+                alert('Popup bloccato: consenti i popup per stampare il documento.');
             }
         });
 

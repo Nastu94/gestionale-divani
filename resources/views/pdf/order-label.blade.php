@@ -13,22 +13,20 @@
             font-family: "DejaVu Sans", sans-serif;
         }
 
-        /* Wrapper pagina: dimensione fissa */
         .page {
             position: relative;
             width: 567pt;
             height: 312pt;
-            overflow: hidden; /* niente “sfori” che creano pagine extra */
+            overflow: hidden;
         }
+
         .page.break { page-break-after: always; }
 
-        /* Label “inset 0”: NON usare height/width + padding insieme */
         .label {
             position: absolute;
             top: 0; left: 0; right: 0; bottom: 0;
         }
 
-        /* Linea nera a sinistra come proforma */
         .left-line {
             position: absolute;
             top: 0; left: 0; bottom: 0;
@@ -36,26 +34,41 @@
             background: #000;
         }
 
-        /* Area contenuti: usa inset invece del padding (DomPDF calcola meglio l'altezza) */
+        /*
+        * Area contenuti.
+        * Riduciamo leggermente i margini verticali per recuperare spazio utile,
+        * senza cambiare il formato reale dell'etichetta.
+        */
         .content {
             position: absolute;
-            top: 18pt;
+            top: 12pt;
             left: 14pt;
-            right: 22pt;
-            bottom: 14pt;
-
-            padding: 0;           /* IMPORTANT: niente padding qui */
+            right: 18pt;
+            bottom: 8pt;
+            padding: 0;
         }
 
-        /* Wrapper contenuti: lascia spazio riservato in basso per footer + gap */
+        /*
+        * Area contenuti sopra al footer.
+        * Il bottom deve essere coerente con l'altezza reale del footer.
+        */
         .content-inner {
             position: absolute;
             top: 0;
             left: 0;
             right: 0;
 
-            /* 40pt footer + 12pt gap sopra footer (spazio bianco garantito) */
-            bottom: 67pt;
+            /*
+            * Footer 36pt + 8pt di spazio bianco.
+            * Prima era troppo conservativo e lasciava poco spazio al prodotto.
+            */
+            bottom: 44pt;
+
+            /*
+            * Fallback di sicurezza: impedisce al testo di invadere il footer.
+            * La riduzione font automatica sotto serve invece a evitare il taglio.
+            */
+            overflow: hidden;
         }
 
         table.layout {
@@ -64,155 +77,241 @@
             table-layout: fixed;
         }
 
-        /* 3 bande: TOP / PRODOTTO / SPACER / FOOTER */
-        tr.row-top    { height: auto; }   /* auto: prende solo lo spazio che serve */
-        tr.row-prod   { height: auto; }   /* auto: prende solo lo spazio che serve */
-        tr.row-spacer { height: 100%; }   /* riempie TUTTO lo spazio residuo */
-        tr.row-footer { height: 40pt; }   /* footer fisso */
-
-        /* Spacer “invisibile”: evita che &nbsp; crei una riga visibile */
-        tr.row-spacer td {
-            font-size: 0;
-            line-height: 0;
+        td {
             padding: 0;
+            vertical-align: top;
         }
 
-        td { padding: 0; vertical-align: top; }
-
-        /* TOP */
         .brand {
             width: auto !important;
             font-weight: 700;
-            font-size: 58pt;       
+            font-size: 58pt;
             line-height: 0.95;
             letter-spacing: -1pt;
             white-space: nowrap;
             text-transform: uppercase;
             padding-right: 10pt;
-            overflow: hidden; /* evita che “invada” la colonna destinatario */
+            overflow: hidden;
         }
 
-        /* AL DIVANI è più lungo */
         .brand.brand-long {
             font-size: 50pt;
             letter-spacing: -3pt;
         }
 
         .brand.brand-komodo {
-            font-size: 52pt;      /* prova 54pt; se serve ancora, scendi a 53pt */
-            letter-spacing: -3pt; /* puoi lasciare uguale al base */
+            font-size: 52pt;
+            letter-spacing: -3pt;
         }
 
-        /* Wrapper che “clippa” davvero */
-        .brand-wrap{
+        .brand-wrap {
             display: block;
             width: 100%;
             white-space: nowrap;
-            overflow: hidden; /* DomPDF lo rispetta meglio qui */
-            padding-left: 0;  /* ✅ fondamentale: evita che "KOMODO" venga clippato */
+            overflow: hidden;
+            padding-left: 0;
         }
 
-        /* Stacca visivamente la colonna destinatario dal brand */
-        .dest{
-            width: auto !important;               /* colgroup decide la larghezza */
-            padding-left: 10pt;                   /* gap: evita l’effetto “AL DIVANIKEA” */
+        .dest {
+            width: auto !important;
+            padding-left: 10pt;
         }
 
+        /*
+        * Destinatario leggermente più compatto:
+        * con zona + riferimento il blocco alto cresce molto.
+        */
         .dest-name {
             font-weight: 800;
-            font-size: 26pt;          /* leggermente più piccolo: meno tagli */
-            line-height: 1.05;
+            font-size: 24pt;
+            line-height: 1.02;
             text-transform: uppercase;
-            margin-bottom: 6pt;
-
+            margin-bottom: 4pt;
             white-space: normal;
             word-wrap: break-word;
         }
 
         .dest-line {
             font-weight: 600;
-            font-size: 16.5pt;        /* leggermente più piccolo: l’indirizzo non si tronca */
-            line-height: 1.12;
+            font-size: 15.5pt;
+            line-height: 1.06;
             text-transform: uppercase;
-
             white-space: normal;
             word-wrap: break-word;
         }
 
-        .dest-zone {
-            font-weight: 700;
-            font-size: 14pt;
-            line-height: 1.10;
-            text-transform: uppercase;
-
-            white-space: normal;
-            word-wrap: break-word;
-        }
-
+        .dest-zone,
         .dest-ref {
             font-weight: 700;
-            font-size: 14pt;
-            line-height: 1.10;
+            font-size: 13pt;
+            line-height: 1.05;
             text-transform: uppercase;
-
             white-space: normal;
             word-wrap: break-word;
         }
 
-        .prod-notes {
-            margin-top: 6pt;
-            font-weight: 600;
-            font-size: 18pt;
-            line-height: 1.08;
-            text-transform: uppercase;
-            word-wrap: break-word;
-        }
-
-        /* PRODOTTO */
+        /*
+        * Prodotto: manteniamo leggibilità, ma riduciamo il blocco base.
+        */
         .prod-main {
             font-weight: 800;
-            font-size: 28pt;
-            line-height: 1.06;
+            font-size: 26pt;
+            line-height: 1.02;
             text-transform: uppercase;
             word-wrap: break-word;
         }
 
         .prod-var {
-            margin-top: 6pt;
+            margin-top: 4pt;
             font-weight: 700;
-            font-size: 24pt;
-            line-height: 1.05;
+            font-size: 21pt;
+            line-height: 1.02;
             text-transform: uppercase;
             word-wrap: break-word;
         }
 
-        /* FOOTER */
-        /* Footer sempre a fondo area content */
+        .prod-notes {
+            margin-top: 4pt;
+            font-weight: 600;
+            font-size: 15.5pt;
+            line-height: 1.03;
+            text-transform: uppercase;
+            word-wrap: break-word;
+        }
+
+        /*
+        * Modalità compatta automatica.
+        * Si attiva solo quando il testo dell'etichetta è molto denso.
+        */
+        .page.label-compact .brand.brand-long {
+            font-size: 46pt;
+            letter-spacing: -3.2pt;
+        }
+
+        .page.label-compact .dest-name {
+            font-size: 21pt;
+            line-height: 1.00;
+            margin-bottom: 3pt;
+        }
+
+        .page.label-compact .dest-line {
+            font-size: 13.5pt;
+            line-height: 1.02;
+        }
+
+        .page.label-compact .dest-zone,
+        .page.label-compact .dest-ref {
+            font-size: 11.5pt;
+            line-height: 1.02;
+        }
+
+        .page.label-compact .prod-main {
+            font-size: 23pt;
+            line-height: 1.00;
+        }
+
+        .page.label-compact .prod-var {
+            margin-top: 3pt;
+            font-size: 18.5pt;
+            line-height: 1.00;
+        }
+
+        .page.label-compact .prod-notes {
+            margin-top: 3pt;
+            font-size: 13.5pt;
+            line-height: 1.00;
+        }
+
+        /*
+        * Modalità ancora più stretta per casi estremi.
+        * Non viene usata sempre, solo quando il punteggio testo è molto alto.
+        */
+        .page.label-tight .content {
+            top: 10pt;
+            bottom: 7pt;
+        }
+
+        .page.label-tight .content-inner {
+            bottom: 44pt;
+        }
+
+        .page.label-tight .brand.brand-long {
+            font-size: 44pt;
+        }
+
+        .page.label-tight .dest-name {
+            font-size: 19.5pt;
+        }
+
+        .page.label-tight .dest-line {
+            font-size: 12.5pt;
+        }
+
+        .page.label-tight .dest-zone,
+        .page.label-tight .dest-ref {
+            font-size: 10.8pt;
+        }
+
+        .page.label-tight .prod-main {
+            font-size: 19pt;
+            line-height: 0.96;
+        }
+
+        .page.label-tight .prod-var {
+            margin-top: 2pt;
+            font-size: 15.5pt;
+            line-height: 0.96;
+        }
+
+        .page.label-tight .prod-notes {
+            margin-top: 2pt;
+            font-size: 11.8pt;
+            line-height: 0.96;
+        }
+
+        /*
+        * Footer fissato in basso, ma sollevato dal bordo.
+        *
+        * Nota importante:
+        * con DomPDF è meglio non allineare il testo con vertical-align: bottom
+        * dentro una tabella molto bassa, perché può tagliare la parte inferiore
+        * delle lettere o dei numeri.
+        */
         .footer {
             position: absolute;
             left: 0;
             right: 0;
-            bottom: 0;
 
-            height: 55pt; /* altezza footer */
+            /*
+            * Solleva il footer dal bordo inferiore dell'area content.
+            * Questo evita che AL DIVANI / KOMODO e il numero ordine vengano tagliati.
+            */
+            bottom: 8pt;
+
+            height: 28pt;
         }
 
-        /* Tabellina footer per allineare SX/DX */
         table.footer-table {
             width: 100%;
-            height: 55pt;
+            height: 28pt;
             border-collapse: collapse;
             table-layout: fixed;
         }
 
         table.footer-table td {
             padding: 0;
-            vertical-align: bottom;
+
+            /*
+            * Non usare bottom: DomPDF tende a tagliare il testo.
+            * Middle mantiene il footer basso, ma dentro un'area sicura.
+            */
+            vertical-align: middle;
         }
 
         .bottom-left {
             font-weight: 800;
-            font-size: 20pt;
+            font-size: 17.5pt;
+            line-height: 1;
             text-transform: uppercase;
             white-space: nowrap;
             overflow: hidden;
@@ -221,7 +320,8 @@
         .bottom-right {
             text-align: right;
             font-weight: 900;
-            font-size: 22pt;
+            font-size: 20pt;
+            line-height: 1;
             text-transform: uppercase;
             white-space: nowrap;
         }
@@ -242,7 +342,57 @@
 @endphp
 
 @foreach($labels as $label)
-    <div class="page {{ !$loop->last ? 'break' : '' }}">
+    @php
+        /**
+         * Calcola quanto è "piena" l'etichetta.
+         *
+         * Non taglia nessun testo: serve solo per applicare una classe CSS
+         * più compatta quando prodotto, variante, zona, riferimento e note colore
+         * rischiano di occupare troppo spazio verticale.
+         */
+        $mainLength  = mb_strlen((string) ($label['main'] ?? ''));
+        $varLength   = mb_strlen((string) ($label['var'] ?? ''));
+        $notesLength = mb_strlen((string) ($label['notes'] ?? ''));
+
+        /**
+         * Zona e riferimento aumentano l'altezza del blocco destinatario,
+         * quindi li pesiamo anche se non fanno parte del prodotto.
+         */
+        $densityScore = $mainLength
+            + ($varLength * 0.75)
+            + ($notesLength * 1.10)
+            + (!empty($shippingZone) ? 18 : 0)
+            + (!empty($reference) ? 18 : 0);
+
+        /**
+         * Soglie empiriche per il formato 567pt x 312pt.
+         * label-compact copre casi lunghi normali.
+         * label-tight copre casi estremi.
+         */
+        $densityClass = '';
+
+        if ($densityScore >= 105) {
+            $densityClass = 'label-compact';
+        }
+
+        /**
+        * Se il prodotto è lungo e sono presenti anche variante/note,
+        * usiamo prima la modalità stretta.
+        *
+        * Questo evita che le ultime righe finiscano sotto al footer.
+        */
+        if (
+            $densityScore >= 138 ||
+            (
+                $mainLength >= 60 &&
+                (!empty($label['var']) || !empty($label['notes']))
+            )
+        ) {
+            $densityClass = 'label-tight';
+        }
+    @endphp
+
+    <div class="page {{ !$loop->last ? 'break' : '' }} {{ $densityClass }}">
         <div class="label">
             <div class="left-line"></div>
 

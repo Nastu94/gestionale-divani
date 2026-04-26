@@ -42,6 +42,90 @@
         <div  x-data="{
                     openId: null,
 
+                    /*
+                    * ID degli ordini selezionati nella tabella.
+                    * La selezione vale per la pagina corrente.
+                    */
+                    selectedOrderIds: [],
+
+                    /*
+                    * ID visibili nella pagina corrente della paginazione.
+                    * Servono per la checkbox master nell'head.
+                    */
+                    pageOrderIds: @js($orders->pluck('id')->map(fn ($id) => (int) $id)->values()),
+
+                    /*
+                    * Verifica se una riga è selezionata.
+                    */
+                    isSelected(id) {
+                        return this.selectedOrderIds.includes(Number(id));
+                    },
+
+                    /*
+                    * Seleziona o deseleziona una singola riga.
+                    */
+                    toggleOrder(id) {
+                        id = Number(id);
+
+                        if (this.isSelected(id)) {
+                            this.selectedOrderIds = this.selectedOrderIds.filter(selectedId => selectedId !== id);
+                            return;
+                        }
+
+                        this.selectedOrderIds.push(id);
+                    },
+
+                    /*
+                    * Numero totale di righe selezionate.
+                    */
+                    get selectedCount() {
+                        return this.selectedOrderIds.length;
+                    },
+
+                    /*
+                    * Numero di righe visibili selezionate nella pagina corrente.
+                    */
+                    get visibleSelectedCount() {
+                        return this.pageOrderIds.filter(id => this.isSelected(id)).length;
+                    },
+
+                    /*
+                    * True quando tutte le righe visibili sono selezionate.
+                    */
+                    get allVisibleSelected() {
+                        return this.pageOrderIds.length > 0
+                            && this.visibleSelectedCount === this.pageOrderIds.length;
+                    },
+
+                    /*
+                    * Seleziona o deseleziona tutte le righe visibili.
+                    */
+                    toggleVisibleRows() {
+                        const visibleIds = this.pageOrderIds.map(id => Number(id));
+
+                        if (this.allVisibleSelected) {
+                            this.selectedOrderIds = this.selectedOrderIds.filter(id => !visibleIds.includes(Number(id)));
+                            return;
+                        }
+
+                        this.selectedOrderIds = Array.from(new Set([
+                            ...this.selectedOrderIds.map(id => Number(id)),
+                            ...visibleIds,
+                        ]));
+                    },
+
+                    /*
+                    * Invia il form nascosto verso la pagina di stampa.
+                    */
+                    printSelectedOrders() {
+                        if (this.selectedCount === 0) {
+                            return;
+                        }
+
+                        this.$nextTick(() => {
+                            this.$refs.printSelectedOrdersForm.submit();
+                        });
+                    },
                     openCreate() {
                         window.dispatchEvent(new CustomEvent('open-customer-order-modal'))
                     },
@@ -99,15 +183,50 @@
             <div class="bg-white dark:bg-gray-800 shadow sm:rounded-lg">
 
                 {{-- Toolbar --}}
-                <div class="flex justify-end m-2 p-2">
-                    @can('orders.customer.create')
-                        <button  @click="openCreate"
-                                 class="inline-flex items-center m-2 px-3 py-1.5 bg-purple-600 rounded-md
-                                        text-xs font-semibold text-white uppercase hover:bg-purple-500
-                                        focus:outline-none focus:ring-2 focus:ring-purple-300 transition">
-                            <i class="fas fa-plus mr-1"></i> Nuovo
-                        </button>
+                <div class="flex flex-wrap items-center justify-between gap-2 m-2 p-2">
+
+                    {{-- Form nascosto per stampare le righe selezionate --}}
+                    @can('orders.customer.view')
+                        <form  x-ref="printSelectedOrdersForm"
+                            method="POST"
+                            action="{{ route('orders.customer.print.selected') }}"
+                            target="_blank"
+                            class="hidden">
+                            @csrf
+
+                            <template x-for="id in selectedOrderIds" :key="'selected-order-' + id">
+                                <input type="hidden" name="ids[]" :value="id">
+                            </template>
+                        </form>
+
+                        <div x-show="selectedCount > 0"
+                            x-cloak
+                            class="inline-flex items-center gap-3 rounded-md border border-purple-200 bg-purple-50 px-3 py-2 text-xs text-purple-900">
+                            
+                            <span>
+                                <strong x-text="selectedCount"></strong>
+                                <span x-text="selectedCount === 1 ? 'riga selezionata' : 'righe selezionate'"></span>
+                            </span>
+
+                            <button type="button"
+                                    @click.stop="printSelectedOrders"
+                                    class="inline-flex items-center rounded-md bg-purple-600 px-3 py-1.5 font-semibold uppercase text-white hover:bg-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-300">
+                                <i class="fas fa-print mr-1"></i>
+                                Stampa selezionate
+                            </button>
+                        </div>
                     @endcan
+
+                    <div class="flex justify-end">
+                        @can('orders.customer.create')
+                            <button  @click="openCreate"
+                                    class="inline-flex items-center m-2 px-3 py-1.5 bg-purple-600 rounded-md
+                                            text-xs font-semibold text-white uppercase hover:bg-purple-500
+                                            focus:outline-none focus:ring-2 focus:ring-purple-300 transition">
+                                <i class="fas fa-plus mr-1"></i> Nuovo
+                            </button>
+                        @endcan
+                    </div>
                 </div>
 
                 {{-- ====== TABELLA ====== --}}
@@ -115,6 +234,21 @@
                     <table class="table-auto min-w-full text-sm divide-y divide-gray-200 dark:divide-gray-700">
                         <thead class="bg-gray-300 dark:bg-gray-700 uppercase tracking-wider">
                             <tr>
+                                <th class="px-3 py-2 text-center w-12">
+                                    <label class="inline-flex items-center justify-center gap-1 cursor-pointer"
+                                        title="Seleziona le righe visibili">
+                                        <input type="checkbox"
+                                            class="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                                            :checked="allVisibleSelected"
+                                            :indeterminate.prop="visibleSelectedCount > 0 && !allVisibleSelected"
+                                            @click.stop="toggleVisibleRows">
+
+                                        <span class="text-[10px] normal-case"
+                                            x-show="selectedCount > 0"
+                                            x-text="'(' + selectedCount + ')'">
+                                        </span>
+                                    </label>
+                                </th>
                                 <x-th-menu field="id" label="Ordine #"
                                            :sort="$sort" :dir="$dir" :filters="$filters"
                                            reset-route="orders.customer.index"
@@ -157,6 +291,12 @@
                                          :class="openId === {{ $order->id }} ? 'bg-gray-200 dark:bg-gray-700' : ''"
                                      @endif
                                 >
+                                    <td class="px-3 py-2 text-center">
+                                        <input type="checkbox"
+                                            class="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                                            :checked="isSelected({{ $order->id }})"
+                                            @click.stop="toggleOrder({{ $order->id }})">
+                                    </td>
                                     <td class="px-6 py-2 text-center">
                                         {{ $order->orderNumber->number }}
                                         @if ($order->has_started_prod)
@@ -196,7 +336,7 @@
                                 {{-- RIGA ESPANSA CON AZIONI --}}
                                 @if ($canCrud || auth()->user()->can('orders.customer.view'))
                                     <tr x-show="openId === {{ $order->id }}" x-cloak>
-                                        <td :colspan="8" class="px-6 py-3 bg-gray-200 dark:bg-gray-700">
+                                        <td :colspan="9" class="px-6 py-3 bg-gray-200 dark:bg-gray-700">
                                             <div class="flex items-center space-x-4 text-xs">
 
                                                 {{-- Visualizza --}}
@@ -277,7 +417,7 @@
                             {{-- RIGA NESSUN RISULTATO --}}
                             @if ($orders->isEmpty())
                                 <tr>
-                                    <td colspan="8" class="px-6 py-2 text-center text-gray-500">Nessun risultato trovato.</td>
+                                    <td colspan="9" class="px-6 py-2 text-center text-gray-500">Nessun risultato trovato.</td>
                                 </tr>
                             @endif
                         </tbody>
