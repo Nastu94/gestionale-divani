@@ -39,11 +39,11 @@ class ComponentCategorySeeder extends Seeder
      */
     public function run(): void
     {
-        /** @var int[] $phasePool  Fasi 1-5 (Structure→Finishing)  */
-        $phasePool = range(
-            ProductionPhase::STRUCTURE->value,
-            ProductionPhase::FINISHING->value
-        );
+        /** @var int[] $phasePool  Fasi consentite (Assembly e Finishing)  */
+        $phasePool = [
+            ProductionPhase::ASSEMBLY->value,
+            ProductionPhase::FINISHING->value,
+        ];
 
         foreach ($this->categories as $idx => $catData) {
 

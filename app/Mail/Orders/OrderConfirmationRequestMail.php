@@ -27,7 +27,7 @@ class OrderConfirmationRequestMail extends Mailable
     {
         $url = route('orders.customer.confirm.show', ['token' => $this->order->confirm_token]);
 
-        return $this->subject(__('orders.email.request_subject', [
+        $mail = $this->subject(__('orders.email.request_subject', [
                 'order' => $this->order->orderNumber->full ?? ('#'.$this->order->id),
             ]))
             ->markdown('emails.orders.confirmation-request', [
@@ -36,5 +36,9 @@ class OrderConfirmationRequestMail extends Mailable
                 'ttlDays'          => (int) config('orders.confirmation_link_ttl_days', 14),
                 'replacePrevious'  => $this->replacePrevious,
             ]);
+
+
+
+        return $mail;
     }
 }

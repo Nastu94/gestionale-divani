@@ -25,7 +25,7 @@ class OrderConfirmationOutcomeMail extends Mailable
 
     public function build()
     {
-        return $this->subject($this->accepted
+        $mail = $this->subject($this->accepted
                 ? __('orders.email.outcome_subject_ok', ['order' => $this->order->orderNumber->full ?? ('#'.$this->order->id)])
                 : __('orders.email.outcome_subject_ko', ['order' => $this->order->orderNumber->full ?? ('#'.$this->order->id)])
             )
@@ -35,5 +35,28 @@ class OrderConfirmationOutcomeMail extends Mailable
                 'poNumbers' => $this->poNumbers,
                 'reason'    => $this->reason,
             ]);
+
+        // Se accettato, genera e allega il PDF della conferma d'ordine
+        if ($this->accepted) {
+            $this->order->loadMissing([
+                'orderNumber',
+                'items.product',
+                'items.variable.fabric',
+                'items.variable.color',
+                'customer.shippingAddress',
+                'occasionalCustomer',
+            ]);
+
+            $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('pdf.order-confirmation', [
+                'order' => $this->order,
+            ]);
+            $pdfContent = $pdf->output();
+
+            $mail->attachData($pdfContent, "Conferma_Ordine_{$this->order->id}.pdf", [
+                'mime' => 'application/pdf',
+            ]);
+        }
+
+        return $mail;
     }
 }

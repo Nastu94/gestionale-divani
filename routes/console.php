@@ -45,3 +45,8 @@ Schedule::call(function () {
 
     // Un solo server (richiede cache condivisa in multi-istanza)
     ->onOneServer();
+
+Schedule::command('orders:delivery-alerts')
+    ->dailyAt('01:00')
+    ->timezone(config('app.timezone', 'Europe/Rome'))
+    ->withoutOverlapping();

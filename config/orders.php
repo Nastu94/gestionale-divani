@@ -35,7 +35,7 @@ return [
     |
     */
     'confirmation_link_ttl_days' => env('ORDERS_CONFIRMATION_TTL_DAYS', 14),
-    'sales_roles'                => ['commerciale'],
+    'sales_roles'                => ['Commerciale'],
 
     /*
     |--------------------------------------------------------------------------

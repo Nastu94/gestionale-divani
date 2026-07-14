@@ -246,8 +246,10 @@ final class ForceReservationPlanner
             ->whereNotExists(function ($q) {
                 $q->selectRaw('1')
                     ->from('order_items as oi')
+                    ->join('v_order_item_phase_qty as v', 'v.order_item_id', '=', 'oi.id')
                     ->whereColumn('oi.order_id', 'sr.order_id')
-                    ->where('oi.current_phase', '!=', ProductionPhase::INSERTED->value);
+                    ->where('v.phase', '!=', 0)
+                    ->where('v.qty_in_phase', '>', 0);
             })
             ->select([
                 'sr.id as sr_id',

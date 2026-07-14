@@ -84,6 +84,7 @@ class Order extends Model
         'min_phase', // Fase minima di produzione
         'status',
         'note',
+        'packages',
         'reason',
         'confirmed_at',
         'hash_flag',

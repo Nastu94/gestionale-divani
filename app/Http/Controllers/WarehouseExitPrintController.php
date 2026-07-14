@@ -151,12 +151,9 @@ class WarehouseExitPrintController extends Controller
     {
         return match ($phase) {
             0 => 'Inserito',
-            1 => 'Taglio',
-            2 => 'Cucito',
-            3 => 'Fusto',
-            4 => 'Spugna',
-            5 => 'Assemblaggio',
-            6 => 'Spedizione',
+            1 => 'Cucito',
+            2 => 'Assemblaggio',
+            3 => 'Spedizione',
             default => '—',
         };
     }

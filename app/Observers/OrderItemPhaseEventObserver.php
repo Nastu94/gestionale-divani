@@ -44,20 +44,20 @@ class OrderItemPhaseEventObserver
         $phaseQty = $item->phaseEvents()
             ->selectRaw('to_phase AS phase, SUM(quantity) AS qty_in')
             ->groupBy('phase')
-            ->pluck('qty_in', 'phase')          // ← chiave int (0-6)
+            ->pluck('qty_in', 'phase')          // ← chiave int (0-3)
             ->mapWithKeys(fn ($qty, $phase) => [           // $phase è int
                 (int) $phase => (float) $qty
             ])
-            ->all();                                   // [0-6] => qty
+            ->all();                                   // [0-3] => qty
 
         Log::debug('[OrderItemPhaseEventObserver] phaseQty', $phaseQty);
 
         /* ------------------------------------------------------------------
          | 2 ▸ individua la nuova fase corrente
          *----------------------------------------------------------------- */
-        $newCurrent = collect(range(0, 6))
+        $newCurrent = collect(range(0, ProductionPhase::SHIPPING->value))
             ->first(fn (int $idx) => ($phaseQty[$idx] ?? 0) > 0,
-                    ProductionPhase::SHIPPING->value);   // default = 6
+                    ProductionPhase::SHIPPING->value);   // default = SHIPPING
         
         Log::debug('[OrderItemPhaseEventObserver] newCurrent', [
             'newCurrent' => $newCurrent,

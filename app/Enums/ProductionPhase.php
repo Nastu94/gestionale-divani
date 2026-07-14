@@ -8,12 +8,9 @@ namespace App\Enums;
 enum ProductionPhase: int
 {
     case INSERTED     = 0;
-    case UPHOLSTERY   = 1;
-    case ASSEMBLY     = 2;
-    case STRUCTURE    = 3;
-    case PADDING      = 4;
-    case FINISHING    = 5;
-    case SHIPPING     = 6;
+    case ASSEMBLY     = 1; // Cucito
+    case FINISHING    = 2; // Assemblaggio
+    case SHIPPING     = 3; // Spedizione
 
     /**
      * Etichetta in italiano per UI e report.
@@ -22,10 +19,7 @@ enum ProductionPhase: int
     {
         return match ($this) {
             self::INSERTED   => 'Inserito',
-            self::UPHOLSTERY => 'Taglio',
             self::ASSEMBLY   => 'Cucito',
-            self::STRUCTURE  => 'Fusto',
-            self::PADDING    => 'Spugna',
             self::FINISHING  => 'Assemblaggio',
             self::SHIPPING   => 'Spedizione',
         };

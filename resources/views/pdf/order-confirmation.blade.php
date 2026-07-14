@@ -1,4 +1,4 @@
-{{-- resources/views/pdf/ddt.blade.php --}}
+{{-- resources/views/pdf/order.blade.php --}}
 @php
     /* Dati azienda (poi li metti in config) */
     $companyName = 'AL DIVANI S.R.L.';
@@ -8,14 +8,13 @@
     $companyVat  = '08137940725';
     $companyIban = 'IT61B0306941545100000008782';
 
-    $order = $ddt->order;
+    // order was passed directly
 
     $orderNo   = $order->orderNumber?->number ?? $order->id;
     $orderDate = $order->ordered_at ? \Carbon\Carbon::parse($order->ordered_at)->format('d/m/Y') : '';
-    $ddtDate   = $ddt->issued_at->format('d/m/Y');
 
-    /* Totale documento = totale DDT (non per pagina) */
-    $total = $ddt->rows->sum(fn($r) => ((float)$r->quantity * (float)$r->unit_price));
+    /* Totale documento = totale Conferma Ordine (non per pagina) */
+    $total = $order->items->sum(fn($r) => ((float)$r->quantity * (float)$r->unit_price));
 
     /* Colore proforma */
     $blue = '#1e3a8a';
@@ -25,7 +24,32 @@
     $hasLogo  = is_file($logoPath);
 
     /* Pagine (chunk fatto nel service) */
-    $pages = $pages ?? collect([$ddt->rows]);
+    $pages = $pages ?? collect([$order->items]);
+
+    /* Calcolo Destinatario / Destinazione se non passati */
+    $customer = $order->customer ?? $order->occasionalCustomer;
+    $address = $order->customer?->shippingAddress;
+
+    $recipient = $recipient ?? [
+        'company'    => $customer?->company ?? '—',
+        'address'    => $address?->address ?? $customer?->address ?? '',
+        'tax_code'   => $customer?->tax_code ?? '',
+        'vat_number' => $customer?->vat_number ?? '',
+    ];
+    // OccasionalCustomer ha postal_code, city. Il Customer standard no, lo prendiamo dal suo shippingAddress
+    $zipCode = $order->customer_id
+        ? $address?->postal_code
+        : $customer?->postal_code;
+    $city = $customer?->city ?? $address?->city;
+    $province = $customer?->province ?? $address?->province;
+
+    $recipientCityLine = $recipientCityLine ?? implode(' - ', array_filter([$zipCode, $city, $province]));
+
+    $destination = $destination ?? [
+        'company'    => $customer?->company ?? '—',
+        'address'    => $order->shipping_address ?: ($address?->address ?? $customer?->address ?? ''),
+    ];
+    $destinationCityLine = $destinationCityLine ?? $recipientCityLine;
 @endphp
 
 <!doctype html>
@@ -141,10 +165,10 @@
 
                     <td style="width: 260px; vertical-align: top;">
                         <div style="margin-top: 46px; text-align: right;">
-                            <span style="font-size: 16px;">Doc. di trasporto nr.</span>
-                            <span class="box" style="display:inline-block;width:60px;text-align:center;font-weight:700;">{{ $ddt->number }}</span>
+                            <span style="font-size: 16px;">Conferma ordine nr.</span>
+                            <span class="box" style="display:inline-block;width:60px;text-align:center;font-weight:700;">{{ $orderNo }}</span>
                             <span style="font-size: 16px; margin-top: 6px;">&nbsp; del&nbsp;</span>
-                            <span class="box" style="display:inline-block;width:90px;text-align:center;font-weight:700;margin-top: 6px;">{{ $ddtDate }}</span>
+                            <span class="box" style="display:inline-block;width:90px;text-align:center;font-weight:700;margin-top: 6px;">{{ $orderDate }}</span>
                         </div>
                     </td>
                 </tr>
@@ -204,9 +228,8 @@
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach ($pageRows as $r)
+                    @foreach ($pageRows as $it)
                         @php
-                            $it   = $r->orderItem;
                             $prod = $it?->product;
 
                             $sku  = $prod?->sku ?? '';
@@ -215,7 +238,7 @@
                             $var = $it?->variable;
                             $details = [];
 
-                            // Riferimento Ordine per ogni riga (utile se DDT accorpato)
+                            // Riferimento Ordine per ogni riga (utile se Conferma Ordine accorpato)
                             $rowOrderNo = $it?->order?->orderNumber?->number ?? $it?->order_id;
                             if ($rowOrderNo) {
                                 $details[] = "Rif. Ordine: $rowOrderNo";
@@ -230,7 +253,7 @@
                                 if ($cNote)  $details[] = "Nota: $cNote";
                             }
 
-                            $lineTotal = (float)$r->quantity * (float)$r->unit_price;
+                            $lineTotal = (float)$it->quantity * (float)$it->unit_price;
                         @endphp
 
                         <tr>
@@ -241,11 +264,11 @@
                                     <br><small style="color: #555; text-transform: none;">{{ implode(' - ', $details) }}</small>
                                 @endif
                             </td>
-                            <td class="center">{{ number_format((float)$r->quantity, 0, ',', '.') }}</td>
-                            <td class="right">€ {{ number_format((float)$r->unit_price, 2, ',', '.') }}</td>
+                            <td class="center">{{ number_format((float)$it->quantity, 0, ',', '.') }}</td>
+                            <td class="right">€ {{ number_format((float)$it->unit_price, 2, ',', '.') }}</td>
                             <td class="center"></td>
                             <td class="right">€ {{ number_format($lineTotal, 2, ',', '.') }}</td>
-                            <td class="center">{{ $r->vat }}</td>
+                            <td class="center">{{ $it->vat ?? '22' }}</td>
                         </tr>
                     @endforeach
                 </tbody>
@@ -253,28 +276,16 @@
 
             {{-- RIFERIMENTO ORDINE: SOLO ALLA FINE, DOPO L'ULTIMA RIGA (quindi nell'ultima pagina) --}}
             @if($isLast)
-                @php
-                    $uniqueOrders = $ddt->rows->map->orderItem->map->order->unique('id');
-                @endphp
-                @foreach($uniqueOrders as $o)
-                    @php
-                        $oNo = $o->orderNumber?->number ?? $o->id;
-                        $oDate = $o->ordered_at ? \Carbon\Carbon::parse($o->ordered_at)->format('d/m/Y') : '';
-                    @endphp
-                    <div class="order-ref">
-                        Rif. Conferma d'ordine {{ $oNo }} @if($oDate) del {{ $oDate }} @endif
-                        @if(!empty($o->reference))
-                            <br>Rif. Cliente: {{ $o->reference }}
-                        @endif
-                    </div>
+                <div class="order-ref">
+                    Rif. Conferma d'ordine {{ $orderNo }} @if($orderDate) del {{ $orderDate }} @endif
+                </div>
 
-                    {{-- Nota ordine / DDT: stampata solo se presente --}}
-                    @if(!empty($o->note))
-                        <div class="order-note" style="white-space: pre-line;">
-                            {{ $o->note }}
-                        </div>
-                    @endif
-                @endforeach
+                {{-- Nota ordine / Conferma Ordine: stampata solo se presente --}}
+                @if(!empty($order->note))
+                    <div class="order-note" style="white-space: pre-line;">
+                        {{ $order->note }}
+                    </div>
+                @endif
             @endif
 
         </div> {{-- /content --}}
@@ -300,41 +311,13 @@
 
                 <table class="footer-grid">
                     <tr>
-                        <td style="width: 45%;">
-                            <div style="font-weight: 700;">Incaricato del trasporto</div>
-                            <div>{{ $ddt->carrier_name ?? '' }}</div>
+                        <td style="width: 50%;">
+                            <div style="font-weight: 700;">Note di Consegna</div>
+                            <div>{{ $order->shipping_address ?? 'Come da anagrafica' }}</div>
                         </td>
-                        <td style="width: 25%;">
-                            <div style="font-weight: 700;">Causale del trasporto</div>
-                            <div style="font-weight: 700;">{{ $ddt->transport_reason ?? '' }}</div>
-                        </td>
-                        <td style="width: 30%;">
-                            <div style="font-weight: 700;">Firma incaricato del trasporto</div>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="width: 10%;">
-                            <div style="font-weight: 700;">Nr. colli</div>
-                            <div>{{ $ddt->packages ?? '' }}</div>
-                        </td>
-                        <td style="width: 10%;">
-                            <div style="font-weight: 700;">Peso</div>
-                            <div>{{ $ddt->weight ?? '' }}</div>
-                        </td>
-                        <td style="width: 20%;">
-                            <div style="font-weight: 700;">Aspetto esteriore dei beni</div>
-                            <div>{{ $ddt->goods_appearance ?? '' }}</div>
-                        </td>
-                        <td style="width: 20%;">
-                            <div style="font-weight: 700;">Porto</div>
-                            <div>{{ $ddt->port ?? '' }}</div>
-                        </td>
-                        <td style="width: 20%;">
-                            <div style="font-weight: 700;">Data e ora inizio trasporto</div>
-                            <div>{{ $ddt->transport_started_at ? $ddt->transport_started_at->format('d/m/Y H:i') : '' }}</div>
-                        </td>
-                        <td style="width: 20%;">
-                            <div style="font-weight: 700;">Firma destinatario</div>
+                        <td style="width: 50%;">
+                            <div style="font-weight: 700;">Condizioni</div>
+                            <div>Resa: Standard</div>
                         </td>
                     </tr>
                 </table>

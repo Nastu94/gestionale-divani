@@ -89,8 +89,8 @@
                                     reset-route="customers.index"
                                     align="left"
                                 />
-                                <th class="px-6 py-2 text-left">P.IVA</th>
-                                <th class="px-6 py-2 text-left">CF</th>
+                                <th class="px-6 py-2 text-left">Città</th>
+                                <th class="px-6 py-2 text-left">Note</th>
                                 <th class="px-6 py-2 text-left">Email</th>
                                 <th class="px-6 py-2 text-left">Telefono</th>
                                 <th class="px-6 py-2 text-center">Attivo</th>
@@ -133,8 +133,8 @@
                                 >
                                     <td class="px-6 py-2 whitespace-nowrap">{{ $loop->iteration + ($customers->currentPage()-1)*$customers->perPage() }}</td>
                                     <td class="px-6 py-2 whitespace-nowrap">{{ $customer->company }}</td>
-                                    <td class="px-6 py-2 whitespace-nowrap">{{ $customer->vat_number ?? '—' }}</td>
-                                    <td class="px-6 py-2 whitespace-nowrap">{{ $customer->tax_code ?? '—' }}</td>
+                                    <td class="px-6 py-2 whitespace-nowrap">{{ $sc ?? '—' }}</td>
+                                    <td class="px-6 py-2 whitespace-nowrap">{{ \Illuminate\Support\Str::limit($customer->notes, 30) ?? '—' }}</td>
                                     <td class="px-6 py-2 whitespace-nowrap">{{ $customer->email ?? '—' }}</td>
                                     <td class="px-6 py-2 whitespace-nowrap">{{ $customer->phone ?? '—' }}</td>
                                     <td class="px-6 py-2 text-center whitespace-nowrap">
@@ -238,11 +238,10 @@
             form: { 
                 id: null, 
                 company: '', 
-                vat_number: '', 
-                tax_code: '', 
                 email: '', 
                 phone: '', 
                 is_active: true, 
+                notes: '',
                 addresses: [] 
             },
             errors: {},
@@ -261,11 +260,10 @@
                 this.mode = 'edit';
                 this.form.id         = customer.id;
                 this.form.company    = customer.company;
-                this.form.vat_number = customer.vat_number ?? '';
-                this.form.tax_code   = customer.tax_code   ?? '';
                 this.form.email      = customer.email      ?? '';
                 this.form.phone      = customer.phone      ?? '';
                 this.form.is_active  = customer.is_active;
+                this.form.notes      = customer.notes      ?? '';
                 this.form.addresses  = customer.addresses.map(a => ({
                     type:         a.type,
                     address:      a.address,
@@ -281,11 +279,10 @@
                 this.form = { 
                     id: null, 
                     company: '', 
-                    vat_number: '', 
-                    tax_code: '', 
                     email: '', 
                     phone: '', 
                     is_active: true, 
+                    notes: '',
                     addresses: [] 
                 };
                 this.errors = {};
@@ -309,11 +306,10 @@
                     this.form = {
                         id:         {{ old('id', 'null') }},
                         company:    '{{ old('company', '') }}',
-                        vat_number: '{{ old('vat_number', '') }}',
-                        tax_code:   '{{ old('tax_code', '') }}',
                         email:      '{{ old('email', '') }}',
                         phone:      '{{ old('phone', '') }}',
                         is_active:  {{ old('is_active', true) ? 'true' : 'false' }},
+                        notes:      @json(old('notes', '')),
                         addresses:  @json(old('addresses', [])),
                     };
                 @endif

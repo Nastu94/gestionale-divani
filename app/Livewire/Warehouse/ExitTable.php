@@ -47,6 +47,7 @@ class ExitTable extends Component
         'customer'      => null,
         'order_number'  => null,
         'product'       => null,
+        'color_note'    => null,
         'order_date'    => null,
         'delivery_date' => null,
         'value'         => null,
@@ -66,6 +67,7 @@ class ExitTable extends Component
         'filters.customer'       => ['except' => ''],
         'filters.order_number'   => ['except' => ''],
         'filters.product'        => ['except' => ''],
+        'filters.color_note'     => ['except' => ''],
         'filters.order_date'     => ['except' => ''],
         'filters.delivery_date'  => ['except' => ''],
         'filters.value'          => ['except' => ''],
@@ -74,6 +76,57 @@ class ExitTable extends Component
         //'page'     => ['except' => 1],
         'perPage'  => ['except' => 100],
     ];
+
+    public function mount()
+    {
+        $hasUrlParams = request()->hasAny(['phase', 'sort', 'dir', 'filters', 'perPage', 'page']);
+
+        if ($hasUrlParams) {
+            $hasFilters = collect($this->filters)->filter(fn($f) => $f !== null && $f !== '')->isNotEmpty();
+            if (!$hasFilters) {
+                session()->forget('warehouse_exit_state');
+            } else {
+                session()->put('warehouse_exit_state', [
+                    'phase' => $this->phase,
+                    'filters' => $this->filters,
+                    'sort' => $this->sort,
+                    'dir' => $this->dir,
+                    'perPage' => $this->perPage,
+                    'page' => $this->paginators['page'] ?? 1,
+                ]);
+            }
+        } else {
+            $state = session('warehouse_exit_state', []);
+            if (!empty($state)) {
+                $this->phase = $state['phase'] ?? $this->phase;
+                $this->filters = $state['filters'] ?? $this->filters;
+                $this->sort = $state['sort'] ?? $this->sort;
+                $this->dir = $state['dir'] ?? $this->dir;
+                $this->perPage = $state['perPage'] ?? $this->perPage;
+                if (isset($state['page'])) {
+                    $this->setPage($state['page']);
+                }
+            }
+        }
+    }
+
+    public function updated($property)
+    {
+        $hasFilters = collect($this->filters)->filter(fn($f) => $f !== null && $f !== '')->isNotEmpty();
+        
+        if (!$hasFilters) {
+            session()->forget('warehouse_exit_state');
+        } else {
+            session()->put('warehouse_exit_state', [
+                'phase' => $this->phase,
+                'filters' => $this->filters,
+                'sort' => $this->sort,
+                'dir' => $this->dir,
+                'perPage' => $this->perPage,
+                'page' => $this->paginators['page'] ?? 1,
+            ]);
+        }
+    }
 
     /* ───── modal Avanza ───── */
     public ?int   $advItemId    = null;   // riga selezionata
@@ -169,43 +222,21 @@ class ExitTable extends Component
      */
     public function updating(string $prop): void
     {
-        /*
-        * Livewire aggiorna la paginazione usando proprietà interne
-        * come "paginators" o "paginators.page".
-        */
         $isPaginationUpdate =
             $prop === 'paginators' || str_starts_with($prop, 'paginators.');
 
-        /*
-        * Le checkbox aggiornano selectedExitRowIds.
-        * Non dobbiamo resettare pagina o selezione quando l'utente
-        * sta semplicemente selezionando/deselezionando righe.
-        */
-        $isSelectionUpdate =
-            $prop === 'selectedExitRowIds' || str_starts_with($prop, 'selectedExitRowIds.');
-
-        /*
-        * Se l'utente cambia pagina, svuotiamo la selezione.
-        * Così "seleziona tutto" resta riferito alle righe visibili.
-        */
         if ($isPaginationUpdate) {
             $this->clearSelectedExitRows();
-
             return;
         }
 
-        /*
-        * Se l'utente cambia filtri, fase, ordinamento o perPage,
-        * resettiamo pagina e selezione.
-        */
-        if (! $isSelectionUpdate) {
+        $requiresReset = $prop === 'phase' || str_starts_with($prop, 'filters.') || in_array($prop, ['sort', 'dir', 'perPage']);
+        
+        if ($requiresReset) {
             $this->resetPage();
             $this->clearSelectedExitRows();
         }
 
-        /*
-        * Quando cambia KPI/fase, chiudiamo anche la toolbar della riga.
-        */
         if ($prop === 'phase') {
             $this->dispatch('close-row');
         }
@@ -396,7 +427,7 @@ class ExitTable extends Component
 
         /*― White-list dei campi ordinabili ―*/
         $allowedSorts = [
-            'customer', 'order_number', 'product',
+            'customer', 'order_number', 'product', 'color_note',
             'order_date', 'delivery_date', 'shipping_zone',
             'value', 'qty_in_phase',
         ];
@@ -422,6 +453,8 @@ class ExitTable extends Component
             ->leftJoin('occasional_customers as oc', 'oc.id', '=', 'o.occasional_customer_id')
             ->leftJoin('order_numbers as on', 'on.id', '=', 'o.order_number_id')
             ->leftJoin('products as p',       'p.id',  '=', 'order_items.product_id')
+            ->leftJoin('order_product_variables as opv', 'opv.order_item_id', '=', 'order_items.id')
+            ->leftJoin('colors', 'colors.id', '=', 'opv.color_id')
 
             ->addSelect([
                 'order_items.*',
@@ -433,7 +466,10 @@ class ExitTable extends Component
                 'p.name           as product_name',
                 'o.ordered_at     as order_date',
                 'o.delivery_date',
-                'o.shipping_zone  as shipping_zone',                
+                'o.shipping_zone  as shipping_zone',
+                'colors.name      as color_name',
+                'colors.code      as color_code',
+                'opv.color_notes  as color_notes',
             ])
 
             /*―――― Filtri dinamici ――――*/
@@ -449,11 +485,19 @@ class ExitTable extends Component
             ->when($this->filters['order_number']  ?? null,
                 fn ($q, $v) => $q->where('on.number', 'like', "%{$v}%"))
             ->when($this->filters['product']       ?? null,
-                fn ($q, $v) => $q->where(function ($qq) use ($v) {
-                    $qq->where('p.sku', 'like', "%{$v}%")
-                       ->orWhere('p.name', 'like', "%{$v}%");
-                }))
-            ->when($this->filters['order_date']    ?? null,
+                fn($q, $v) => $q->where(function($sub) use($v){
+                    $sub->where('p.name', 'like', "%$v%")
+                        ->orWhere('p.sku', 'like', "%$v%");
+                })
+            )
+            ->when($this->filters['color_note']    ?? null, function ($q, $value) {
+                $q->where(function ($query) use ($value) {
+                    $query
+                        ->where('colors.name', 'like', "%{$value}%")
+                        ->orWhere('colors.code', 'like', "%{$value}%")
+                        ->orWhere('opv.color_notes', 'like', "%{$value}%");
+                });
+            })->when($this->filters['order_date']    ?? null,
                 fn ($q, $v) => $q->whereDate('o.ordered_at', $v))
             ->when($this->filters['delivery_date'] ?? null,
                 fn ($q, $v) => $q->whereDate('o.delivery_date', $v))
@@ -470,6 +514,8 @@ class ExitTable extends Component
                     'customer'      => $q->orderByRaw('COALESCE(c.company, oc.company) '.$this->dir),
                     'order_number'  => $q->orderBy('on.number',       $this->dir),
                     'product'       => $q->orderBy('p.sku',           $this->dir),
+                    'color_note'    => $q->orderBy('colors.name',      $this->dir)
+                                         ->orderBy('opv.color_notes',  $this->dir),
                     'qty_in_phase'  => $q->orderBy('pq.qty_in_phase', $this->dir),
                     'order_date'    => $q->orderBy('o.ordered_at',    $this->dir),
                     'delivery_date' => $q->orderBy('o.delivery_date', $this->dir),
@@ -537,12 +583,13 @@ class ExitTable extends Component
             Log::debug('[confirmAdvance] validated – dispatch action');
 
             app(AdvanceOrderItemPhaseAction::class, [
-                'item'       => OrderItem::findOrFail($this->advItemId),
-                'quantity'   => $this->advQuantity,
-                'user'       => auth()->user(),
-                'fromPhase'  => ProductionPhase::from($this->phase),   // 👈 KPI selezionata
-                'isRollback' => false,
-                'operator'   => $this->advOperator ? trim($this->advOperator) : null,
+                'item'             => OrderItem::findOrFail($this->advItemId),
+                'quantity'         => $this->advQuantity,
+                'user'             => auth()->user(),
+                'fromPhase'        => ProductionPhase::from($this->phase),   // 👈 KPI selezionata
+                'isRollback'       => false,
+                'operator'         => $this->advOperator ? trim($this->advOperator) : null,
+                'forceReservation' => true,
             ])->execute();
 
             Log::info('[confirmAdvance] OK', ['item' => $this->advItemId]);
@@ -970,6 +1017,47 @@ class ExitTable extends Component
     }
 
     /**
+     * Genera un DDT accorpato per le righe selezionate.
+     */
+    public function generateAccorpatoDdt(): void
+    {
+        if (! auth()->user()?->can('stock.exit')) {
+            session()->flash('error', 'Non hai il permesso per generare il DDT.');
+            return;
+        }
+
+        $this->normalizeSelectedExitRows();
+        if (empty($this->selectedExitRowIds)) {
+            session()->flash('error', 'Seleziona almeno una riga da accorpare.');
+            return;
+        }
+
+        try {
+            $ddt = app(DdtService::class)->createAccorpato(
+                $this->selectedExitRowIds,
+                auth()->user()
+            );
+
+            $printUrl = URL::temporarySignedRoute(
+                'warehouse.ddt.print',
+                now()->addMinutes(5),
+                ['ddt' => $ddt->id]
+            );
+
+            $this->dispatch('open-print-window', url: $printUrl);
+            $this->clearSelectedExitRows();
+            session()->flash('success', "DDT Accorpato nr. {$ddt->number} generato. Apertura stampa…");
+
+        } catch (\Throwable $e) {
+            Log::error('[generateAccorpatoDdt] ERROR', [
+                'msg'   => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            session()->flash('error', $e instanceof ValidationException ? $e->getMessage() : $e->getMessage());
+        }
+    }
+
+    /**
      * Compatibilità: il flusso DDT passa ora dal modale di conferma.
      *
      * @param int $orderItemId ID della riga ordine cliccata.
@@ -984,8 +1072,8 @@ class ExitTable extends Component
     public function openDdtDrawer(int $orderId): void
     {
         try {
-            if ($this->phase !== 6) {
-                return; // visibile solo in fase 6, ma sicurezza lato server
+            if ((int)$this->phase !== 3) {
+                return; // visibile solo in fase 3, ma sicurezza lato server
             }
 
             if (! auth()->user()->can('stock.exit')) {
@@ -1000,7 +1088,13 @@ class ExitTable extends Component
             $this->ddtDrawerOrderNumber = (string)($order->orderNumber?->number ?? $order->id);
 
             $ddts = Ddt::query()
-                ->where('order_id', $order->id)
+                ->where(function ($query) use ($order) {
+                    $query
+                        ->where('order_id', $order->id)
+                        ->orWhereHas('rows.orderItem', fn ($itemQuery) =>
+                            $itemQuery->where('order_id', $order->id)
+                        );
+                })
                 ->orderByDesc('issued_at')
                 ->orderByDesc('id')
                 ->get(['id', 'year', 'number', 'issued_at']);
@@ -1039,12 +1133,18 @@ class ExitTable extends Component
             if (! auth()->user()->can('stock.exit')) {
                 throw ValidationException::withMessages(['auth' => 'Non hai il permesso per stampare i DDT.']);
             }
-
             $ddt = Ddt::query()->findOrFail($ddtId);
 
             // sicurezza: ristampa solo DDT dell'ordine aperto nel drawer
-            if ($this->ddtDrawerOrderId !== null && (int)$ddt->order_id !== (int)$this->ddtDrawerOrderId) {
-                throw ValidationException::withMessages(['ddt' => 'DDT non coerente con l’ordine selezionato.']);
+            $belongsToOrder = (int) $ddt->order_id === (int) $this->ddtDrawerOrderId ||
+                $ddt->rows()
+                ->whereHas('orderItem', fn ($query) =>
+                    $query->where('order_id', $this->ddtDrawerOrderId)
+                )
+                ->exists();
+
+            if (! $belongsToOrder) {
+                throw ValidationException::withMessages(['ddt' => 'DDT non valido o non appartenente a questo ordine.']);
             }
 
             $printUrl = URL::temporarySignedRoute(
@@ -1064,7 +1164,7 @@ class ExitTable extends Component
     public function printWorkOrder(int $orderId): void
     {
         try {
-            if ($this->phase >= 6) {
+            if ((int)$this->phase >= 3) {
                 return; // sicurezza: in spedizione c'è il DDT
             }
 
@@ -1099,7 +1199,7 @@ class ExitTable extends Component
     public function openWorkOrderDrawer(int $orderId): void
     {
         try {
-            if ($this->phase >= 6) return;
+            if ((int)$this->phase >= 3) return;
 
             if (! auth()->user()->can('stock.exit')) {
                 throw ValidationException::withMessages(['auth' => 'Non hai il permesso per visualizzare i buoni.']);

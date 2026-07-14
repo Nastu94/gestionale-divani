@@ -51,35 +51,7 @@
                 @enderror
             </div>
 
-            {{-- Campo: Partita IVA --}}
-            <div>
-                <label for="vat_number" class="block text-xs font-medium text-gray-700 dark:text-gray-300">Partita IVA</label>
-                <input 
-                    id="vat_number" 
-                    name="vat_number" 
-                    x-model="form.vat_number" 
-                    type="text"
-                    class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100" 
-                />
-                @error('vat_number')
-                    <p class="text-red-600 text-xs mt-1">{{ $message }}</p>
-                @enderror
-            </div>
 
-            {{-- Campo: Codice Fiscale --}}
-            <div>
-                <label for="tax_code" class="block text-xs font-medium text-gray-700 dark:text-gray-300">Codice Fiscale</label>
-                <input 
-                    id="tax_code" 
-                    name="tax_code" 
-                    x-model="form.tax_code" 
-                    type="text"
-                    class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100" 
-                />
-                @error('tax_code')
-                    <p class="text-red-600 text-xs mt-1">{{ $message }}</p>
-                @enderror
-            </div>
 
             {{-- Campo: Email --}}
             <div>
@@ -107,6 +79,21 @@
                     class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100" 
                 />
                 @error('phone')
+                    <p class="text-red-600 text-xs mt-1">{{ $message }}</p>
+                @enderror
+            </div>
+
+            {{-- Campo: Note --}}
+            <div>
+                <label for="notes" class="block text-xs font-medium text-gray-700 dark:text-gray-300">Note</label>
+                <textarea 
+                    id="notes" 
+                    name="notes" 
+                    x-model="form.notes" 
+                    rows="2"
+                    class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100" 
+                ></textarea>
+                @error('notes')
                     <p class="text-red-600 text-xs mt-1">{{ $message }}</p>
                 @enderror
             </div>

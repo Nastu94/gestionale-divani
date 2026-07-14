@@ -60,6 +60,7 @@ class Customer extends Model
         'email',
         'phone',
         'is_active',
+        'notes',
     ];
 
     /**

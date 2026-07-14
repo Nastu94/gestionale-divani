@@ -112,11 +112,7 @@ class OrderUpdateService
             'elapsed_ms'   => (int) ((microtime(true) - $t0) * 1000),
         ]);
 
-        if ($increase->isEmpty() && $decrease->isEmpty() && !$changedDate) {
-            Log::info('OC update – nothing to do', ['order_id' => $order->id]);
-            return ['message' => 'Nessuna modifica'];
-        }
-
+        // Il blocco early return "Nessuna modifica" rimosso per consentire l'upsert di prezzi, note, etc.
         try {
             Log::debug('OC update – TX begin', ['order_id' => $order->id]);
 
@@ -249,18 +245,17 @@ class OrderUpdateService
                 ]);
 
                 // ─────────────────────────────────────────────────────────────
-                // NEW: Regole di skip automatico per gli STANDARD
-                // - status=0  → pre-conferma → NO release/prenotazioni/PO ora
-                // - status=1  → confermato → Opzione A (conservativa) → NO azioni automatiche
+                // NEW: Regole di skip automatico per gli STANDARD e OCCASIONALI
                 $isStandard = is_null($order->occasional_customer_id);
-                if ($isStandard) {
-                    // Ricalcolo del totale sempre e comunque
-                    $total = $order->items()->get()->reduce(
-                        fn ($s, $it) => $s + ((float)$it->quantity * (float)$it->unit_price),
-                        0.0
-                    );
-                    $order->update(['total' => $total]);
+                
+                // Ricalcolo del totale sempre e comunque per entrambi i tipi
+                $total = $order->items()->get()->reduce(
+                    fn ($s, $it) => $s + ((float)$it->quantity * (float)$it->unit_price),
+                    0.0
+                );
+                $order->update(['total' => $total]);
 
+                if ($isStandard) {
                     if ((int) $order->status === 0) {
                         Log::info('OC update – standard PRE-conferma: skip allocazioni/PO', ['order_id' => $order->id]);
                         return ['message' => 'Aggiornamento ordine (standard, pre-conferma): nessuna allocazione/PO.'];
@@ -269,6 +264,15 @@ class OrderUpdateService
                     if ((int) $order->status === 1) {
                         Log::info('OC update – standard CONFERMATO: Opzione A, nessun ricalcolo automatico', ['order_id' => $order->id]);
                         return ['message' => 'Ordine standard confermato: nessun ricalcolo automatico (Opzione A).'];
+                    }
+                } else {
+                    $inventoryChanged = $increase->isNotEmpty() || $decrease->isNotEmpty() || $changedDate;
+                    if (!$inventoryChanged) {
+                        Log::info('OC update – occasionale: nessuna variazione di stock', ['order_id' => $order->id]);
+                        return [
+                            'message'    => 'Ordine aggiornato.',
+                            'po_numbers' => [],
+                        ];
                     }
                 }
                 // ─────────────────────────────────────────────────────────────

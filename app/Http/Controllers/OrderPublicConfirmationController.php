@@ -62,7 +62,7 @@ class OrderPublicConfirmationController extends Controller
 
         if (!$order) {
             // Token scaduto o non valido → pagina “expired”
-            return view('orders.public.confirm', [
+            return view('pages.orders.public.confirm', [
                 'order'      => null,
                 'token'      => $token,
                 'expired'    => true,
@@ -113,64 +113,112 @@ class OrderPublicConfirmationController extends Controller
             $order->save();
         });
 
-        // Dopo commit: eventuale creazione PO (SOLO se <30gg), + email ai commerciali
-        DB::afterCommit(function () use ($order) {
-            try {
-                $confirmedAt = Carbon::parse($order->confirmed_at);
-                $deliveryAt  = Carbon::parse($order->delivery_date);
-                $daysDiff    = $confirmedAt->diffInDays($deliveryAt, false);
-                $eligible    = $daysDiff >= 0 && $daysDiff < 30;
+        $poNumbers = [];
 
-                $poNumbers = [];
+        try {
+            $confirmedAt = Carbon::parse($order->confirmed_at);
+            $deliveryAt  = Carbon::parse($order->delivery_date);
+            $daysDiff    = $confirmedAt->diffInDays($deliveryAt, false);
+            $eligible    = $daysDiff >= 0 && $daysDiff < 30;
 
-                if ($eligible) {
-                    // 1) Snapshot righe → usedLines
-                    $order->load(['items.variable']);
-                    $usedLines = $order->items->map(function ($it) {
-                        return [
-                            'product_id' => $it->product_id,
-                            'quantity'   => (float) $it->quantity,
-                            'fabric_id'  => $it->variable?->fabric_id,
-                            'color_id'   => $it->variable?->color_id,
-                        ];
-                    })->values()->all();
+            if ($eligible) {
+                $order->load(['items.variable']);
 
-                    // 2) Verifica copertura (NO prenotazioni stock/incoming qui)
-                    $inv = InventoryService::forDelivery($order->delivery_date, $order->id)
-                        ->check($usedLines);
+                $usedLines = $order->items->map(function ($item) {
+                    return [
+                        'product_id' => $item->product_id,
+                        'quantity'   => (float) $item->quantity,
+                        'fabric_id'  => $item->variable?->fabric_id,
+                        'color_id'   => $item->variable?->color_id,
+                    ];
+                })->values()->all();
 
-                    // 3) Crea PO per shortage residui
-                    if ($inv && !$inv->ok) {
-                        $shortCol  = ProcurementService::buildShortageCollection($inv->shortage);
-                        $proc      = ProcurementService::fromShortage($shortCol, $order->id);
-                        $poNumbers = $proc['po_numbers']->all();
-                    }
+                $inventory = InventoryService::forDelivery(
+                    $order->delivery_date,
+                    $order->id
+                )->check($usedLines);
+
+                if ($inventory && ! $inventory->ok) {
+                    $shortage = ProcurementService::buildShortageCollection(
+                        $inventory->shortage
+                    );
+
+                    $result = ProcurementService::fromShortage(
+                        $shortage,
+                        $order->id
+                    );
+
+                    $poNumbers = $result['po_numbers']->all();
                 }
+            }
+        } catch (\Throwable $exception) {
+            Log::error('Public confirm – procurement error', [
+                'order_id' => $order->id,
+                'error'    => $exception->getMessage(),
+            ]);
+        }
 
-                // 4) Notifica ai commerciali (anche se nessun PO è stato creato)
-                $recipients = $this->salesRecipients();
-                if ($recipients->isNotEmpty()) {
-                    foreach ($recipients as $u) {
-                        Mail::to($u->email)->queue(new OrderConfirmationOutcomeMail(
+        $emailErrors = [];
+
+        try {
+            $salesEmails = $this->salesRecipients()
+                ->pluck('email')
+                ->filter()
+                ->unique();
+
+            foreach ($salesEmails as $email) {
+                try {
+                    Mail::to($email)->send(
+                        new OrderConfirmationOutcomeMail(
                             order: $order->fresh(),
                             accepted: true,
                             poNumbers: $poNumbers,
-                            reason: null
-                        ));
-                    }
-                }
+                            reason: null,
+                        )
+                    );
+                } catch (\Throwable $exception) {
+                    $emailErrors[] = $email;
 
-            } catch (\Throwable $e) {
-                Log::error('Public confirm – post-commit error', [
+                    Log::error('Invio conferma al commerciale fallito', [
+                        'order_id' => $order->id,
+                        'email'    => $email,
+                        'error'    => $exception->getMessage(),
+                    ]);
+                }
+            }
+        } catch (\Throwable $exception) {
+            Log::error('Recupero destinatari commerciali fallito', [
+                'order_id' => $order->id,
+                'error'    => $exception->getMessage(),
+            ]);
+        }
+
+        $customerEmail = $order->customer?->email;
+
+        if ($customerEmail) {
+            try {
+                Mail::to($customerEmail)->send(
+                    new OrderConfirmationOutcomeMail(
+                        order: $order->fresh(),
+                        accepted: true,
+                        poNumbers: [],
+                        reason: null,
+                    )
+                );
+            } catch (\Throwable $exception) {
+                $emailErrors[] = $customerEmail;
+
+                Log::error('Invio conferma al cliente fallito', [
                     'order_id' => $order->id,
-                    'error'    => $e->getMessage(),
+                    'email'    => $customerEmail,
+                    'error'    => $exception->getMessage(),
                 ]);
             }
-        });
+        }
 
         return $this->respond($request, [
             'ok'      => true,
-            'message' => __('orders.confirm.success'),
+            'message' => __('orders.confirm.success') . (!empty($emailErrors) ? ' (Tuttavia, si è verificato un errore durante l\'invio di alcune email di riepilogo)' : ''),
         ]);
     }
 
@@ -199,19 +247,20 @@ class OrderPublicConfirmationController extends Controller
             $order->save();
         });
 
-        // Dopo commit: email ai commerciali con la motivazione
+        // Dopo commit: email ai commerciali e al cliente con la motivazione
         DB::afterCommit(function () use ($order, $data) {
             try {
-                $recipients = $this->salesRecipients();
-                if ($recipients->isNotEmpty()) {
-                    foreach ($recipients as $u) {
-                        Mail::to($u->email)->queue(new OrderConfirmationOutcomeMail(
-                            order: $order->fresh(),
-                            accepted: false,
-                            poNumbers: [],
-                            reason: $data['reason']
-                        ));
-                    }
+                $emails = $this->salesRecipients()->pluck('email')->filter()->toArray();
+                if ($order->customer && $order->customer->email) {
+                    $emails[] = $order->customer->email;
+                }
+                foreach (array_unique($emails) as $email) {
+                    Mail::to($email)->send(new OrderConfirmationOutcomeMail(
+                        order: $order->fresh(),
+                        accepted: false,
+                        poNumbers: [],
+                        reason: $data['reason']
+                    ));
                 }
             } catch (\Throwable $e) {
                 Log::error('Public reject – notify error', [

@@ -44,39 +44,103 @@ class DdtService
         ?array $unitPriceOverrideByItemId = null
     ): Ddt
     {
+        // DDT singolo: prendiamo tutte le righe di questo ordine attualmente in spedizione.
+        $item = OrderItem::findOrFail($orderItemId);
+        $orderItemIds = \Illuminate\Support\Facades\DB::table('v_order_item_phase_qty')
+            ->join('order_items', 'order_items.id', '=', 'v_order_item_phase_qty.order_item_id')
+            ->where('order_items.order_id', $item->order_id)
+            ->where('v_order_item_phase_qty.phase', \App\Enums\ProductionPhase::SHIPPING->value)
+            ->where('v_order_item_phase_qty.qty_in_phase', '>', 0)
+            ->pluck('v_order_item_phase_qty.order_item_id')
+            ->toArray();
+
+        // Fallback di sicurezza: includiamo almeno la riga passata
+        if (empty($orderItemIds)) {
+            $orderItemIds = [$orderItemId];
+        }
+
+        return $this->createAccorpato(
+            $orderItemIds,
+            $user,
+            $requestedQtyByItemId,
+            $unitPriceOverrideByItemId
+        );
+    }
+
+    /**
+     * Crea (o recupera) un DDT per più righe ordine (accorpamento).
+     */
+    public function createAccorpato(
+        array $orderItemIds,
+        Authenticatable $user,
+        ?array $requestedQtyByItemId = null,
+        ?array $unitPriceOverrideByItemId = null
+    ): Ddt
+    {
         return DB::transaction(function () use (
-            $orderItemId,
+            $orderItemIds,
             $user,
             $requestedQtyByItemId,
             $unitPriceOverrideByItemId
         ): Ddt {
 
-            /* 1) Recupera la riga e risali all’ordine (lock per concorrenza) */
-            $seedItem = OrderItem::query()
+            /* 1) Recupera le righe e risali agli ordini (lock per concorrenza) */
+            $orderItemIds = collect($orderItemIds)->unique()->filter()->values()->all();
+
+            $items = OrderItem::query()
                 ->with(['order.orderNumber', 'order.customer', 'order.occasionalCustomer'])
                 ->lockForUpdate()
-                ->findOrFail($orderItemId);
+                ->whereIn('id', $orderItemIds)
+                ->get()
+                ->keyBy('id');
 
-            $order = $seedItem->order;
-
-            if (! $order) {
+            if ($items->isEmpty() || $items->count() !== count($orderItemIds)) {
                 throw ValidationException::withMessages([
-                    'order' => 'Ordine non trovato per la riga selezionata.',
+                    'order' => 'Una o più righe ordine non trovate per la selezione effettuata.',
                 ]);
             }
 
-            /* 1 bis) Lock dell'ordine: evita corse tra due utenti che generano DDT insieme */
-            Order::query()
-                ->whereKey($order->id)
-                ->lockForUpdate()
-                ->first();
+            $orders = $items->pluck('order')->unique('id')->values();
 
-            /* 2) Righe in fase 6 (Spedizione) con qty_in_phase > 0 */
-            $phase = 6;
+            // Validazione accorpato: stesso cliente o destinazione
+            $firstOrder = $orders->first();
+            $firstCustomerKey = $firstOrder->customer_id !== null
+                ? 'customer:' . $firstOrder->customer_id
+                : 'occasional:' . $firstOrder->occasional_customer_id;
+            
+            $firstShippingZone = $firstOrder->shipping_zone;
+            $firstShippingAddress = $firstOrder->shipping_address;
+
+            foreach ($orders as $o) {
+                $customerKey = $o->customer_id !== null
+                    ? 'customer:' . $o->customer_id
+                    : 'occasional:' . $o->occasional_customer_id;
+
+                if ($customerKey !== $firstCustomerKey) {
+                    throw ValidationException::withMessages([
+                        'ddt' => 'Impossibile accorpare righe di clienti diversi.',
+                    ]);
+                }
+
+                if ($o->shipping_zone !== $firstShippingZone || $o->shipping_address !== $firstShippingAddress) {
+                    throw ValidationException::withMessages([
+                        'ddt' => 'Impossibile accorpare righe con destinazioni diverse.',
+                    ]);
+                }
+            }
+
+            /* 1 bis) Lock degli ordini */
+            Order::query()
+                ->whereIn('id', $orders->pluck('id')->all())
+                ->lockForUpdate()
+                ->get();
+
+            /* 2) Righe in fase 3 (Spedizione) con qty_in_phase > 0 */
+            $phase = \App\Enums\ProductionPhase::SHIPPING->value;
 
             $phaseRows = DB::table('v_order_item_phase_qty as v')
                 ->join('order_items as oi', 'oi.id', '=', 'v.order_item_id')
-                ->where('oi.order_id', $order->id)
+                ->whereIn('oi.id', $orderItemIds)
                 ->where('v.phase', $phase)
                 ->where('v.qty_in_phase', '>', 0)
                 ->select('v.order_item_id', 'v.qty_in_phase')
@@ -88,11 +152,11 @@ class DdtService
                 ]);
             }
 
-            /* 3) Quantità già emesse in DDT precedenti per questo ordine (per order_item) */
-            $alreadyByItem = $this->alreadyDdtQtyByOrderItem($order->id); // [order_item_id => qty_emessa]
+            /* 3) Quantità già emesse in DDT precedenti (per order_item) */
+            $alreadyByItem = $this->alreadyDdtQtyByOrderItems($orderItemIds);
 
             /* 4) Calcola le quantità "nuove" da inserire nel DDT (delta) */
-            $toShip = collect(); // [{order_item_id, qty}]
+            $toShip = collect();
 
             foreach ($phaseRows as $r) {
                 $itemId   = (int) $r->order_item_id;
@@ -102,12 +166,10 @@ class DdtService
                 /* Delta: quanto è veramente nuovo */
                 $available = $inPhase - $already;
 
-                /* Clamp per evitare negativi (es. rollback dopo DDT): in quel caso non aggiungiamo */
                 if ($available <= 1e-6) {
                     continue;
                 }
 
-                /* Se in futuro vuoi split manuale: rispetta $requestedQtyByItemId */
                 $qty = $available;
                 if (is_array($requestedQtyByItemId) && array_key_exists($itemId, $requestedQtyByItemId)) {
                     $req = (float) $requestedQtyByItemId[$itemId];
@@ -124,14 +186,12 @@ class DdtService
 
             /**
              * 5) Se non c'è nulla di nuovo da spedire:
-             * - NON generiamo un nuovo numero DDT
-             * - ritorniamo l'ultimo DDT dell'ordine (così il bottone "stampa" ristampa quello)
-             *
-             * Questo implementa la tua regola: "per ogni evasione non possiamo generare più di un DDT con numero diverso".
              */
             if ($toShip->isEmpty()) {
+                // Prendiamo il primo ordine per la retrocompatibilità del fallback
+                $firstOrder = $orders->first();
                 $last = Ddt::query()
-                    ->where('order_id', $order->id)
+                    ->where('order_id', $firstOrder->id)
                     ->orderByDesc('issued_at')
                     ->orderByDesc('id')
                     ->first();
@@ -150,20 +210,22 @@ class DdtService
                 ]);
             }
 
-            /* 6) Progressivo annuale (retry su collisione UNIQUE(year, number)) */
-            $today = Carbon::today();
-            $year  = (int) $today->format('Y');
+            // Per intestazione e data: usiamo il primo ordine selezionato
+            // Ordine capofila deterministico (il più vecchio)
+            $firstOrder = $orders->sortBy('created_at')->first();
 
-            $ddt = $this->createHeaderWithRetry($order->id, $year, $today, $user);
+            /* 6) Progressivo annuale e data DDT basata su data ordine */
+            $issuedAt = $firstOrder->created_at ?? Carbon::today();
+            $year  = (int) $issuedAt->format('Y');
 
-            /* 7) Carica gli OrderItem coinvolti */
-            $items = OrderItem::query()
-                ->with(['product'])
-                ->whereIn('id', $toShip->pluck('order_item_id')->all())
-                ->get()
-                ->keyBy('id');
+            // Somma packages di tutti gli ordini accorpati
+            $totalPackages = $orders->contains(fn ($order) => $order->packages !== null)
+                ? $orders->sum(fn ($order) => (int) ($order->packages ?? 0))
+                : null;
 
-            /* 8) Crea righe DDT (snapshot qty + prezzo) */
+            $ddt = $this->createHeaderWithRetry($firstOrder->id, $year, $issuedAt, $user, $totalPackages);
+
+            /* 7) Crea righe DDT (snapshot qty + prezzo) */
             foreach ($toShip as $r) {
                 $it = $items->get((int) $r->order_item_id);
 
@@ -200,17 +262,16 @@ class DdtService
     }
 
     /**
-     * Totale già emesso in DDT per ogni order_item dell'ordine.
+     * Totale già emesso in DDT per gli order_items
      *
      * @return array<int,float> [order_item_id => qty_emessa]
      */
-    private function alreadyDdtQtyByOrderItem(int $orderId): array
+    private function alreadyDdtQtyByOrderItems(array $orderItemIds): array
     {
-        return DB::table('ddt_rows as dr')
-            ->join('ddts as d', 'd.id', '=', 'dr.ddt_id')
-            ->where('d.order_id', $orderId)
-            ->groupBy('dr.order_item_id')
-            ->select('dr.order_item_id', DB::raw('SUM(dr.quantity) as qty'))
+        return DB::table('ddt_rows')
+            ->whereIn('order_item_id', $orderItemIds)
+            ->groupBy('order_item_id')
+            ->select('order_item_id', DB::raw('SUM(quantity) as qty'))
             ->pluck('qty', 'order_item_id')
             ->map(fn ($v) => (float) $v)
             ->all();
@@ -219,7 +280,7 @@ class DdtService
     /**
      * Crea header DDT con retry su collisione progressivo annuale.
      */
-    private function createHeaderWithRetry(int $orderId, int $year, Carbon $issuedAt, Authenticatable $user): Ddt
+    private function createHeaderWithRetry(int $orderId, int $year, Carbon $issuedAt, Authenticatable $user, ?int $packages = null): Ddt
     {
         $attempts = 0;
 
@@ -238,7 +299,8 @@ class DdtService
                     /* Default “proforma”: poi li renderai editabili */
                     'carrier_name' => 'conserva s.p.a.',
                     'transport_reason' => 'C/Vendita con scontrino',
-
+                    'packages' => $packages,
+                    'port' => 'Porto Franco',
                     'created_by' => $user->getAuthIdentifier(),
                 ]);
             } catch (QueryException $e) {

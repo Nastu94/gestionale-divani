@@ -1251,9 +1251,10 @@ Route::middleware([
     |
     */
     Route::resource('alerts', AlertController::class)
-        ->only(['index'])
+        ->only(['index', 'show'])
         ->names([
             'index' => 'alerts.index',
+            'show'  => 'alerts.show',
         ])
         ->middleware('permission:alerts.view');
 

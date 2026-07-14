@@ -34,7 +34,7 @@ return [
                 ['label'=>'Giacenze',      'route'=>'stock-levels.index',            'permission'=>'stock.view'],
                 ['label'=>'Entrate',       'route'=>'stock-movements-entry.index',   'permission'=>'stock.entry'],
                 ['label'=>'Uscite',        'route'=>'stock-movements-exit.index',    'permission'=>'stock.exit'],
-                ['label'=>'Alert',         'route'=>'alerts.index',                  'permission'=>'alerts.view'],
+                ['label'=>'Alert',         'route'=>'alerts.index',                  'permission'=>'alerts.view', 'badge_count' => 'alerts_unread'],
             ],
         ],
         [
@@ -91,7 +91,7 @@ return [
                 ['label'=>'Giacenze',      'route'=>'stock-levels.index',            'icon'=>'fa-layer-group',         'permission'=>'stock.view'],
                 ['label'=>'Entrate',       'route'=>'stock-movements-entry.index',   'icon'=>'fas fa-download',        'permission'=>'stock.entry'],
                 ['label'=>'Uscite',        'route'=>'stock-movements-exit.index',    'icon'=>'fas fa-upload',          'permission'=>'stock.exit'],
-                ['label'=>'Alert',         'route'=>'alerts.index',                  'icon'=>'fa-bell',                'permission'=>'alerts.view'],
+                ['label'=>'Alert',         'route'=>'alerts.index',                  'icon'=>'fa-bell',                'permission'=>'alerts.view', 'badge_count' => 'alerts_unread'],
             ],
         ],
         [

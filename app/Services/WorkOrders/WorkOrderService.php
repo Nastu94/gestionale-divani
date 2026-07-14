@@ -18,7 +18,7 @@ class WorkOrderService
      */
     public function createForOrderAndPhase(int $orderId, int $phase, $user): WorkOrder
     {
-        if ($phase >= 6) {
+        if ($phase >= \App\Enums\ProductionPhase::SHIPPING->value) {
             throw ValidationException::withMessages(['phase' => 'In spedizione si usa il DDT, non il buono.']);
         }
 

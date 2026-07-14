@@ -102,10 +102,7 @@ class ReturnedProductReservationService
             // 4) Se abbiamo riservato qualcosa → registra evento fase "inserito → spedito"
             if ($qtyReserved > 1e-6) {
                 // Determina la fase "spedizione"
-                $toPhase = $destinationPhase
-                    ?? (defined('\App\Enums\ProductionPhase::Shipping')
-                        ? ProductionPhase::Shipping->value
-                        : 6); // fallback numerico, aggiorna se necessario
+                $toPhase = $destinationPhase ?? ProductionPhase::SHIPPING->value;
 
                 $fromPhase = $item->current_phase->value ?? 0;
 

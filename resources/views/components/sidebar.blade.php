@@ -39,6 +39,9 @@
     </div>
 
     {{-- Menu a fisarmonica: itero solo le sezioni con almeno una voce accessibile --}}
+    @php
+        $unreadAlertsCount = \App\Models\Alert::where('is_read', false)->count();
+    @endphp
     @foreach(config('menu.sidebar') as $i => $section)
         @php
             // filtro gli items cui l'utente ha effettivo accesso
@@ -74,16 +77,26 @@
                 @foreach($accessible as $item)
                     @php
                         $isActive = request()->routeIs($item['route']);
+                        $badgeName = $item['badge_count'] ?? null;
+                        $badgeCount = match ($badgeName) {
+                            'alerts_unread' => $unreadAlertsCount,
+                            default => 0,
+                        };
                     @endphp
                     <li>
                         <a
                             href="{{ route($item['route']) }}"
-                            class="block px-8 py-2 text-sm transition-colors
+                            class="flex justify-between items-center px-8 py-2 text-sm transition-colors
                                    {{ $isActive
                                         ? 'bg-gray-200 dark:bg-gray-700 font-medium text-gray-900 dark:text-gray-100'
                                         : 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700' }}"
                         >
-                            {{ __($item['label']) }}
+                            <span>{{ __($item['label']) }}</span>
+                            @if ($badgeCount > 0)
+                                <span class="ml-auto inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-xs font-semibold text-white">
+                                    {{ $badgeCount > 99 ? '99+' : $badgeCount }}
+                                </span>
+                            @endif
                         </a>
                     </li>
                 @endforeach

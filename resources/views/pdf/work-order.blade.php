@@ -136,15 +136,8 @@
     $order = $wo->order;
     $orderNo = $order?->orderNumber?->number ?? $wo->order_id;
 
-    $phaseLabels = [
-        0 => 'Inserito',
-        1 => 'Taglio',
-        2 => 'Cucito',
-        3 => 'Fusto',
-        4 => 'Spugna',
-        5 => 'Assemblaggio',
-    ];
-    $phaseName = $phaseLabels[$wo->phase] ?? (string)$wo->phase;
+    $phaseName = \App\Enums\ProductionPhase::tryFrom((int) $wo->phase)?->label()
+        ?? (string) $wo->phase;
 
     $customerName = $order?->customer?->company
         ?? $order?->occasionalCustomer?->company

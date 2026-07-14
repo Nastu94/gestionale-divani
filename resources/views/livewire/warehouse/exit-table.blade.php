@@ -6,12 +6,9 @@
         @php
             $fasi = [
                 0 => ['txt' => 'Inserito'      , 'icon' => 'fa-upload'          , 'bg' => 'bg-gray-300 dark:bg-gray-700'],
-                1 => ['txt' => 'Taglio'        , 'icon' => 'fa-cut'             , 'bg' => 'bg-blue-100  dark:bg-blue-700'],
-                2 => ['txt' => 'Cucito'        , 'icon' => 'fa-thumbtack'        , 'bg' => 'bg-indigo-100 dark:bg-indigo-700'],
-                3 => ['txt' => 'Fusto'         , 'icon' => 'fa-hammer'          , 'bg' => 'bg-yellow-100 dark:bg-yellow-700'],
-                4 => ['txt' => 'Spugna'        , 'icon' => 'fa-feather'         , 'bg' => 'bg-green-100 dark:bg-green-700'],
-                5 => ['txt' => 'Assemblaggio'  , 'icon' => 'fa-screwdriver-wrench'           , 'bg' => 'bg-purple-100 dark:bg-purple-700'],
-                6 => ['txt' => 'Spedizione'    , 'icon' => 'fa-truck'           , 'bg' => 'bg-red-100   dark:bg-red-700'],
+                1 => ['txt' => 'Cucito'        , 'icon' => 'fa-thumbtack'       , 'bg' => 'bg-indigo-100 dark:bg-indigo-700'],
+                2 => ['txt' => 'Assemblaggio'  , 'icon' => 'fa-screwdriver-wrench' , 'bg' => 'bg-purple-100 dark:bg-purple-700'],
+                3 => ['txt' => 'Spedizione'    , 'icon' => 'fa-truck'           , 'bg' => 'bg-red-100   dark:bg-red-700'],
             ];
         @endphp
 
@@ -106,6 +103,27 @@
                                         </span>
                                     </button>
 
+                                    @if($phase == 3)
+                                        <button type="button"
+                                                wire:click="generateAccorpatoDdt"
+                                                wire:loading.attr="disabled"
+                                                wire:target="generateAccorpatoDdt"
+                                                class="inline-flex items-center rounded-md bg-green-600 px-3 py-1.5
+                                                    font-semibold uppercase text-white hover:bg-green-500
+                                                    focus:outline-none focus:ring-2 focus:ring-green-300
+                                                    disabled:opacity-60 ml-2">
+                                            <span wire:loading.remove wire:target="generateAccorpatoDdt">
+                                                <i class="fas fa-object-group mr-1"></i>
+                                                Genera DDT Accorpato
+                                            </span>
+
+                                            <span wire:loading wire:target="generateAccorpatoDdt">
+                                                <i class="fas fa-circle-notch fa-spin mr-1"></i>
+                                                Generazione...
+                                            </span>
+                                        </button>
+                                    @endif
+
                                     <button type="button"
                                             wire:click="clearSelectedExitRows"
                                             class="inline-flex items-center hover:text-red-600">
@@ -196,6 +214,15 @@
                                     :align="'left'"
                                 />
 
+                                <x-th-menu-live
+                                    field="color_note"
+                                    label="Colore / Nota"
+                                    :sort="$sort"
+                                    :dir="$dir"
+                                    :filters="$filters"
+                                    :align="'left'"
+                                />
+
                                 {{-- DATA ORDINE --}}
                                 <x-th-menu-live
                                     field="order_date"
@@ -244,10 +271,10 @@
                                     $canRollbackRaw = auth()->user()->can('orders.customer.rollback_item_phase');
 
                                     // logica di fase
-                                    $canAdvance  = $canAdvanceRaw  && $phase < 6;   // no “Avanza” se già in Spedizione
+                                    $canAdvance  = $canAdvanceRaw  && $phase < 3;   // no “Avanza” se già in Spedizione
                                     $canRollback = $canRollbackRaw && $phase > 0;   // no “Rollback” in Inserito
-                                    $showDdT     =                ($phase == 6);    // DdT solo in Spedizione
-                                    $showWorkOrder = ($phase < 6);    // Work Order solo se non in Spedizione
+                                    $showDdT     =                ($phase == 3);    // DdT solo in Spedizione
+                                    $showWorkOrder = ($phase < 3);    // Work Order solo se non in Spedizione
 
                                     $canToggle   = $canAdvance || $canRollback || $showDdT;
                                 @endphp
@@ -289,6 +316,23 @@
                                         {{ $row->product_name ?? '—' }}
                                     </td>
 
+                                    {{-- Colore e nota --}}
+                                    <td class="px-6 py-2 whitespace-nowrap">
+                                        @php
+                                            $colName = $row->color_name ?? $row->color_code;
+                                            $colNote = $row->color_notes;
+                                        @endphp
+                                        @if($colName && $colNote)
+                                            {{ $colName }} - {{ $colNote }}
+                                        @elseif($colName)
+                                            {{ $colName }}
+                                        @elseif($colNote)
+                                            {{ $colNote }}
+                                        @else
+                                            —
+                                        @endif
+                                    </td>
+
                                     {{-- Data ordine / consegna --}}
                                     <td class="px-6 py-2  whitespace-nowrap">
                                         {{ \Carbon\Carbon::parse($row->order_date)->format('Y-m-d') ?? '—' }}
@@ -307,7 +351,7 @@
                                 {{-- RIGA TOOLBAR --}}
                                 @if($canToggle)
                                     <tr wire:key="tb-{{ $row->id }}" x-show="openId === {{ $row->id }}" x-cloak>
-                                        <td :colspan="9" class="px-6 py-3 bg-gray-200 dark:bg-gray-700">
+                                        <td :colspan="10" class="px-6 py-3 bg-gray-200 dark:bg-gray-700">
                                             <div class="flex items-center space-x-4 text-xs">
                                                 {{-- ► Avanza fase (qty default 100 %) --}}
                                                 @if($canAdvance)
@@ -365,7 +409,7 @@
                             {{-- RIGA NESSUN RISULTATO --}}
                             @if ($exitRows->isEmpty())
                                 <tr>
-                                    <td colspan="9" class="px-6 py-2 text-center text-gray-500">Nessun risultato trovato.</td>
+                                    <td colspan="10" class="px-6 py-2 text-center text-gray-500">Nessun risultato trovato.</td>
                                 </tr>
                             @endif
                         </tbody>

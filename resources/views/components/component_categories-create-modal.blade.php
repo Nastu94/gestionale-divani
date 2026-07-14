@@ -4,11 +4,8 @@
 
 @php
     use App\Enums\ProductionPhase;
-    // escluse fasi 0 e 6
+    // escluse fasi 0 e 3 (inserito e spedizione)
     $prodPhases = collect([
-        ProductionPhase::STRUCTURE,
-        ProductionPhase::PADDING,
-        ProductionPhase::UPHOLSTERY,
         ProductionPhase::ASSEMBLY,
         ProductionPhase::FINISHING,
     ]);

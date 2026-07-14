@@ -42,6 +42,13 @@
         <div  x-data="{
                     openId: null,
 
+                    init() {
+                        let openOrder = {{ request()->query('open_order', 'null') }};
+                        if (openOrder) {
+                            this.openSidebar(openOrder, 'Dettaglio da Alert');
+                        }
+                    },
+
                     /*
                     * ID degli ordini selezionati nella tabella.
                     * La selezione vale per la pagina corrente.
@@ -141,6 +148,7 @@
                     sidebarNote        : null,
                     sidebarReason      : null,
                     sidebarReference   : null,
+                    sidebarPackages    : null,
                     formatCurrency(v)  { return Intl.NumberFormat('it-IT', { minimumFractionDigits: 2 }).format(v) },
                     openSidebar(id, num) {
                         this.sidebarOpen        = true
@@ -150,6 +158,7 @@
                         this.sidebarNote        = null
                         this.sidebarReason      = null
                         this.sidebarReference   = null
+                        this.sidebarPackages    = null
 
                         fetch(`/orders/customer/${id}/lines`, {
                             headers     : { Accept: 'application/json' },
@@ -163,11 +172,13 @@
                                 this.sidebarNote       = null;
                                 this.sidebarReason     = null;
                                 this.sidebarReference  = null;
+                                this.sidebarPackages   = null;
                             } else {
                                 this.sidebarLines      = Array.isArray(js.rows) ? js.rows : [];
                                 this.sidebarNote       = js.note ?? null;
                                 this.sidebarReason     = js.reason ?? null;
                                 this.sidebarReference  = js.reference ?? null;
+                                this.sidebarPackages   = js.packages ?? null;
                             }
                             this.sidebarLoading = false;
                         })
@@ -257,7 +268,9 @@
                                            :sort="$sort" :dir="$dir" :filters="$filters"
                                            reset-route="orders.customer.index" />
                                 <th>Indirizzo Spedizione</th>
-                                <th>Riferimento</th>
+                                <x-th-menu field="reference" label="Riferimento"
+                                           :sort="$sort" :dir="$dir" :filters="$filters"
+                                           reset-route="orders.customer.index" />
                                 <x-th-menu field="ordered_at" label="Data Ordine"
                                            :sort="$sort" :dir="$dir" :filters="$filters"
                                            reset-route="orders.customer.index"
@@ -475,6 +488,17 @@
                                     <span class="font-semibold">Note ordine</span>
                                 </div>
                                 <p class="text-sm text-purple-900 whitespace-pre-line" x-text="sidebarNote"></p>
+                            </div>
+                        </template>
+
+                        {{-- Numero colli --}}
+                        <template x-if="sidebarPackages">
+                            <div class="rounded border border-blue-200 bg-blue-50 p-3">
+                                <div class="flex items-center gap-2 mb-1">
+                                    <i class="fas fa-box text-blue-600"></i>
+                                    <span class="font-semibold">Numero colli</span>
+                                </div>
+                                <p class="text-sm text-blue-900" x-text="sidebarPackages"></p>
                             </div>
                         </template>
 

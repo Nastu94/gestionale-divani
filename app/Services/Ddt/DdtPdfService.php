@@ -33,6 +33,7 @@ class DdtPdfService
             'order.customer.addresses',
             'order.occasionalCustomer',
             'rows.orderItem.product',
+            'rows.orderItem.order.orderNumber',
         ]);
 
         /* Recipient/Destination normalizzati */

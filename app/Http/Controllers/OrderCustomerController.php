@@ -58,7 +58,7 @@ class OrderCustomerController extends Controller
         $filters = $request->input('filter', []);
 
         /*──── Whitelist ordinabile ───*/
-        $allowedSorts = ['id', 'customer', 'ordered_at', 'delivery_date', 'total'];
+        $allowedSorts = ['id', 'customer', 'ordered_at', 'delivery_date', 'total', 'reference'];
         if (! in_array($sort, $allowedSorts, true)) $sort = 'ordered_at';
 
         /*──── Query ───*/
@@ -105,6 +105,9 @@ class OrderCustomerController extends Controller
 
             ->when($filters['total'] ?? null,
                 fn ($q,$v) => $q->where('total', 'like', "%$v%"))
+
+            ->when($filters['reference'] ?? null,
+                fn ($q,$v) => $q->where('reference', 'like', "%{$v}%"))
 
             /*─── Ordinamento ───*/
             ->when($sort === 'customer', function ($q) use ($dir) {
@@ -269,6 +272,7 @@ class OrderCustomerController extends Controller
             'reference'             => ['nullable', 'string', 'max:255'],
             // NEW: zona spedizione (nota interna, solo stampa documenti)
             'shipping_zone'          => ['nullable', 'string', 'max:255'],
+            'packages'               => ['nullable', 'integer', 'min:1'],
 
             // NEW: note colori per riga (multi-colore/dettagli interni)
             'lines.*.color_notes'    => ['nullable', 'string'],
@@ -420,7 +424,7 @@ class OrderCustomerController extends Controller
 
         /*──────────────── PREPARAZIONE RIGHE (variabili + pricing + sconti) ────────────────*/
         $customerId  = $data['customer_id'] ?? null; // guest → null
-        $canOverride = $request->user()->can('orders.price.override');
+        $canOverride = $request->user()->can('orders.customer.update');
 
         $resolvedLines = collect($data['lines'])->map(function (array $l) use (
             $customerId, $deliveryDate, $canOverride,
@@ -548,6 +552,7 @@ class OrderCustomerController extends Controller
                     'shipping_address'       => $data['shipping_address'],
                     'shipping_zone'          => $data['shipping_zone'] ?? null,
                     'reference'              => $data['reference'] ?? null,
+                    'packages'               => $data['packages'] ?? null,
                     'total'                  => $total,
                     'ordered_at'             => now(),
                     'delivery_date'          => $deliveryDate,
@@ -572,7 +577,7 @@ class OrderCustomerController extends Controller
                     $colorId  = $line['color_id']  ?? null;
                     $colorNotes = $line['color_notes'] ?? null;
 
-                    if ($fabricId !== null || $colorId !== null) {
+                    if ($fabricId !== null || $colorId !== null || $colorNotes !== null) {
                         $payload = [];
                         if (Schema::hasColumn('order_product_variables', 'fabric_id'))  { $payload['fabric_id']  = $fabricId; }
                         if (Schema::hasColumn('order_product_variables', 'color_id'))   { $payload['color_id']   = $colorId; }
@@ -956,6 +961,7 @@ class OrderCustomerController extends Controller
             'note'   => $order->note,      // TEXT/nullable
             'reason' => $order->reason,    // TEXT/nullable → popolata in caso di rifiuto
             'reference' => $order->reference,
+            'packages' => $order->packages,
         ]);
     }
 
@@ -1064,6 +1070,7 @@ class OrderCustomerController extends Controller
             // NEW: campi header aggiunti/attesi dalla UI
             'hash_flag'        => (bool) ($order->hash_flag ?? false),
             'note'             => $order->note ?? null,
+            'packages'         => $order->packages ?? null,
 
             'lines'            => $lines,
         ]);
@@ -1091,6 +1098,7 @@ class OrderCustomerController extends Controller
             // header extra
             'hash_flag'          => ['sometimes','boolean'],
             'note'               => ['nullable','string'],
+            'packages'           => ['nullable','integer','min:1'],
             'shipping_zone'       => ['nullable', 'string', 'max:255'],
             'reference'          => ['nullable', 'string', 'max:255'],
             // righe
@@ -1113,7 +1121,7 @@ class OrderCustomerController extends Controller
 
         $customerId  = $order->customer_id; // guest → null
         $delivery    = Carbon::parse($data['delivery_date']);
-        $canOverride = $request->user()->can('orders.price.override');
+        $canOverride = $request->user()->can('orders.customer.update');
 
         /**
          * Aggiorna i campi header dell'ordine.
@@ -1140,6 +1148,10 @@ class OrderCustomerController extends Controller
                 'reference' => ($data['reference'] !== null && trim((string) $data['reference']) !== '')
                     ? trim((string) $data['reference'])
                     : null
+            ] : []),
+
+            ...(array_key_exists('packages', $data) ? [
+                'packages' => $data['packages']
             ] : []),
         ]);
 

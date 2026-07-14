@@ -66,10 +66,10 @@
                         <div
                             x-show="customerOptions.length"
                             x-cloak
-                            class="absolute z-50 w-full mt-1 bg-white border rounded shadow max-h-40 overflow-y-auto"
+                            class="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded shadow max-h-40 overflow-y-auto"
                         >
                             <template x-for="(option, idx) in customerOptions" :key="option.id + '-' + idx">
-                                <div class="px-2 py-1 hover:bg-gray-200 cursor-pointer"
+                                <div class="px-2 py-1 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
                                      @click="selectCustomer(option)">
                                     <span class="text-xs" x-text="option.company + ' - ' + option.shipping_address"></span>
                                 </div>
@@ -89,7 +89,7 @@
 
                         {{-- Riepilogo cliente scelto --}}
                         <template x-if="selectedCustomer">
-                            <div class="mt-2 p-2 border rounded bg-gray-50">
+                            <div class="mt-2 p-2 border dark:border-gray-700 rounded bg-gray-50 dark:bg-gray-800">
                                 <p class="font-semibold" x-text="selectedCustomer.company"></p>
 
                                 <template x-if="selectedCustomer.email">
@@ -152,6 +152,14 @@
                         <input type="text" :value="formatCurrency(total)" class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
                                text-sm text-gray-900 dark:text-gray-100" readonly>
                     </div>
+
+                    {{-- Numero colli --}}
+                    <div>
+                        <label class="block text-sm font-medium">Numero colli</label>
+                        <input type="number" x-model="packages" min="1" step="1" placeholder="Opzionale (se noto)"
+                               class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
+                               text-sm text-gray-900 dark:text-gray-100">
+                    </div>
                     {{-- Flag anonimo "#" (orders.hash_flag) - checkbox senza label visibile --}}
                     <div class="flex items-center justify-end">
                         {{-- Checkbox senza label testuale; manteniamo solo tooltip e un badge # quando attivo --}}
@@ -184,11 +192,11 @@
                                 <td class="px-2 py-1" x-text="l.product.sku + ' — ' + l.product.name"></td>
                                 <td class="px-2 py-1">
                                     <div class="flex items-center gap-2">
-                                        <span class="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-gray-100">
+                                        <span class="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200">
                                             <i class="fas fa-tshirt text-[11px]"></i>
                                             <span x-text="l.fabric_name || '—'"></span>
                                         </span>
-                                        <span class="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-gray-100">
+                                        <span class="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200">
                                             <i class="fas fa-palette text-[11px]"></i>
                                             <span x-text="l.color_name || '—'"></span>
                                         </span>
@@ -269,9 +277,9 @@
 
                         <div x-show="productOptions.length"
                              x-cloak
-                             class="absolute z-50 w-full mt-1 bg-white border rounded shadow max-h-40 overflow-y-auto">
+                             class="absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded shadow max-h-40 overflow-y-auto">
                             <template x-for="option in productOptions" :key="option.id">
-                                <div class="px-2 py-1 hover:bg-gray-200 cursor-pointer"
+                                <div class="px-2 py-1 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
                                      @click="selectProduct(option)">
                                     <span class="text-xs" x-text="option.sku + ' — '"></span>
                                     <span class="text-xs" x-text="option.name"></span>
@@ -281,7 +289,7 @@
 
                         {{-- Riepilogo prodotto scelto --}}
                         <template x-if="selectedProduct">
-                            <div class="mt-2 p-2 border rounded bg-gray-50">
+                            <div class="mt-2 p-2 border dark:border-gray-700 rounded bg-gray-50 dark:bg-gray-800">
                                 <p><strong x-text="selectedProduct.sku"></strong> — <span x-text="selectedProduct.name"></span></p>
                                 <button type="button" @click="selectedProduct=null"
                                         class="text-xs text-red-600 mt-1">Cambia</button>
@@ -498,6 +506,7 @@
             /* ==== Snapshot per rilevare modifiche effettive ==== */
             _initialSnapshot: null,
             _snapshotReady: false,
+            _skipReprice: false,
 
             /**
              * Campi header dell'ordine.
@@ -509,6 +518,7 @@
             note             : '',
             shipping_zone    : '',
             reference        : '',
+            packages         : null,
 
             /* ==== Cliente ==== */
             customerSearch   : '',
@@ -560,10 +570,10 @@
 
             /* Watchers utili per il pricing live */
             setupWatches() {
-                this.$watch('fabric_id',  () => this.reprice());
-                this.$watch('color_id',   () => this.reprice());
-                this.$watch('quantity',   () => this.reprice());
-                this.$watch('discountsDraft', () => this.reprice(), { deep: true });
+                this.$watch('fabric_id',  () => { if (!this._skipReprice) this.reprice(); });
+                this.$watch('color_id',   () => { if (!this._skipReprice) this.reprice(); });
+                this.$watch('quantity',   () => { if (!this._skipReprice) this.reprice(); });
+                this.$watch('discountsDraft', () => { if (!this._skipReprice) this.reprice(); }, { deep: true });
             },
 
             /* Snapshot normalizzato (stessa forma del payload submit) */
@@ -576,6 +586,7 @@
                     shipping_address: this.selectedCustomer ? (this.selectedCustomer.shipping_address || null) : null,
                     shipping_zone: (this.shipping_zone && String(this.shipping_zone).trim()) || null,
                     reference: (this.reference && String(this.reference).trim()) || null,
+                    packages: this.packages ? parseInt(this.packages) : null,
                     hash_flag: !!this.hash_flag,
                     note: (this.note && String(this.note).trim()) || null,
                     lines: (this.lines || []).map(l => ({
@@ -672,6 +683,7 @@
                 this.selectedProduct  = null;
                 this.shipping_zone    = '';
                 this.reference        = '';
+                this.packages         = null;
                 this.productSearch    = '';
                 this.price            = 0;
                 this.quantity         = 1;
@@ -794,10 +806,12 @@
                     return;
                 }
                 const l = this.lines.splice(i,1)[0];
+                
+                this._skipReprice = true; // Sospendo il ricalcolo per conservare il prezzo
+                
                 this.selectedProduct    = l.product;
                 this.price              = l.price;
                 this.quantity           = l.qty;
-                this.loadProductWhitelist(l.product.id, l.fabric_id ?? null, l.color_id ?? null);
                 this.color_notes        = l.color_notes ?? ''; 
                 this.productSearch      = '';
                 this.availabilityOk     = null;
@@ -808,6 +822,11 @@
                         return { type: isPerc ? 'percent' : 'fixed', value: Number.isFinite(val) ? val : '' };
                     })
                     : [];
+
+                this.loadProductWhitelist(l.product.id, l.fabric_id ?? null, l.color_id ?? null, true)
+                    .finally(() => {
+                        this.$nextTick(() => { this._skipReprice = false; });
+                    });
             },
 
             removeLine(i){ this.lines.splice(i,1); this.availabilityOk = null; },
@@ -838,6 +857,7 @@
                     shipping_address: this.selectedCustomer.shipping_address,
                     shipping_zone   : (this.shipping_zone && String(this.shipping_zone).trim().length) ? this.shipping_zone.trim() : null,
                     reference       : (this.reference && String(this.reference).trim().length) ? this.reference.trim() : null,
+                    packages        : this.packages ? parseInt(this.packages) : null,
                     hash_flag       : this.hash_flag ? 1 : 0,
                     note            : (this.note && String(this.note).trim().length) ? this.note.trim() : null,
                     lines : this.lines.map(l => ({
@@ -949,6 +969,7 @@
 
                     this.hash_flag = !!o.hash_flag;
                     this.note      = o.note ?? '';
+                    this.packages  = o.packages ?? null;
                     this.shipping_zone = o.shipping_zone ?? '';
                     this.reference     = o.reference ?? '';
                     this.lines = (o.lines || []).map(l => ({
@@ -1024,7 +1045,7 @@
             },
 
             /* Carica whitelist variabili prodotto */
-            async loadProductWhitelist(productId, preselectFabricId = null, preselectColorId = null) {
+            async loadProductWhitelist(productId, preselectFabricId = null, preselectColorId = null, skipReprice = false) {
                 if (!productId) {
                     this.fabricOptions = [];
                     this.colorOptions  = [];
@@ -1062,7 +1083,9 @@
                     this.fabric_id = pick(wantF, defF, allowedF, this.fabricOptions);
                     this.color_id  = pick(wantC, defC, allowedC, this.colorOptions);
 
-                    this.reprice();
+                    if (!skipReprice) {
+                        this.reprice();
+                    }
                 } catch (e) {
                     console.error('variables load failed', e);
                     this.fabricOptions=[]; this.colorOptions=[];
@@ -1104,9 +1127,11 @@
                     if (!r.ok) throw new Error('pricing_failed');
                     const q = await r.json();
 
-                    const unitNet = Number(q.discounted_unit_price ?? q.unit_price ?? q.effective_price ?? 0);
-                    this.price = unitNet;
-                    this.total = this.lines.reduce((s,l)=>s+(l.subtotal||0),0) + unitNet * (this.quantity||1);
+                    let unitNet = q.discounted_unit_price ?? q.unit_price ?? q.effective_price;
+                    if (unitNet !== undefined && unitNet !== null) {
+                        this.price = Number(unitNet);
+                    }
+                    this.total = this.lines.reduce((s,l)=>s+(l.subtotal||0),0) + Number(this.price||0) * (this.quantity||1);
                 } catch(e) {
                     if (e.name === 'AbortError') return;
                 }

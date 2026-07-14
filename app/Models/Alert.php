@@ -15,6 +15,7 @@ class Alert extends Model
      * Attributi assegnabili in massa.
      */
     protected $fillable = [
+        'dedupe_key', // Chiave di deduplicazione
         'type',       // Tipo avviso
         'message',    // Testo avviso
         'payload',    // Dati aggiuntivi (JSON)

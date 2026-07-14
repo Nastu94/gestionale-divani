@@ -28,7 +28,7 @@ class CustomerController extends Controller
                 $q->orderByRaw("FIELD(type,'billing','shipping','other')")->orderBy('id');
             }])
             // Join solo sugli indirizzi di tipo 'shipping'
-            ->join('customer_addresses', function($join) {
+            ->leftJoin('customer_addresses', function($join) {
                 $join->on('customers.id', '=', 'customer_addresses.customer_id')
                     ->where('customer_addresses.type', 'shipping');
             })
@@ -78,11 +78,10 @@ class CustomerController extends Controller
         // CREO IL VALIDATOR manuale per poter loggare gli errori
         $validator = Validator::make($request->all(), [
             'company'                 => ['required','string','max:255'],
-            'vat_number'              => ['nullable','string','max:50','unique:customers,vat_number'],
-            'tax_code'                => ['nullable','string','max:50'],
             'email'                   => ['nullable','email','max:255'],
             'phone'                   => ['nullable','string','max:50'],
             'is_active'               => ['nullable','in:on,0,1'],
+            'notes'                   => ['nullable','string'],
             'addresses'               => ['nullable','array'],
             'addresses.*.type'        => ['required_with:addresses','in:billing,shipping,other'],
             'addresses.*.address'     => ['required_with:addresses','string','max:255'],
@@ -101,7 +100,6 @@ class CustomerController extends Controller
                 'company.string' => 'Il nome della compagnia deve essere una stringa.',
                 'company.max' => 'Il nome della compagnia non può superare i 255 caratteri.',
                 'email.email' => 'L\'email deve essere un indirizzo email valido.',
-                'vat_number.unique' => 'Il numero di partita IVA deve essere unico.',
             ]
         );
 
@@ -126,11 +124,10 @@ class CustomerController extends Controller
             // CREAZIONE CUSTOMER
             $customer = Customer::create([
                 'company'    => $validated['company'],
-                'vat_number' => $validated['vat_number'],
-                'tax_code'   => $validated['tax_code'],
                 'email'      => $validated['email'],
                 'phone'      => $validated['phone'],
                 'is_active'  => $validated['is_active'],
+                'notes'      => $validated['notes'] ?? null,
             ]);
 
             // Verifica creazione
@@ -205,11 +202,10 @@ class CustomerController extends Controller
         // Validator manuale per poter intercettare e loggare gli errori
         $validator = Validator::make($request->all(), [
             'company'                 => ['required', 'string', 'max:255'],
-            'vat_number'              => ['nullable', 'string', 'max:50'],
-            'tax_code'                => ['nullable', 'string', 'max:50'],
             'email'                   => ['nullable', 'email', 'max:255'],
             'phone'                   => ['nullable', 'string', 'max:50'],
             'is_active'               => ['nullable', 'in:on,0,1'],
+            'notes'                   => ['nullable', 'string'],
             'addresses'               => ['nullable', 'array'],
             'addresses.*.type'        => ['required_with:addresses', 'in:billing,shipping,other'],
             'addresses.*.address'     => ['required_with:addresses', 'string', 'max:255'],
@@ -237,14 +233,15 @@ class CustomerController extends Controller
             DB::beginTransaction();
 
             // Update del record customer
-            $customer->update([
+            $updateData = [
                 'company'    => $data['company'],
-                'vat_number' => $data['vat_number'],
-                'tax_code'   => $data['tax_code'],
                 'email'      => $data['email'],
                 'phone'      => $data['phone'],
                 'is_active'  => $data['is_active'],
-            ]);
+                'notes'      => $data['notes'] ?? null,
+            ];
+
+            $customer->update($updateData);
 
             // Riallocazione indirizzi: cancello quelli esistenti…
             $customer->addresses()->delete();

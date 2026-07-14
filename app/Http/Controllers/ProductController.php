@@ -78,6 +78,7 @@ class ProductController extends Controller
             ->appends($request->query());
 
         // 9) Passa tutto in view
+        session()->put('products_list_url', $request->fullUrl());
         return view('pages.master-data.index-products', compact(
             'products', 'components', 'sort', 'dir', 'filters'
         ));
@@ -208,8 +209,7 @@ class ProductController extends Controller
 
             DB::commit();
 
-            return redirect()
-                ->route('products.index')
+            return redirect(session('products_list_url', route('products.index')))
                 ->with('success', 'Prodotto creato con successo.');
 
         } catch (\Throwable $e) {
@@ -432,8 +432,7 @@ class ProductController extends Controller
 
             DB::commit();
 
-            return redirect()
-                ->route('products.index')
+            return redirect(session('products_list_url', route('products.index')))
                 ->with('success', 'Prodotto aggiornato con successo.');
 
         } catch (\Throwable $e) {
@@ -792,8 +791,7 @@ class ProductController extends Controller
 
             DB::commit();
 
-            return redirect()
-                ->route('products.index')
+            return redirect(session('products_list_url', route('products.index')))
                 ->with('success', 'Prodotto ripristinato con successo.');
 
         } catch (\Throwable $e) {
@@ -827,8 +825,7 @@ class ProductController extends Controller
 
             DB::commit();
 
-            return redirect()
-                ->route('products.index')
+            return redirect(session('products_list_url', route('products.index')))
                 ->with('success', 'Prodotto disattivato con successo.');
 
         } catch (\Throwable $e) {

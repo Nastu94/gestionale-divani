@@ -51,6 +51,7 @@ final readonly class AdvanceOrderItemPhaseAction
         private ?string          $reason     = null,
         private string           $rollbackMode = 'scrap',
         private ?string          $operator   = null,
+        private bool             $forceReservation = false,
     ) {}
 
     /**
@@ -122,7 +123,7 @@ final readonly class AdvanceOrderItemPhaseAction
             *----------------------------------------------------------------- */
             if (! $this->isRollback) {
 
-                $destPhase = $toPhase;   // 1-6
+                $destPhase = $toPhase;   // 1-3
 
                 /* verifica prenotazioni componenti fase destinazione */
                 $missing = $this->checkReservations($item, $destPhase);
@@ -130,20 +131,82 @@ final readonly class AdvanceOrderItemPhaseAction
                 if (!empty($missing)) {
 
                     /* -------------------------------------------------------------
-                    | Messaggio UI: elenco codici in modo leggibile.
-                    | (I dettagli completi sono nel payload dell'eccezione)
+                    | Task 13: Avanzamento con materiale disponibile ma non impegnato.
+                    | Se force_reservation è attivato (o possiamo forzarlo di default),
+                    | proviamo a prenotare dinamicamente il materiale fisico.
                     *------------------------------------------------------------- */
-                    $codes = collect($missing)
-                        ->pluck('code')
-                        ->unique()
-                        ->values()
-                        ->all();
+                    $stillMissing = [];
 
-                    $msg = "Prenotazioni insufficienti per la fase successiva. Componenti mancanti: "
-                        . implode(', ', $codes) . '.';
+                    foreach ($missing as $m) {
+                        $cid = $m['component_id'];
+                        $missingQty = $m['missing'];
 
-                    /* Eccezione “di dominio” per abilitare il pulsante Forza Prenotazione */
-                    throw new ForceReservationRequiredException($missing, $msg);
+                        // Calcoliamo disponibilità fisica reale
+                        $freeStock = 0.0;
+                        $levels = StockLevel::where('component_id', $cid)
+                            ->orderBy('created_at')
+                            ->lockForUpdate()
+                            ->get();
+                            
+                        foreach ($levels as $sl) {
+                            $already = $sl->reservations()->sum('quantity');
+                            $free = max($sl->quantity - $already, 0);
+                            $freeStock += $free;
+                        }
+
+                        if ($freeStock >= $missingQty - 1e-6) {
+                            // Creiamo le reservation necessarie se consentito
+                            if ($this->forceReservation) {
+                                $left = $missingQty;
+                                foreach ($levels as $sl) {
+                                    if ($left <= 0) break;
+                                    $already = $sl->reservations()->sum('quantity');
+                                    $free = max($sl->quantity - $already, 0);
+                                    if ($free <= 0) continue;
+                                    
+                                    $take = min($free, $left);
+                                    
+                                    StockReservation::create([
+                                        'stock_level_id' => $sl->id,
+                                        'order_id'       => $item->order_id,
+                                        'quantity'       => $take,
+                                    ]);
+
+                                    StockMovement::create([
+                                        'stock_level_id' => $sl->id,
+                                        'type'           => 'reserve',
+                                        'quantity'       => $take,
+                                        'note'           => "Prenotazione dinamica (Task 13) OC #{$item->order_id}",
+                                    ]);
+                                    
+                                    $left -= $take;
+                                }
+                            } else {
+                                // Potrebbe prenotare, ma serve conferma (forceReservation)
+                                $stillMissing[] = $m;
+                            }
+                        } else {
+                            // Non c'è proprio materiale fisico a sufficienza
+                            $stillMissing[] = $m;
+                        }
+                    }
+
+                    if (!empty($stillMissing)) {
+                        /* -------------------------------------------------------------
+                        | Messaggio UI: elenco codici in modo leggibile.
+                        *------------------------------------------------------------- */
+                        $codes = collect($stillMissing)
+                            ->pluck('code')
+                            ->unique()
+                            ->values()
+                            ->all();
+
+                        $msg = "Prenotazioni/Giacenza insufficienti per la fase successiva. Componenti mancanti: "
+                            . implode(', ', $codes) . '.';
+
+                        /* Eccezione “di dominio” per abilitare il pulsante Forza Prenotazione o bloccare */
+                        throw new ForceReservationRequiredException($stillMissing, $msg);
+                    }
                 }
 
                 /* scarico fisico lotti (eccetto passaggio fase 0→1) */

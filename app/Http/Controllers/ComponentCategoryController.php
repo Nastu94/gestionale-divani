@@ -126,7 +126,7 @@ class ComponentCategoryController extends Controller
             'name'        => ['required','string','max:100'],
             'description' => ['nullable','string'],
             'phases'      => ['nullable','array'],
-            'phases.*'    => ['integer','between:1,5'],
+            'phases.*'    => ['integer', Rule::in([ProductionPhase::ASSEMBLY->value, ProductionPhase::FINISHING->value])],
         ], $messages);
 
         // Se la validazione fallisce, log degli errori e ritorno alla form
@@ -233,7 +233,7 @@ class ComponentCategoryController extends Controller
             'name'        => ['required','string','max:100'],
             'description' => ['nullable','string'],
             'phases'      => ['nullable','array'],
-            'phases.*'    => ['integer','between:1,5'],
+            'phases.*'    => ['integer', Rule::in([ProductionPhase::ASSEMBLY->value, ProductionPhase::FINISHING->value])],
         ], $messages);
 
         // Se la validazione fallisce, log degli errori e ritorno alla form
