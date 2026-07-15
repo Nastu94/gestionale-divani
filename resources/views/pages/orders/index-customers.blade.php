@@ -43,8 +43,8 @@
                     openId: null,
 
                     init() {
-                        let openOrder = {{ request()->query('open_order', 'null') }};
-                        if (openOrder) {
+                        const openOrder = @js((int) request()->query('open_order', 0));
+                        if (openOrder > 0) {
                             this.openSidebar(openOrder, 'Dettaglio da Alert');
                         }
                     },

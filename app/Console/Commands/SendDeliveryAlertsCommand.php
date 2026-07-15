@@ -30,10 +30,18 @@ class SendDeliveryAlertsCommand extends Command
     {
         $daysToAlert = [15, 20];
 
+        $today = now(config('app.timezone', 'Europe/Rome'))->startOfDay();
+
+        $targetDates = collect([15, 20])
+            ->map(fn (int $days) => $today->copy()
+                ->addDays($days)
+                ->toDateString())
+            ->all();
+
         // Troviamo gli ordini non completamente spediti la cui data di consegna
         // dista esattamente 15 o 20 giorni da oggi.
         $orders = Order::whereNotNull('delivery_date')
-            ->whereIn(\DB::raw('DATEDIFF(delivery_date, CURDATE())'), $daysToAlert)
+            ->whereIn('delivery_date', $targetDates)
             ->whereExists(function ($query) {
                 $query->select(\DB::raw(1))
                       ->from('v_order_item_phase_qty')
@@ -51,9 +59,8 @@ class SendDeliveryAlertsCommand extends Command
         }
 
         foreach ($orders as $order) {
-            $today = now(config('app.timezone', 'Europe/Rome'))->startOfDay();
             $deliveryDate = \Carbon\Carbon::parse($order->delivery_date)->startOfDay();
-            $daysRounded = (int) $today->diffInDays($deliveryDate, true);
+            $daysRounded = (int) $today->diffInDays($deliveryDate);
             
             // Per ora loggiamo, in un sistema reale si invierebbe una Mail o Notifica.
             $orderNo = $order->orderNumber?->number ?? $order->id;
