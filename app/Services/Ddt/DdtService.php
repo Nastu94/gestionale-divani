@@ -193,12 +193,12 @@ class DdtService
                 ]);
             }
 
-            // Per intestazione e data: usiamo il primo ordine selezionato
+            // Per intestazione: usiamo il primo ordine selezionato
             // Ordine capofila deterministico (il più vecchio)
             $firstOrder = $orders->sortBy('created_at')->first();
 
-            /* 6) Progressivo annuale e data DDT basata su data ordine */
-            $issuedAt = $firstOrder->created_at ?? Carbon::today();
+            /* 6) Progressivo annuale e data DDT basati sulla data reale di emissione */
+            $issuedAt = Carbon::now(config('app.timezone', 'Europe/Rome'))->startOfDay();
             $year  = (int) $issuedAt->format('Y');
 
             // Somma packages di tutti gli ordini accorpati
