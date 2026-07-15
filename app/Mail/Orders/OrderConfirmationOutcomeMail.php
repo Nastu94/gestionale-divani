@@ -47,8 +47,20 @@ class OrderConfirmationOutcomeMail extends Mailable
                 'occasionalCustomer',
             ]);
 
+            // Formattazione data di consegna
+            $deliveryDate = $this->order->delivery_date
+                ? \Carbon\Carbon::parse($this->order->delivery_date)->format('d/m/Y')
+                : '';
+
+            // Suddivisione in pagine logiche
+            $itemsPerPage = 15;
+            $pages = $this->order->items->chunk($itemsPerPage);
+
             $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('pdf.order-confirmation', [
-                'order' => $this->order,
+                'order'        => $this->order,
+                'pages'        => $pages,
+                'deliveryDate' => $deliveryDate,
+                'packages'     => $this->order->packages,
             ]);
             $pdfContent = $pdf->output();
 

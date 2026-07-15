@@ -370,7 +370,7 @@
                                                             <i class="fas fa-pen mr-1"></i> Modifica
                                                         </button>
                                                     @endif
-                                                @endcan
+                                                @endif
 
                                                 @can('orders.customer.update')
                                                     @if (is_null($order->occasional_customer_id) && (int) $order->status === 0)

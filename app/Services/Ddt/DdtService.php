@@ -188,25 +188,8 @@ class DdtService
              * 5) Se non c'è nulla di nuovo da spedire:
              */
             if ($toShip->isEmpty()) {
-                // Prendiamo il primo ordine per la retrocompatibilità del fallback
-                $firstOrder = $orders->first();
-                $last = Ddt::query()
-                    ->where('order_id', $firstOrder->id)
-                    ->orderByDesc('issued_at')
-                    ->orderByDesc('id')
-                    ->first();
-
-                if ($last) {
-                    return $last->fresh([
-                        'rows.orderItem.product',
-                        'order.orderNumber',
-                        'order.customer',
-                        'order.occasionalCustomer',
-                    ]);
-                }
-
                 throw ValidationException::withMessages([
-                    'ddt' => 'Nessuna nuova quantità da spedire: nessun DDT generabile.',
+                    'ddt' => 'Le righe selezionate non hanno quantità residue da documentare.',
                 ]);
             }
 

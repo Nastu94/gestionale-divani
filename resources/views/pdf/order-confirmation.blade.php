@@ -12,6 +12,9 @@
 
     $orderNo   = $order->orderNumber?->number ?? $order->id;
     $orderDate = $order->ordered_at ? \Carbon\Carbon::parse($order->ordered_at)->format('d/m/Y') : '';
+    $reference = $order->reference ?? '';
+    $deliveryDate = $deliveryDate ?? ($order->delivery_date ? \Carbon\Carbon::parse($order->delivery_date)->format('d/m/Y') : '');
+    $packages = $packages ?? $order->packages ?? '';
 
     /* Totale documento = totale Conferma Ordine (non per pagina) */
     $total = $order->items->sum(fn($r) => ((float)$r->quantity * (float)$r->unit_price));
@@ -24,13 +27,13 @@
     $hasLogo  = is_file($logoPath);
 
     /* Pagine (chunk fatto nel service) */
-    $pages = $pages ?? collect([$order->items]);
+    $pages = isset($pages) ? $pages : collect([$order->items]);
 
     /* Calcolo Destinatario / Destinazione se non passati */
     $customer = $order->customer ?? $order->occasionalCustomer;
     $address = $order->customer?->shippingAddress;
 
-    $recipient = $recipient ?? [
+    $recipient = isset($recipient) ? $recipient : [
         'company'    => $customer?->company ?? '—',
         'address'    => $address?->address ?? $customer?->address ?? '',
         'tax_code'   => $customer?->tax_code ?? '',
@@ -43,13 +46,13 @@
     $city = $customer?->city ?? $address?->city;
     $province = $customer?->province ?? $address?->province;
 
-    $recipientCityLine = $recipientCityLine ?? implode(' - ', array_filter([$zipCode, $city, $province]));
+    $recipientCityLine = isset($recipientCityLine) ? $recipientCityLine : implode(' - ', array_filter([$zipCode, $city, $province]));
 
-    $destination = $destination ?? [
+    $destination = isset($destination) ? $destination : [
         'company'    => $customer?->company ?? '—',
         'address'    => $order->shipping_address ?: ($address?->address ?? $customer?->address ?? ''),
     ];
-    $destinationCityLine = $destinationCityLine ?? $recipientCityLine;
+    $destinationCityLine = isset($destinationCityLine) ? $destinationCityLine : $recipientCityLine;
 @endphp
 
 <!doctype html>
@@ -164,11 +167,20 @@
                     </td>
 
                     <td style="width: 260px; vertical-align: top;">
-                        <div style="margin-top: 46px; text-align: right;">
+                        <div style="margin-top: 10px; text-align: right;">
                             <span style="font-size: 16px;">Conferma ordine nr.</span>
                             <span class="box" style="display:inline-block;width:60px;text-align:center;font-weight:700;">{{ $orderNo }}</span>
                             <span style="font-size: 16px; margin-top: 6px;">&nbsp; del&nbsp;</span>
                             <span class="box" style="display:inline-block;width:90px;text-align:center;font-weight:700;margin-top: 6px;">{{ $orderDate }}</span>
+                            @if($reference)
+                                <div style="margin-top: 6px;">Riferimento: <strong>{{ $reference }}</strong></div>
+                            @endif
+                            @if($deliveryDate)
+                                <div style="margin-top: 6px;">Data cons. prevista: <strong>{{ $deliveryDate }}</strong></div>
+                            @endif
+                            @if($packages)
+                                <div style="margin-top: 6px;">Colli: <strong>{{ $packages }}</strong></div>
+                            @endif
                         </div>
                     </td>
                 </tr>

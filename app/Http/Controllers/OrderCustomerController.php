@@ -980,9 +980,9 @@ class OrderCustomerController extends Controller
             'items.variable:id,order_item_id,fabric_id,color_id,color_notes,resolved_component_id,surcharge_fixed_applied,surcharge_percent_applied,surcharge_total_applied',
             'items.variable.fabric:id,name',
             'items.variable.color:id,name',
-            'customer:id,company,email,vat_number,tax_code',
+            'customer:id,company,email',
             'customer.shippingAddress:id,customer_id,address,city,postal_code,country',
-            'occasionalCustomer:id,company,email,vat_number,tax_code,address,postal_code,city,province,country',
+            'occasionalCustomer:id,company,email,address,postal_code,city,province,country',
         ]);
 
         /* 1️⃣ formatter indirizzo di spedizione */
@@ -1002,8 +1002,6 @@ class OrderCustomerController extends Controller
             'id'               => $order->customer->id,
             'company'          => $order->customer->company,
             'email'            => $order->customer->email,
-            'vat_number'       => $order->customer->vat_number,
-            'tax_code'         => $order->customer->tax_code,
             'shipping_address' => $fmt($order->customer->shippingAddress),
         ] : null;
 
@@ -1012,8 +1010,6 @@ class OrderCustomerController extends Controller
             'id'               => $order->occasionalCustomer->id,
             'company'          => $order->occasionalCustomer->company,
             'email'            => $order->occasionalCustomer->email,
-            'vat_number'       => $order->occasionalCustomer->vat_number,
-            'tax_code'         => $order->occasionalCustomer->tax_code,
             'shipping_address' => $fmt($order->occasionalCustomer),   // stesso record
         ] : null;
 

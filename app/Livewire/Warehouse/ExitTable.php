@@ -37,9 +37,9 @@ class ExitTable extends Component
 {
     use WithPagination;
 
-    /*──────────────────────────────────────────────────────────────*
-     |  Proprietà pubbliche → Livewire le sincronizza su URL        |
-     *──────────────────────────────────────────────────────────────*/
+    /*
+     Proprietà pubbliche → Livewire le sincronizza su URL 
+    */
     public int     $phase   = 0;      // KPI selezionata (0=Inserito … 6=Spedizione)
     public ?string $sort    = '';     // '' = nessun ordinamento
     public string  $dir     = 'asc';  // direzione sort
@@ -709,31 +709,35 @@ class ExitTable extends Component
                 'qty'          => $this->advQuantity,
             ]);
 
-            /** @var ForceReservationExecutor $executor */
-            $executor = app(ForceReservationExecutor::class);
+            $result = \Illuminate\Support\Facades\DB::transaction(function () use ($item) {
+                /** @var ForceReservationExecutor $executor */
+                $executor = app(ForceReservationExecutor::class);
 
-            $result = $executor->execute(
-                urgentItem: $item,
-                moveQty: (float) $this->advQuantity,
-                plan: (array) $this->forcePlan,
-                user: auth()->user()
-            );
+                $res = $executor->execute(
+                    urgentItem: $item,
+                    moveQty: (float) $this->advQuantity,
+                    plan: (array) $this->forcePlan,
+                    user: auth()->user()
+                );
+
+                // Ritenta l’avanzamento, ora che le prenotazioni ci sono (tutto dentro alla stessa transazione)
+                app(AdvanceOrderItemPhaseAction::class, [
+                    'item'       => OrderItem::findOrFail($this->advItemId),
+                    'quantity'   => $this->advQuantity,
+                    'user'       => auth()->user(),
+                    'fromPhase'  => ProductionPhase::from($this->phase),
+                    'isRollback' => false,
+                    'operator'   => $this->advOperator ? trim($this->advOperator) : null,
+                ])->execute();
+
+                return $res;
+            });
 
             // Reset stato UI forzatura (chiudiamo definitivamente il flusso "force")
             $this->showForceReservationModal = false;
             $this->canForceReservation = false;
             $this->forcePlan = null;
             $this->forceMissingComponents = [];
-
-            // Ritenta l’avanzamento, ora che le prenotazioni ci sono
-            app(AdvanceOrderItemPhaseAction::class, [
-                'item'       => OrderItem::findOrFail($this->advItemId),
-                'quantity'   => $this->advQuantity,
-                'user'       => auth()->user(),
-                'fromPhase'  => ProductionPhase::from($this->phase),
-                'isRollback' => false,
-                'operator'   => $this->advOperator ? trim($this->advOperator) : null,
-            ])->execute();
 
             $poNums = $result['procurement_po_numbers'] ?? collect();
 

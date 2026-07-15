@@ -96,14 +96,6 @@
                                     <p class="text-xs" x-text="selectedCustomer.email"></p>
                                 </template>
 
-                                <template x-if="selectedCustomer.vat_number">
-                                    <p class="text-xs" x-text="'P.IVA: ' + selectedCustomer.vat_number"></p>
-                                </template>
-
-                                <template x-if="selectedCustomer.tax_code && !selectedCustomer.vat_number">
-                                    <p class="text-xs" x-text="'C.F.: ' + selectedCustomer.tax_code"></p>
-                                </template>
-
                                 <template x-if="selectedCustomer.shipping_address">
                                     <p class="text-xs" x-text="selectedCustomer.shipping_address"></p>
                                 </template>
@@ -310,7 +302,7 @@
                         <label class="block text-sm font-medium">Prezzo (€)</label>
                         <input type="number" min="0" step="0.01" x-model.number="price"
                                class="mt-1 block w-full px-3 py-2 border rounded-md bg-gray-50 dark:bg-gray-700
-                               text-sm text-gray-900 dark:text-gray-100" :disabled="!canAddLines">
+                               text-sm text-gray-900 dark:text-gray-100" :disabled="!canEditPrice">
                     </div>
                 </div>
 
@@ -492,6 +484,9 @@
     
     function customerOrderModal() {
         return {
+            /* ==== Permessi ==== */
+            canEditPrice: @json(auth()->user()->can('orders.customer.update')),
+
             /* ==== Stato base ==== */
             show      : false,
             editMode  : false,
