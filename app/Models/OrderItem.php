@@ -7,6 +7,7 @@ use App\Models\OrderProductVariable;
 use App\Enums\ProductionPhase;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany; 
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * Modello per la tabella 'order_items'.
@@ -116,10 +117,13 @@ class OrderItem extends Model
 
     /**
      * Variabile scelta su questa riga d'ordine (tipicamente 1: FABRIC_MAIN).
-     * Ritorna un'istanza "vuota" se non esiste.
+     * Ritorna un'istanza "vuota" se non esiste e precarica tessuto e colore.
      */
-    public function variable() { 
-        return $this->hasOne(OrderProductVariable::class)->withDefault();
+    public function variable(): HasOne
+    { 
+        return $this->hasOne(OrderProductVariable::class)
+            ->with(['fabric', 'color'])
+            ->withDefault();
     }
     
     /**
