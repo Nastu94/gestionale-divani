@@ -216,7 +216,7 @@
 
                                 <x-th-menu-live
                                     field="color_note"
-                                    label="Colore / Nota"
+                                    label="Tessuto / Colore / Nota"
                                     :sort="$sort"
                                     :dir="$dir"
                                     :filters="$filters"
@@ -316,20 +316,19 @@
                                         {{ $row->product_name ?? '—' }}
                                     </td>
 
-                                    {{-- Colore e nota --}}
+                                    {{-- Tessuto, colore e nota --}}
                                     <td class="px-6 py-2 whitespace-nowrap">
                                         @php
-                                            $colName = $row->color_name ?? $row->color_code;
-                                            $colNote = $row->color_notes;
+                                            $parts = array_filter([
+                                                $row->fabric_name,
+                                                $row->color_name,
+                                                $row->color_notes,
+                                            ]);
                                         @endphp
-                                        @if($colName && $colNote)
-                                            {{ $colName }} - {{ $colNote }}
-                                        @elseif($colName)
-                                            {{ $colName }}
-                                        @elseif($colNote)
-                                            {{ $colNote }}
-                                        @else
+                                        @if(empty($parts))
                                             —
+                                        @else
+                                            {{ implode(' / ', $parts) }}
                                         @endif
                                     </td>
 

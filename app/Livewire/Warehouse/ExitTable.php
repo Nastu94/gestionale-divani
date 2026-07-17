@@ -454,6 +454,7 @@ class ExitTable extends Component
             ->leftJoin('order_numbers as on', 'on.id', '=', 'o.order_number_id')
             ->leftJoin('products as p',       'p.id',  '=', 'order_items.product_id')
             ->leftJoin('order_product_variables as opv', 'opv.order_item_id', '=', 'order_items.id')
+            ->leftJoin('fabrics', 'fabrics.id', '=', 'opv.fabric_id')
             ->leftJoin('colors', 'colors.id', '=', 'opv.color_id')
 
             ->addSelect([
@@ -467,6 +468,7 @@ class ExitTable extends Component
                 'o.ordered_at     as order_date',
                 'o.delivery_date',
                 'o.shipping_zone  as shipping_zone',
+                'fabrics.name     as fabric_name',
                 'colors.name      as color_name',
                 'colors.code      as color_code',
                 'opv.color_notes  as color_notes',
@@ -493,7 +495,9 @@ class ExitTable extends Component
             ->when($this->filters['color_note']    ?? null, function ($q, $value) {
                 $q->where(function ($query) use ($value) {
                     $query
-                        ->where('colors.name', 'like', "%{$value}%")
+                        ->where('fabrics.name', 'like', "%{$value}%")
+                        ->orWhere('fabrics.code', 'like', "%{$value}%")
+                        ->orWhere('colors.name', 'like', "%{$value}%")
                         ->orWhere('colors.code', 'like', "%{$value}%")
                         ->orWhere('opv.color_notes', 'like', "%{$value}%");
                 });
@@ -514,7 +518,8 @@ class ExitTable extends Component
                     'customer'      => $q->orderByRaw('COALESCE(c.company, oc.company) '.$this->dir),
                     'order_number'  => $q->orderBy('on.number',       $this->dir),
                     'product'       => $q->orderBy('p.sku',           $this->dir),
-                    'color_note'    => $q->orderBy('colors.name',      $this->dir)
+                    'color_note'    => $q->orderBy('fabrics.name',     $this->dir)
+                                         ->orderBy('colors.name',      $this->dir)
                                          ->orderBy('opv.color_notes',  $this->dir),
                     'qty_in_phase'  => $q->orderBy('pq.qty_in_phase', $this->dir),
                     'order_date'    => $q->orderBy('o.ordered_at',    $this->dir),
