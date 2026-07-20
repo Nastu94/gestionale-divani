@@ -289,6 +289,7 @@ class StockLevelController extends Controller
                 'p.sku            as product',
                 'o.ordered_at     as order_date',
                 'o.delivery_date',
+                'o.reference      as reference',
             ])
             ->whereNotNull('o.customer_id') // ordini con cliente
             /* filtri dinamici ----------------------- */

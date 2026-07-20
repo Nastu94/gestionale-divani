@@ -33,11 +33,39 @@ class WorkOrderPdfService
             ->unique()
             ->values();
 
-        $resolvedMap = Component::query()
+        $resolvedMap = Component::withTrashed()
             ->whereIn('id', $resolvedIds)
             ->with(['category.phaseLinks'])
             ->get()
             ->keyBy('id');
+
+        // NEW: Risoluzione stringente per i TESSU e blocco in caso di errore
+        $resolver = app(\App\Services\TessuComponentResolver::class);
+        $errors = [];
+
+        foreach ($workOrder->lines as $line) {
+            $item = $line->orderItem;
+            if (!$item || !$item->product) continue;
+
+            foreach ($item->product->components as $comp) {
+                if ((int)($comp->pivot->is_variable ?? 0) === 1 && $comp->pivot->variable_slot === 'TESSU') {
+                    $resolvedId = $item->variable?->resolved_component_id;
+                    $fabricId = $item->variable?->fabric_id;
+                    $colorId = $item->variable?->color_id;
+
+                    try {
+                        $eff = $resolver->resolveForStoredLine($item->product, $resolvedId, $fabricId, $colorId);
+                        $resolvedMap->put('tessu_' . $item->id, $eff);
+                    } catch (\Exception $e) {
+                        $errors[] = "Prodotto {$item->product->sku}: " . $e->getMessage();
+                    }
+                }
+            }
+        }
+
+        if (!empty($errors)) {
+            abort(422, "Impossibile generare la stampa. Errori nella risoluzione TESSU:<br>" . implode("<br>", $errors));
+        }
 
         $logoDataUri = null;
 

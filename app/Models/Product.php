@@ -108,22 +108,44 @@ class Product extends Model
      */
     public function variableComponent(?string $slot = null): ?Component
     {
-        return $this->components()
-            ->wherePivot('is_variable', 1)
-            ->when($slot, fn ($q) => $q->wherePivot('variable_slot', $slot))
-            ->first();
+        $query = $this->components()
+            ->where('product_components.is_variable', 1);
+            
+        if ($slot !== null) {
+            $query->where('product_components.variable_slot', $slot);
+        }
+            
+        return $query->first();
     }
 
-    /** ID tessuto default risalendo dal componente variabile; nessun uso di is_default su pivot. */
+    /** Helper specifico per lo slot TESSU */
+    public function tessuVariableComponent(): ?Component
+    {
+        return $this->variableComponent('TESSU');
+    }
+
+    /** ID tessuto default. Per TESSU, deriva dai default veri. Per altri, fallback legacy. */
     public function defaultFabricId(): ?int
     {
+        if ($this->tessuVariableComponent()) {
+            $resolver = app(\App\Services\TessuComponentResolver::class);
+            $pair = $resolver->configuredDefaultPair($this);
+            return $pair ? $pair['fabric_id'] : null;
+        }
+
         $c = $this->variableComponent();
         return ($c && !is_null($c->fabric_id)) ? (int) $c->fabric_id : null;
     }
 
-    /** ID colore default risalendo dal componente variabile; nessun uso di is_default su pivot. */
+    /** ID colore default. Per TESSU, deriva dai default veri. Per altri, fallback legacy. */
     public function defaultColorId(): ?int
     {
+        if ($this->tessuVariableComponent()) {
+            $resolver = app(\App\Services\TessuComponentResolver::class);
+            $pair = $resolver->configuredDefaultPair($this);
+            return $pair ? $pair['color_id'] : null;
+        }
+
         $c = $this->variableComponent();
         return ($c && !is_null($c->color_id)) ? (int) $c->color_id : null;
     }
@@ -477,7 +499,7 @@ class Product extends Model
 
             // 2) Query mirata su pivot → prima riga 'TESSU' (è unica per tua regola)
             $row = $this->components()
-                ->wherePivot('variable_slot', 'TESSU')
+                ->where('product_components.variable_slot', 'TESSU')
                 ->first(); // seleziona component + pivot
 
             if ($row && isset($row->pivot->quantity)) {

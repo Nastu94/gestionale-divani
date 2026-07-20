@@ -156,6 +156,7 @@ class ReconcileSupplyForWindowJob implements ShouldQueue
                         'quantity'   => (float) $it->quantity,
                         'fabric_id'  => $it->variable?->fabric_id,
                         'color_id'   => $it->variable?->color_id,
+                        'resolved_component_id' => $it->variable?->resolved_component_id,
                     ];
                 }
                 if (empty($lines)) {

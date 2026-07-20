@@ -54,8 +54,14 @@ class ReturnedProductReservationService
                 ->where('warehouse_id', $returnsWh->id)
                 ->where('product_id',  $item->product_id)
                 ->whereNull('reserved_for')
-                ->when($fabricId, fn($q) => $q->where('fabric_id', $fabricId))
-                ->when($colorId,  fn($q) => $q->where('color_id',  $colorId))
+                ->where(function($q) use ($fabricId) {
+                    if ($fabricId !== null) $q->where('fabric_id', $fabricId);
+                    else $q->whereNull('fabric_id');
+                })
+                ->where(function($q) use ($colorId) {
+                    if ($colorId !== null) $q->where('color_id', $colorId);
+                    else $q->whereNull('color_id');
+                })
                 ->orderBy('created_at')
                 ->lockForUpdate()
                 ->get();

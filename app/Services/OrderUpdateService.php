@@ -51,15 +51,17 @@ class OrderUpdateService
         foreach ($order->items as $it) {
             $f   = $it->variable?->fabric_id ?? null;
             $c   = $it->variable?->color_id  ?? null;
-            $key = sprintf('%d:%d:%d', $it->product_id, $f ?? 0, $c ?? 0);
+            $r   = $it->variable?->resolved_component_id ?? null;
+            $key = 'historical:' . $it->id;
 
             $current[$key] = [
-                'order_item_id' => $it->id,
-                'product_id'    => $it->product_id,
-                'quantity'      => (float) $it->quantity,
-                'price'         => (float) $it->unit_price,
-                'fabric_id'     => $f,
-                'color_id'      => $c,
+                'order_item_id'         => $it->id,
+                'product_id'            => $it->product_id,
+                'quantity'              => (float) $it->quantity,
+                'price'                 => (float) $it->unit_price,
+                'fabric_id'             => $f,
+                'color_id'              => $c,
+                'resolved_component_id' => $r,
             ];
         }
         Log::debug('OC update – current snapshot', [
@@ -84,22 +86,57 @@ class OrderUpdateService
         foreach ($allKeys as $k) {
             $before = (float) ($current[$k]['quantity'] ?? 0);
             $after  = (float) ($incoming[$k]['quantity'] ?? 0);
-            $delta  = $after - $before;
+            
+            $componentChanged = false;
+            if ($current->has($k) && $incoming->has($k)) {
+                $c = $current[$k];
+                $i = $incoming[$k];
+                if (($c['fabric_id'] !== $i['fabric_id']) ||
+                    ($c['color_id'] !== $i['color_id']) ||
+                    ($c['resolved_component_id'] !== ($i['resolved_component_id'] ?? null))) {
+                    $componentChanged = true;
+                }
+            }
 
-            if ($delta > 0) {
-                $increase->push([
-                    'product_id' => (int) $incoming[$k]['product_id'],
-                    'quantity'   => $delta,
-                    'fabric_id'  => $incoming[$k]['fabric_id'] ?? null,
-                    'color_id'   => $incoming[$k]['color_id'] ?? null,
-                ]);
-            } elseif ($delta < 0) {
-                $decrease->push([
-                    'product_id' => (int) ($current[$k]['product_id'] ?? $incoming[$k]['product_id']),
-                    'quantity'   => abs($delta),
-                    'fabric_id'  => $current[$k]['fabric_id'] ?? null,
-                    'color_id'   => $current[$k]['color_id'] ?? null,
-                ]);
+            if ($componentChanged) {
+                if ($before > 0) {
+                    $decrease->push([
+                        'product_id' => (int) $current[$k]['product_id'],
+                        'quantity'   => $before,
+                        'fabric_id'  => $current[$k]['fabric_id'] ?? null,
+                        'color_id'   => $current[$k]['color_id'] ?? null,
+                        'resolved_component_id' => $current[$k]['resolved_component_id'] ?? null,
+                    ]);
+                }
+                if ($after > 0) {
+                    $increase->push([
+                        'product_id' => (int) $incoming[$k]['product_id'],
+                        'quantity'   => $after,
+                        'fabric_id'  => $incoming[$k]['fabric_id'] ?? null,
+                        'color_id'   => $incoming[$k]['color_id'] ?? null,
+                        'resolved_component_id' => $incoming[$k]['resolved_component_id'] ?? null,
+                    ]);
+                }
+            } else {
+                $delta  = $after - $before;
+
+                if ($delta > 0) {
+                    $increase->push([
+                        'product_id' => (int) $incoming[$k]['product_id'],
+                        'quantity'   => abs($delta),
+                        'fabric_id'  => $incoming[$k]['fabric_id'] ?? null,
+                        'color_id'   => $incoming[$k]['color_id'] ?? null,
+                        'resolved_component_id' => $incoming[$k]['resolved_component_id'] ?? null,
+                    ]);
+                } elseif ($delta < 0) {
+                    $decrease->push([
+                        'product_id' => (int) ($current[$k]['product_id'] ?? $incoming[$k]['product_id']),
+                        'quantity'   => abs($delta),
+                        'fabric_id'  => $current[$k]['fabric_id'] ?? null,
+                        'color_id'   => $current[$k]['color_id'] ?? null,
+                        'resolved_component_id' => $current[$k]['resolved_component_id'] ?? null,
+                    ]);
+                }
             }
         }
 
@@ -126,8 +163,9 @@ class OrderUpdateService
                         'from'     => optional($order->delivery_date)->format('Y-m-d'),
                         'to'       => $newDate,
                     ]);
-                    $order->update(['delivery_date' => $newDate]);
+                    $order->delivery_date = $newDate;
                 }
+                $order->save();
 
                 /* 4.2 Delete righe scomparse */
                 $incomingKeys = $incoming->keys()->all();
@@ -156,35 +194,15 @@ class OrderUpdateService
                         $colorNotes = null;
                     }
 
-                    /*──────────────── NEW: query $existing compatibile con righe senza variabile ────────────────*/
-                    // Caso "base" (fabric_id e color_id null):
-                    // in passato potresti avere OrderItem senza record in order_product_variables.
-                    // Con whereHas('variable') non lo troveresti → duplicati.
+                    /*──────────────── NEW: ricerca su order_item_id ────────────────*/
                     $fabricId = $line['fabric_id'] ?? null;
                     $colorId  = $line['color_id']  ?? null;
+                    $existing = null;
 
-                    if ($fabricId === null && $colorId === null) {
+                    if (!empty($line['order_item_id'])) {
                         $existing = OrderItem::query()
+                            ->where('id', $line['order_item_id'])
                             ->where('order_id', $order->id)
-                            ->where('product_id', $line['product_id'])
-                            ->where(function ($q) {
-                                // Matcha sia righe senza variabile, sia variabile con fabric/color null
-                                $q->whereDoesntHave('variable')
-                                ->orWhereHas('variable', function ($q) {
-                                    $q->whereNull('fabric_id')
-                                        ->whereNull('color_id');
-                                });
-                            })
-                            ->first();
-                    } else {
-                        // Caso con variabili valorizzate: manteniamo la tua logica originale
-                        $existing = OrderItem::query()
-                            ->where('order_id', $order->id)
-                            ->where('product_id', $line['product_id'])
-                            ->whereHas('variable', function ($q) use ($line) {
-                                $q->where('fabric_id', $line['fabric_id'] ?? null)
-                                ->where('color_id',  $line['color_id']  ?? null);
-                            })
                             ->first();
                     }
 

@@ -31,13 +31,46 @@ class OrderComponentCheckController extends Controller
             'lines.*.color_id'      => ['nullable','integer','exists:colors,id'],
         ]);
 
-        // 1) Normalizza righe (tipi e null-safety)
-        $lines = collect($data['lines'])->map(function ($l) {
+        // 1) Normalizza righe e valida TESSU (tipi e null-safety)
+        $resolver = app(\App\Services\TessuComponentResolver::class);
+        $lines = collect($data['lines'])->map(function ($l, $idx) use ($resolver) {
+            $pid = (int) $l['product_id'];
+            $fid = array_key_exists('fabric_id',$l) ? $l['fabric_id'] : null;
+            $cid = array_key_exists('color_id',$l)  ? $l['color_id']  : null;
+            $product = \App\Models\Product::find($pid);
+            $resolvedComponentId = null;
+            if ($product && $resolver->tessuSlot($product)) {
+                if (!$fid || !$cid) {
+                    abort(response()->json([
+                        'message' => "Il prodotto '{$product->name}' richiede la selezione di un tessuto e colore validi.",
+                        'errors' => ["lines.{$idx}.fabric_id" => ['Tessuto e colore obbligatori per questo prodotto']]
+                    ], 422));
+                }
+                
+                // Fetch the historical order item if order_id is present to see if it's historical
+                $histId = null;
+                $orderItemId = $l['order_item_id'] ?? null;
+                if ($orderItemId && $data['order_id']) {
+                    $histLine = \App\Models\OrderItem::where('id', $orderItemId)->where('order_id', $data['order_id'])->first();
+                    if ($histLine && $histLine->product_id == $pid && $histLine->variable?->fabric_id == $fid && $histLine->variable?->color_id == $cid) {
+                        $histId = $histLine->variable?->resolved_component_id;
+                    }
+                }
+                
+                if ($histId) {
+                    $resolvedComponentId = $resolver->resolveForStoredLine($product, $histId, $fid, $cid)->getKey();
+                } else {
+                    $resolvedComponentId = $resolver->resolveForNewLine($product, $fid, $cid)?->getKey();
+                }
+            }
+
             return [
-                'product_id' => (int) $l['product_id'],
+                'order_item_id' => $l['order_item_id'] ?? null,
+                'product_id' => $pid,
                 'quantity'   => (float) $l['quantity'],
-                'fabric_id'  => array_key_exists('fabric_id',$l) ? $l['fabric_id'] : null,
-                'color_id'   => array_key_exists('color_id',$l)  ? $l['color_id']  : null,
+                'fabric_id'  => $fid,
+                'color_id'   => $cid,
+                'resolved_component_id' => $resolvedComponentId,
             ];
         })->values();
 
@@ -99,6 +132,7 @@ class OrderComponentCheckController extends Controller
                 'quantity'   => $qty,
                 'fabric_id'  => $fid,
                 'color_id'   => $cid,
+                'resolved_component_id' => $l['resolved_component_id'],
             ];
         })
         ->filter()

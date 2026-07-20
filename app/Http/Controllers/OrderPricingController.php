@@ -30,6 +30,19 @@ class OrderPricingController extends Controller
         $colorId    = $r->filled('color_id')    ? (int) $r->color_id    : null;
         $customerId = $r->filled('customer_id') ? (int) $r->customer_id : null;
 
+        $resolver = app(\App\Services\TessuComponentResolver::class);
+        if ($resolver->tessuSlot($product)) {
+            if (!$fabricId || !$colorId) {
+                abort(response()->json([
+                    'message' => "Il prodotto '{$product->name}' richiede la selezione di un tessuto e colore validi.",
+                    'errors' => ["fabric_id" => ['Tessuto e colore obbligatori per questo prodotto']]
+                ], 422));
+            }
+            
+            // Validate the pair exists and is active
+            $resolver->resolveForNewLine($product, $fabricId, $colorId);
+        }
+
         // 1) LORDO unitario già comprensivo di variabili (tessuto/colore)
         $q         = $product->unitPriceFor($fabricId, $colorId, $customerId);
         $unitGross = (float) ($q['unit_price'] ?? 0.0);

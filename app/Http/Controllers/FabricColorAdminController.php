@@ -99,6 +99,7 @@ class FabricColorAdminController extends Controller
 
         // 5) Query base componenti TESSU + applicazione filtri
         $componentsQuery = Component::query()
+            ->when(\Schema::hasColumn('components', 'deleted_at'), fn ($q) => $q->withTrashed())
             ->where('category_id', $tessuCategoryId);
 
         // active filter
@@ -154,7 +155,9 @@ class FabricColorAdminController extends Controller
             ]);
 
         // 6) Statistiche globali (su tutti i TESSU, non solo sulla pagina)
-        $baseStatsQuery = Component::query()->where('category_id', $tessuCategoryId);
+        $baseStatsQuery = Component::query()
+            ->when(\Schema::hasColumn('components', 'deleted_at'), fn ($q) => $q->withTrashed())
+            ->where('category_id', $tessuCategoryId);
         $total          = (clone $baseStatsQuery)->count();
         $mapped         = (clone $baseStatsQuery)->whereNotNull('fabric_id')->whereNotNull('color_id')->count();
         $unmapped       = $total - $mapped;
@@ -184,10 +187,11 @@ class FabricColorAdminController extends Controller
 
         // 7) Matrice fabric×color → component (per la griglia laterale/riassunto)
         $allTessu = Component::query()
+            ->when(\Schema::hasColumn('components', 'deleted_at'), fn ($q) => $q->withTrashed())
             ->where('category_id', $tessuCategoryId)
             ->whereNotNull('fabric_id')
             ->whereNotNull('color_id')
-            ->get(['id','code','fabric_id','color_id','is_active']);
+            ->get(['id','code','fabric_id','color_id','is_active', 'deleted_at']);
 
         $matrix = []; // [fabric_id][color_id] = ['id'=>..,'code'=>..,'is_active'=>..]
         foreach ($allTessu as $c) {
@@ -195,6 +199,7 @@ class FabricColorAdminController extends Controller
                 'id'        => $c->id,
                 'code'      => $c->code,
                 'is_active' => (bool) $c->is_active,
+                'is_archived' => !is_null($c->deleted_at),
             ];
         }
 
@@ -269,9 +274,10 @@ class FabricColorAdminController extends Controller
 
         // 5) Matrice TESSU esistenti (per tooltips/modali)
         $allTessu = Component::query()
+            ->when(\Schema::hasColumn('components', 'deleted_at'), fn ($q) => $q->withTrashed())
             ->where('category_id', $tessuCategoryId)
             ->whereNotNull('fabric_id')->whereNotNull('color_id')
-            ->get(['id','code','fabric_id','color_id','is_active']);
+            ->get(['id','code','fabric_id','color_id','is_active', 'deleted_at']);
 
         $matrix = [];
         foreach ($allTessu as $c) {
@@ -279,6 +285,7 @@ class FabricColorAdminController extends Controller
                 'id'        => $c->id,
                 'code'      => $c->code,
                 'is_active' => (bool) $c->is_active,
+                'is_archived' => !is_null($c->deleted_at),
             ];
         }
 
@@ -385,6 +392,7 @@ class FabricColorAdminController extends Controller
 
         // 3) STRICT: unicità coppia (fabric_id, color_id) tra componenti TESSU (altri record)
         $conflict = Component::query()
+            ->when(\Schema::hasColumn('components', 'deleted_at'), fn ($q) => $q->withTrashed())
             ->where('category_id', $tessuCategoryId)
             ->where('fabric_id', $data['fabric_id'])
             ->where('color_id',  $data['color_id'])
@@ -486,13 +494,29 @@ class FabricColorAdminController extends Controller
             return response()->json(['message'=>'Nessuna coppia valida fornita.'], 422);
         }
 
-        // 4) Carica mappe nome tessuto/colore per la descrizione
-        $fabricNames = Fabric::whereIn('id', array_column($requested,'fabric_id'))->pluck('name','id')->all();
-        $colorNames  = Color::whereIn('id', array_column($requested,'color_id'))->pluck('name','id')->all();
+        // 4) Carica mappe nome tessuto/colore per la descrizione ed effettua controlli di stato
+        $fabrics = Fabric::whereIn('id', array_column($requested,'fabric_id'))->get();
+        $colors  = Color::whereIn('id', array_column($requested,'color_id'))->get();
+        
+        $fabricNames = [];
+        foreach ($fabrics as $f) {
+            if (!$f->active) {
+                return response()->json(['message' => "Il tessuto '{$f->name}' non è attivo."], 422);
+            }
+            $fabricNames[$f->id] = $f->name;
+        }
 
-        // 5) Escludi coppie già esistenti (STRICT unicità)
+        $colorNames = [];
+        foreach ($colors as $c) {
+            if (!$c->active) {
+                return response()->json(['message' => "Il colore '{$c->name}' non è attivo."], 422);
+            }
+            $colorNames[$c->id] = $c->name;
+        }
+
+        // 5) Escludi coppie già esistenti (STRICT unicità, controllando ovunque anche archiviati e altre categorie)
         $existing = Component::query()
-            ->where('category_id', $category->id)
+            ->when(\Schema::hasColumn('components', 'deleted_at'), fn ($q) => $q->withTrashed())
             ->whereIn('fabric_id', array_column($requested,'fabric_id'))
             ->whereIn('color_id', array_column($requested,'color_id'))
             ->whereNotNull('fabric_id')->whereNotNull('color_id')

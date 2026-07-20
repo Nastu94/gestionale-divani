@@ -147,7 +147,8 @@
                 <th style="width: 18%;">Cliente</th>
                 <th style="width: 13%;">Zona spedizione</th>
                 <th style="width: 9%;">Nr. ordine</th>
-                <th style="width: 24%;">Prodotto</th>
+                <th style="width: 10%;">Riferimento</th>
+                <th style="width: 14%;">Prodotto</th>
                 <th style="width: 10%;">Data ordine</th>
                 <th style="width: 10%;">Consegna</th>
                 <th style="width: 8%;" class="text-right">Valore €</th>
@@ -168,6 +169,10 @@
 
                     <td class="text-center whitespace-nowrap">
                         {{ $row->order_number ?? '—' }}
+                    </td>
+
+                    <td>
+                        {{ $row->reference ?? '—' }}
                     </td>
 
                     <td>

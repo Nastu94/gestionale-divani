@@ -468,6 +468,7 @@ class ExitTable extends Component
                 'o.ordered_at     as order_date',
                 'o.delivery_date',
                 'o.shipping_zone  as shipping_zone',
+                'o.reference      as reference',
                 'fabrics.name     as fabric_name',
                 'colors.name      as color_name',
                 'colors.code      as color_code',

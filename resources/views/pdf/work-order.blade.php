@@ -297,9 +297,17 @@
 
                         // Se componente BOM è variabile, sostituisci con quello risolto nell'ordine
                         $isVar = (bool) ($comp->pivot->is_variable ?? false);
-                        $eff = ($isVar && $resolvedId && $resolvedMap->has($resolvedId))
-                            ? $resolvedMap->get($resolvedId)
-                            : $comp;
+                        $eff = $comp;
+
+                        if ($isVar) {
+                            if ($comp->pivot->variable_slot === 'TESSU') {
+                                $eff = $resolvedMap->get('tessu_' . $orderItem->id) ?? $comp;
+                            } else {
+                                $eff = ($resolvedId && $resolvedMap->has($resolvedId))
+                                    ? $resolvedMap->get($resolvedId)
+                                    : $comp;
+                            }
+                        }
 
                         // Categoria -> fasi: usa component_category_phase (cast enum)
                         $links = $eff?->category?->phaseLinks ?? collect();

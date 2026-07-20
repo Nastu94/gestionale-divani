@@ -103,6 +103,7 @@ class WarehouseExitPrintController extends Controller
                 'o.ordered_at as order_date',
                 'o.delivery_date',
                 'o.shipping_zone as shipping_zone',
+                'o.reference as reference',
             ])
             ->whereIn('order_items.id', $ids)
             ->get()

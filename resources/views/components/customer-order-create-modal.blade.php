@@ -320,7 +320,13 @@
                                 <option :value="f.id" x-text="f.name"></option>
                             </template>
                         </select>
-                        <p class="text-[11px] text-amber-600 mt-1" x-show="selectedProduct && fabricOptions.length===0" x-cloak>
+                        <p class="text-[11px] text-blue-600 mt-1" x-show="selectedProduct && variablesLoading" x-cloak>
+                            Caricamento variabili in corso...
+                        </p>
+                        <p class="text-[11px] text-red-600 mt-1" x-show="selectedProduct && variablesLoadError" x-cloak>
+                            Errore nel caricamento di tessuti e colori.
+                        </p>
+                        <p class="text-[11px] text-amber-600 mt-1" x-show="selectedProduct && !variablesLoading && !variablesLoadError && fabricOptions.length===0" x-cloak>
                             Nessun tessuto in whitelist per questo prodotto.
                         </p>
                     </div>
@@ -337,7 +343,13 @@
                                 <option :value="c.id" x-text="c.name"></option>
                             </template>
                         </select>
-                        <p class="text-[11px] text-amber-600 mt-1" x-show="selectedProduct && colorOptions.length===0" x-cloak>
+                        <p class="text-[11px] text-blue-600 mt-1" x-show="selectedProduct && variablesLoading" x-cloak>
+                            Caricamento variabili in corso...
+                        </p>
+                        <p class="text-[11px] text-red-600 mt-1" x-show="selectedProduct && variablesLoadError" x-cloak>
+                            Errore nel caricamento di tessuti e colori.
+                        </p>
+                        <p class="text-[11px] text-amber-600 mt-1" x-show="selectedProduct && !variablesLoading && !variablesLoadError && colorOptions.length===0" x-cloak>
                             Nessun colore in whitelist per questo prodotto.
                         </p>
                     </div>
@@ -401,8 +413,8 @@
                     <button type="button"
                             class="mt-3 inline-flex items-center justify-center
                                     px-3 py-1.5 rounded-md text-xs font-semibold text-white uppercase
-                                    bg-emerald-600 hover:bg-emerald-500"
-                            :disabled="!canAddLines || !selectedProduct || quantity <= 0"
+                                    bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                            :disabled="!canAddLines || !selectedProduct || quantity <= 0 || variablesLoading || variablesLoadError"
                             @click="addLine">
                         <i class="fas fa-plus-square mr-1"></i> Aggiungi prodotto
                     </button>
@@ -535,7 +547,11 @@
             colorOptions  : [],
             fabric_id     : '',
             color_id      : '',
-            color_notes     : '',
+            color_notes   : '',
+            requires_tessu_selection: false,
+            valid_pairs   : [],
+            variablesLoading: false,
+            variablesLoadError: false,
 
             /* ==== Verifica disponibilità ==== */
             availabilityOk : null,     // null = non ancora verificato
@@ -585,6 +601,7 @@
                     hash_flag: !!this.hash_flag,
                     note: (this.note && String(this.note).trim()) || null,
                     lines: (this.lines || []).map(l => ({
+                        order_item_id: l.order_item_id || null,
                         product_id : l.product?.id ?? null,
                         quantity   : +l.qty,
                         price      : l.price !== '' && l.price !== null ? +l.price : null,
@@ -693,6 +710,8 @@
                 this.fabric_id        = '';
                 this.color_id         = '';
                 this.color_notes      = '';
+                this.requires_tessu_selection = false;
+                this.valid_pairs      = [];
                 this.discountsDraft   = [];
                 this.hash_flag        = false;
                 this.note             = '';
@@ -756,17 +775,41 @@
                 }
             },
 
-            selectProduct(option) {
+            async selectProduct(option) {
                 this.selectedProduct = option;
                 this.productOptions  = [];
                 const p = option.effective_price ?? option.price ?? 0;
                 this.price = Number(p);
-                this.loadProductWhitelist(option.id);
+
+                this.fabric_id = null;
+                this.color_id = null;
+                this.fabricOptions = [];
+                this.colorOptions = [];
+                this.valid_pairs = [];
+                this.requires_tessu_selection = false;
+                this.variablesLoadError = false;
+
+                await this.loadProductWhitelist(option.id);
             },
 
             /* Gestione righe */
             addLine() {
                 if (!this.selectedProduct || this.quantity <= 0) return;
+                
+                if (this.variablesLoading || this.variablesLoadError) return;
+
+                if (this.requires_tessu_selection) {
+                    if (!this.fabric_id || !this.color_id) {
+                        alert('Questo prodotto richiede la selezione di tessuto e colore.');
+                        return;
+                    }
+                    // Verifica valid_pairs (salvo per ordini storici in modifica, ma qui stiamo aggiungendo una nuova riga)
+                    const pairOk = this.valid_pairs.find(p => p.fabric_id == this.fabric_id && p.color_id == this.color_id);
+                    if (!pairOk) {
+                        alert('La combinazione tessuto e colore selezionata non è valida o non ha un componente TESSU attivo.');
+                        return;
+                    }
+                }
 
                 const qty  = Number(this.quantity || 1);
                 const unit = Number(this.price || 0);
@@ -776,6 +819,7 @@
                     .map(d => d.type === 'percent' ? `${Number(d.value)}%` : `${Number(d.value)}`);
 
                 this.lines.push({
+                    order_item_id: null,
                     product     : this.selectedProduct,
                     qty         : qty,
                     price       : unit,                // unitario NETTO
@@ -856,6 +900,7 @@
                     hash_flag       : this.hash_flag ? 1 : 0,
                     note            : (this.note && String(this.note).trim().length) ? this.note.trim() : null,
                     lines : this.lines.map(l => ({
+                        order_item_id: l.order_item_id || null,
                         product_id : l.product.id,
                         quantity   : l.qty,
                         price      : l.price,
@@ -968,6 +1013,7 @@
                     this.shipping_zone = o.shipping_zone ?? '';
                     this.reference     = o.reference ?? '';
                     this.lines = (o.lines || []).map(l => ({
+                        order_item_id: l.order_item_id || null,
                         product  : { id:l.product_id, sku:l.sku, name:l.name },
                         qty      : l.quantity,
                         price    : Number(l.price),
@@ -1046,8 +1092,13 @@
                     this.colorOptions  = [];
                     this.fabric_id     = '';
                     this.color_id      = '';
+                    this.variablesLoadError = false;
+                    this.variablesLoading = false;
                     return;
                 }
+                
+                this.variablesLoading = true;
+                this.variablesLoadError = false;
 
                 try {
                     const r = await fetch(`/products/${productId}/variables`, { headers: { Accept:'application/json' } });
@@ -1063,28 +1114,43 @@
                     this.fabricOptions = allF.filter(f => allowedF.has(Number(f.id)));
                     this.colorOptions  = allC.filter(c => allowedC.has(Number(c.id)));
 
+                    this.requires_tessu_selection = js.requires_tessu_selection || false;
+                    this.valid_pairs = js.valid_pairs || [];
+
                     const defF = Number(js.default_fabric_id || 0);
                     const defC = Number(js.default_color_id || 0);
                     const wantF = Number(preselectFabricId || 0);
                     const wantC = Number(preselectColorId  || 0);
 
-                    const pick = (preferred, def, allowed, options) => {
-                        if (preferred && allowed.has(preferred)) return preferred;
-                        if (def && allowed.has(def))             return def;
-                        const first = options[0]?.id ?? '';
-                        return first ? Number(first) : '';
+                    const pick = (preferred, def, allowed) => {
+                        if (preferred) return preferred; // Se c'è una preferenza (es. ordine storico), usala sempre
+                        if (def && allowed.has(def)) return def;
+                        return ''; // Nessun fallback alla prima opzione
                     };
 
-                    this.fabric_id = pick(wantF, defF, allowedF, this.fabricOptions);
-                    this.color_id  = pick(wantC, defC, allowedC, this.colorOptions);
+                    this.fabric_id = pick(wantF, defF, allowedF);
+                    this.color_id  = pick(wantC, defC, allowedC);
+
+                    // Aggiunta opzioni storiche sintetiche se non presenti in whitelist
+                    if (this.fabric_id && !allowedF.has(this.fabric_id)) {
+                        this.fabricOptions.unshift({ id: this.fabric_id, name: 'Storico/Non selezionabile' });
+                    }
+                    if (this.color_id && !allowedC.has(this.color_id)) {
+                        this.colorOptions.unshift({ id: this.color_id, name: 'Storico/Non selezionabile' });
+                    }
 
                     if (!skipReprice) {
                         this.reprice();
                     }
                 } catch (e) {
                     console.error('variables load failed', e);
-                    this.fabricOptions=[]; this.colorOptions=[];
-                    this.fabric_id=''; this.color_id='';
+                    this.variablesLoadError = true;
+                    this.fabricOptions=[]; 
+                    this.colorOptions=[];
+                    this.fabric_id=''; 
+                    this.color_id='';
+                } finally {
+                    this.variablesLoading = false;
                 }
             },
 

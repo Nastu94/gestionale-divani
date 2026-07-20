@@ -228,8 +228,18 @@ class StockLotConsumptionService
         }
 
         $resolvedId = $item->variable?->resolved_component_id;
+        $fabricId = $item->variable?->fabric_id;
+        $colorId  = $item->variable?->color_id;
+
+        $resolver = app(\App\Services\TessuComponentResolver::class);
+        if ($item->product && $bomComponent->pivot?->variable_slot === 'TESSU') {
+            $x = $resolver->resolveForStoredLine($item->product, $resolvedId, $fabricId, $colorId);
+            return $x; // Restituisce componente esatto o eccezione
+        }
+
+        // --- Legacy non-TESSU ---
         if ($resolvedId) {
-            $x = Component::find($resolvedId);
+            $x = Component::withTrashed()->find($resolvedId);
             if ($x) return $x;
             Log::warning('[StockLotConsumptionService] resolved_component_id non trovato – fallback ricerca FC', [
                 'order_item_id' => $item->id,
@@ -237,14 +247,19 @@ class StockLotConsumptionService
             ]);
         }
 
-        $fabricId = $item->variable?->fabric_id;
-        $colorId  = $item->variable?->color_id;
-
         $cand = Component::query()
             ->where('category_id', $bomComponent->category_id)
             ->when($fabricId, fn($q) => $q->where('fabric_id', $fabricId))
             ->when($colorId,  fn($q) => $q->where('color_id',  $colorId))
             ->first();
+
+        if (!$cand) {
+             $cand = Component::withTrashed()
+                ->where('category_id', $bomComponent->category_id)
+                ->when($fabricId, fn($q) => $q->where('fabric_id', $fabricId))
+                ->when($colorId,  fn($q) => $q->where('color_id',  $colorId))
+                ->first();
+        }
 
         return $cand ?: $bomComponent;
     }

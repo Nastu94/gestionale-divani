@@ -102,6 +102,27 @@ class OrderPublicConfirmationController extends Controller
             ]);
         }
 
+        // PREFLIGHT CHECK
+        $resolver = app(\App\Services\TessuComponentResolver::class);
+        $order->load(['items.product', 'items.variable']);
+        foreach ($order->items as $item) {
+            $product = $item->product;
+            if ($product && $resolver->tessuSlot($product)) {
+                $fabricId = $item->variable?->fabric_id;
+                $colorId = $item->variable?->color_id;
+                $resolvedId = $item->variable?->resolved_component_id;
+
+                try {
+                    $resolver->resolveForStoredLine($product, $resolvedId, $fabricId, $colorId);
+                } catch (\Exception $e) {
+                    return $this->respond($request, [
+                        'ok'      => false,
+                        'message' => "L'ordine non può essere confermato: il prodotto '{$product->name}' ha una configurazione TESSU non valida. Contattare l'assistenza.",
+                    ], 422);
+                }
+            }
+        }
+
         DB::transaction(function () use ($order) {
             // Stato confermato
             $order->status       = 1;
@@ -126,10 +147,13 @@ class OrderPublicConfirmationController extends Controller
 
                 $usedLines = $order->items->map(function ($item) {
                     return [
-                        'product_id' => $item->product_id,
-                        'quantity'   => (float) $item->quantity,
-                        'fabric_id'  => $item->variable?->fabric_id,
-                        'color_id'   => $item->variable?->color_id,
+                        'id'            => $item->id, // serve a InventoryService per capire che è storico
+                        'order_item_id' => $item->id,
+                        'product_id'    => $item->product_id,
+                        'quantity'      => (float) $item->quantity,
+                        'fabric_id'     => $item->variable?->fabric_id,
+                        'color_id'      => $item->variable?->color_id,
+                        'resolved_component_id' => $item->variable?->resolved_component_id,
                     ];
                 })->values()->all();
 

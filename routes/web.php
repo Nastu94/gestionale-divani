@@ -771,7 +771,7 @@ Route::middleware([
     */
     Route::get('products/variables/options', [ProductController::class, 'getVariableOptions'])
         ->name('products.variables.options')
-        ->middleware('permission:products.update|product-variables.update');
+        ->middleware('permission:products.update|product-variables.view');
     /*
 |--------------------------------------------------------------------------
     | Ordini Cliente

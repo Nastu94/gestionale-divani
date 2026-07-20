@@ -448,35 +448,26 @@ class ProductController extends Controller
         }
     }
 
-    /**
-     * Restituisce le variabili (whitelist) attualmente associate al prodotto.
-     *
-     * @note Questo endpoint serve alla UI per popolare la modale "Variabili".
-     *       Ritorniamo sia gli ID (comodi per i checkbox), sia una lista "ricca" con nome.
-     */
     public function getVariables(Product $product): JsonResponse
     {
-        $fabricIds = $product->fabrics()->pluck('fabrics.id')
-            ->map(fn($i)=>(int)$i)->values()->all();
-        
-        $colorIds  = $product->colors()->pluck('colors.id')
-            ->map(fn($i)=>(int)$i)->values()->all();
+        $resolver = app(\App\Services\TessuComponentResolver::class);
+        $requiresTessu = $resolver->tessuSlot($product) !== null;
+
+        $fabricIds = $product->fabricIds();
+        $colorIds  = $product->colorIds();
 
         $defF = $product->defaultFabricId();
         $defC = $product->defaultColorId();
 
-        if ($defF && !in_array($defF, $fabricIds, true)) {
-            $fabricIds[] = $defF;
-        }
-        if ($defC && !in_array($defC, $colorIds, true)) {
-            $colorIds[] = $defC;
-        }
+        $validPairs = $requiresTessu ? $resolver->validActivePairs($product) : [];
 
         return response()->json([
-            'fabric_ids' => $fabricIds,
-            'color_ids'  => $colorIds,
+            'requires_tessu_selection' => $requiresTessu,
+            'fabric_ids'        => $fabricIds,
+            'color_ids'         => $colorIds,
             'default_fabric_id' => $defF,
             'default_color_id'  => $defC,
+            'valid_pairs'       => $validPairs,
         ]);
     }
     

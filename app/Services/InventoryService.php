@@ -175,21 +175,24 @@ class InventoryService
                 );
             }
 
-            // Variabili selezionate per la riga; fallback ai default del prodotto
+            $resolver = app(\App\Services\TessuComponentResolver::class);
+            $hasTessu = $resolver->tessuSlot($product) !== null;
+
+            // Variabili selezionate per la riga; fallback ai default del prodotto SOLO se non è TESSU
             $fabricId = array_key_exists('fabric_id', $line) && $line['fabric_id'] !== null
                 ? (int) $line['fabric_id']
-                : ($product->defaultFabricId() ?? null);
+                : ($hasTessu ? null : ($product->defaultFabricId() ?? null));
 
             Log::debug('explodeBom – fabricId', [
                 'product_id' => $productId,
                 'input'      => $line,
-                'default'    => $product->defaultFabricId(),
+                'default'    => $hasTessu ? null : $product->defaultFabricId(),
                 'resolved'   => $fabricId,
             ]);
 
             $colorId  = array_key_exists('color_id',  $line) && $line['color_id'] !== null
                 ? (int) $line['color_id']
-                : ($product->defaultColorId() ?? null);
+                : ($hasTessu ? null : ($product->defaultColorId() ?? null));
 
             Log::debug('explodeBom – colorId', [
                 'product_id' => $productId, 
@@ -205,64 +208,80 @@ class InventoryService
                 // Se è lo "slot variabile", mappalo al componente reale selezionato
                 if ((int) ($comp->pivot->is_variable ?? 0) === 1) {
 
-                    // Verifiche minime
-                    if ($fabricId === null || $colorId === null) {
-                        throw new \RuntimeException(
-                            "Variabili mancanti per prodotto {$productId}: " .
-                            "fabric_id={$fabricId}, color_id={$colorId}."
-                        );
-                    }
+                    $isTessuSlot = ($comp->pivot->variable_slot === 'TESSU');
 
-                    /**
-                     * Cerca prima il componente reale attivo.
-                     *
-                     * Questo resta il comportamento preferito per ordini nuovi e dati puliti.
-                     */
-                    $real = Component::query()
-                        ->where('is_active', 1)
-                        ->whereNull('deleted_at')
-                        ->where('category_id', $comp->category_id)
-                        ->where('fabric_id', $fabricId)
-                        ->where('color_id', $colorId)
-                        ->orderBy('id')
-                        ->first();
+                    if ($isTessuSlot) {
+                        $isHistorical = !empty($line['order_item_id']) || !empty($line['id']);
+                        $existingResolvedId = !empty($line['resolved_component_id']) ? (int) $line['resolved_component_id'] : null;
+                        
+                        if ($isHistorical || $existingResolvedId) {
+                            $resolved = $resolver->resolveForStoredLine($product, $existingResolvedId, $fabricId, $colorId);
+                        } else {
+                            $resolved = $resolver->resolveForNewLine($product, $fabricId, $colorId);
+                        }
+                        $resolvedId = $resolved->id;
+                    } else {
+                        $resolvedId = null;
+                        if (isset($line['resolved_component_id']) && $line['resolved_component_id']) {
+                            $resolvedId = (int) $line['resolved_component_id'];
+                        } else {
+                            // Verifiche minime
+                            if ($fabricId === null || $colorId === null) {
+                                throw new \RuntimeException(
+                                    "Variabili mancanti per prodotto {$productId}: " .
+                                    "fabric_id={$fabricId}, color_id={$colorId}."
+                                );
+                            }
 
-                    /**
-                     * Fallback per ordini storici.
-                     *
-                     * Se il componente reale è stato archiviato dopo la creazione dell'ordine,
-                     * la riconciliazione deve poter comunque calcolare il fabbisogno.
-                     */
-                    if (! $real) {
-                        $real = Component::withTrashed()
-                            ->where('category_id', $comp->category_id)
-                            ->where('fabric_id', $fabricId)
-                            ->where('color_id', $colorId)
-                            ->orderBy('id')
-                            ->first();
+                            /**
+                             * Cerca prima il componente reale attivo.
+                             */
+                            $real = Component::query()
+                                ->where('is_active', 1)
+                                ->whereNull('deleted_at')
+                                ->where('category_id', $comp->category_id)
+                                ->where('fabric_id', $fabricId)
+                                ->where('color_id', $colorId)
+                                ->orderBy('id')
+                                ->first();
 
-                        if ($real) {
-                            Log::warning('explodeBom – componente reale archiviato/inattivo usato per ordine storico', [
-                                'product_id'  => $productId,
-                                'category_id' => $comp->category_id,
-                                'fabric_id'   => $fabricId,
-                                'color_id'    => $colorId,
-                                'component_id'=> $real->id,
-                                'is_active'   => $real->is_active ?? null,
-                                'deleted_at'  => $real->deleted_at ?? null,
-                            ]);
+                            /**
+                             * Fallback per ordini storici.
+                             */
+                            if (! $real) {
+                                $real = Component::withTrashed()
+                                    ->where('category_id', $comp->category_id)
+                                    ->where('fabric_id', $fabricId)
+                                    ->where('color_id', $colorId)
+                                    ->orderBy('id')
+                                    ->first();
+
+                                if ($real) {
+                                    Log::warning('explodeBom – componente reale archiviato/inattivo usato per ordine storico (legacy)', [
+                                        'product_id'  => $productId,
+                                        'category_id' => $comp->category_id,
+                                        'fabric_id'   => $fabricId,
+                                        'color_id'    => $colorId,
+                                        'component_id'=> $real->id,
+                                        'is_active'   => $real->is_active ?? null,
+                                        'deleted_at'  => $real->deleted_at ?? null,
+                                    ]);
+                                }
+                            }
+
+                            if (! $real) {
+                                throw new \RuntimeException(
+                                    "Nessun componente anagrafico trovato per categoria={$comp->category_id}, " .
+                                    "fabric_id={$fabricId}, color_id={$colorId}. " .
+                                    "Crea/abilita il componente reale prima di procedere."
+                                );
+                            }
+
+                            $resolvedId = (int) $real->id;
                         }
                     }
 
-                    if (! $real) {
-                        throw new \RuntimeException(
-                            "Nessun componente anagrafico trovato per categoria={$comp->category_id}, " .
-                            "fabric_id={$fabricId}, color_id={$colorId}. " .
-                            "Crea/abilita il componente reale prima di procedere."
-                        );
-                    }
-
-                    $compId = (int) $real->id;
+                    $compId = $resolvedId;
                     Log::debug('explodeBom – slot variabile risolto', [
                         'product_id'   => $productId,
                         'slot'         => $comp->pivot->variable_slot,

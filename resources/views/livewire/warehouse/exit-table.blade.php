@@ -204,6 +204,16 @@
                                     :align="'left'"
                                 />
 
+                                {{-- RIF. ORDINE --}}
+                                <x-th-menu-live
+                                    field="reference"
+                                    label="Rif. Ordine"
+                                    :sort="$sort"
+                                    :dir="$dir"
+                                    :filters="$filters"
+                                    :align="'left'"
+                                />
+
                                 {{-- PRODOTTO --}}
                                 <x-th-menu-live
                                     field="product"
@@ -308,6 +318,11 @@
                                     {{-- Nr. ordine --}}
                                     <td class="px-6 py-2 text-center">
                                         {{ $row->order_number ?? '—' }}
+                                    </td>
+
+                                    {{-- Rif. ordine --}}
+                                    <td class="px-6 py-2 whitespace-nowrap">
+                                        {{ $row->reference ?? '—' }}
                                     </td>
 
                                     {{-- Prodotto (SKU - nome) --}}

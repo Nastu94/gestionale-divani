@@ -27,5 +27,5 @@ class OrderProductVariable extends Model
     public function orderItem(): BelongsTo { return $this->belongsTo(OrderItem::class); }
     public function fabric(): BelongsTo { return $this->belongsTo(Fabric::class); }
     public function color(): BelongsTo { return $this->belongsTo(Color::class); }
-    public function resolvedComponent(): BelongsTo { return $this->belongsTo(Component::class, 'resolved_component_id'); }
+    public function resolvedComponent(): BelongsTo { return $this->belongsTo(Component::class, 'resolved_component_id')->withTrashed(); }
 }
