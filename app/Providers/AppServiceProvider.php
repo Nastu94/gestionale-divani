@@ -17,6 +17,8 @@ use App\Observers\ColorObserver;
 use App\Observers\OrderItemPhaseEventObserver;
 use App\Observers\StockLevelLotObserver;
 use App\Observers\OrderItemShortfallObserver;
+use App\Services\OrderUpdateService;
+use App\Services\ValidatedOrderUpdateService;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -25,7 +27,11 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        /**
+         * Mantiene invariata la logica di OrderUpdateService e aggiunge,
+         * tramite decorazione, i controlli di integrità sul payload.
+         */
+        $this->app->bind(OrderUpdateService::class, ValidatedOrderUpdateService::class);
     }
 
     /**
