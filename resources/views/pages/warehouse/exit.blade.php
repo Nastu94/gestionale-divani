@@ -26,7 +26,10 @@
     @push('scripts')
         <script>
             function exitCrud() {
-                return { openId: null };
+                return { 
+                    openId: null,
+                    extended: false
+                };
             }
         </script>
     @endpush

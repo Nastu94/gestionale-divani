@@ -101,6 +101,8 @@ class OrderUpdateService
             if ($componentChanged) {
                 if ($before > 0) {
                     $decrease->push([
+                        'key'        => $k,
+                        'order_item_id' => $current[$k]['order_item_id'] ?? null,
                         'product_id' => (int) $current[$k]['product_id'],
                         'quantity'   => $before,
                         'fabric_id'  => $current[$k]['fabric_id'] ?? null,
@@ -110,6 +112,8 @@ class OrderUpdateService
                 }
                 if ($after > 0) {
                     $increase->push([
+                        'key'        => $k,
+                        'order_item_id' => $incoming[$k]['order_item_id'] ?? null,
                         'product_id' => (int) $incoming[$k]['product_id'],
                         'quantity'   => $after,
                         'fabric_id'  => $incoming[$k]['fabric_id'] ?? null,
@@ -122,6 +126,8 @@ class OrderUpdateService
 
                 if ($delta > 0) {
                     $increase->push([
+                        'key'        => $k,
+                        'order_item_id' => $incoming[$k]['order_item_id'] ?? null,
                         'product_id' => (int) $incoming[$k]['product_id'],
                         'quantity'   => abs($delta),
                         'fabric_id'  => $incoming[$k]['fabric_id'] ?? null,
@@ -130,6 +136,8 @@ class OrderUpdateService
                     ]);
                 } elseif ($delta < 0) {
                     $decrease->push([
+                        'key'        => $k,
+                        'order_item_id' => $current[$k]['order_item_id'] ?? null,
                         'product_id' => (int) ($current[$k]['product_id'] ?? $incoming[$k]['product_id']),
                         'quantity'   => abs($delta),
                         'fabric_id'  => $current[$k]['fabric_id'] ?? null,
@@ -140,7 +148,7 @@ class OrderUpdateService
             }
         }
 
-        $changedDate = $newDate && $newDate !== $order->delivery_date->format('Y-m-d');
+        $changedDate = $newDate && $newDate !== $order->delivery_date?->format('Y-m-d');
         Log::info('OC update – diff computed', [
             'order_id'     => $order->id,
             'increase_cnt' => $increase->count(),
@@ -185,6 +193,7 @@ class OrderUpdateService
 
                 /* 4.3 Upsert righe + variabili */
                 $upCnt = 0; $insCnt = 0;
+                $upsertedItems = [];
 
                 foreach ($incoming as $k => $line) {
                     /*──────────────── NEW: normalizzazione note colori ────────────────*/
@@ -254,7 +263,9 @@ class OrderUpdateService
                         $item->variable()->create($variablePayload);
 
                         $insCnt++;
+                        $existing = $item;
                     }
+                    $upsertedItems[$k] = $existing;
                 }
                 Log::info('OC update – upsert summary', [
                     'order_id' => $order->id,
@@ -301,26 +312,12 @@ class OrderUpdateService
                     /** @var ReturnedProductReservationService $returnsSvc */
                     $returnsSvc = app(ReturnedProductReservationService::class);
 
-                    // mappa: key -> OrderItem aggiornato
-                    $order->load(['items.variable','items.product']);
-                    $itemsByKey = $order->items->mapWithKeys(function ($it) {
-                        $k = sprintf('%d:%d:%d',
-                            (int)$it->product_id,
-                            (int)($it->variable?->fabric_id ?? 0),
-                            (int)($it->variable?->color_id  ?? 0)
-                        );
-                        return [$k => $it];
-                    });
-
+                    // iteriamo senza raggruppare per preservare la distinzione righe duplicate (es. stesso prodotto, diversa key)
                     foreach ($increase as $inc) {
-                        $k = sprintf('%d:%d:%d',
-                            (int)$inc['product_id'],
-                            (int)($inc['fabric_id'] ?? 0),
-                            (int)($inc['color_id']  ?? 0)
-                        );
-                        if (!isset($itemsByKey[$k])) continue;
+                        $k = $inc['key'];
+                        if (!isset($upsertedItems[$k])) continue;
 
-                        $it   = $itemsByKey[$k];
+                        $it   = $upsertedItems[$k];
                         $need = (float)$inc['quantity'];
 
                         $res = $returnsSvc->reserveForItem($it, $need, $actor);
@@ -393,24 +390,29 @@ class OrderUpdateService
                     }, []);
 
                 $order->load(['items.variable']);
-                $usedLines = $order->items->map(function ($it) use ($returnsByKey, $makeKey) {
+                $usedLines = $order->items->map(function ($it) use (&$returnsByKey, $makeKey) {
                     $pid = (int)$it->product_id;
                     $fid = $it->variable?->fabric_id;
                     $cid = $it->variable?->color_id;
 
                     $qty     = (float)$it->quantity;
-                    $covered = (float)($returnsByKey[$makeKey($pid, $fid, $cid)] ?? 0);
+                    $k       = $makeKey($pid, $fid, $cid);
+                    $covered = (float)($returnsByKey[$k] ?? 0);
 
                     $take = min($qty, $covered);
+                    $returnsByKey[$k] = max(0, $covered - $take);
+                    
                     $left = $qty - $take;
 
                     if ($left <= 1e-6) return null;
 
                     return [
+                        'order_item_id' => $it->id,
                         'product_id' => $pid,
                         'quantity'   => $left,
                         'fabric_id'  => $fid,
                         'color_id'   => $cid,
+                        'resolved_component_id' => $it->variable?->resolved_component_id,
                     ];
                 })
                 ->filter()

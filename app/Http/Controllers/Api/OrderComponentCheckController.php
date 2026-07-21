@@ -25,6 +25,7 @@ class OrderComponentCheckController extends Controller
             'order_id'              => ['nullable','integer','exists:orders,id'],
             'delivery_date'         => ['required','date'],
             'lines'                 => ['required','array','min:1'],
+            'lines.*.order_item_id' => ['nullable','integer','exists:order_items,id'],
             'lines.*.product_id'    => ['required','integer','exists:products,id'],
             'lines.*.quantity'      => ['required','numeric','min:0.01'],
             'lines.*.fabric_id'     => ['nullable','integer','exists:fabrics,id'],
@@ -33,7 +34,7 @@ class OrderComponentCheckController extends Controller
 
         // 1) Normalizza righe e valida TESSU (tipi e null-safety)
         $resolver = app(\App\Services\TessuComponentResolver::class);
-        $lines = collect($data['lines'])->map(function ($l, $idx) use ($resolver) {
+        $lines = collect($data['lines'])->map(function ($l, $idx) use ($resolver, $data) {
             $pid = (int) $l['product_id'];
             $fid = array_key_exists('fabric_id',$l) ? $l['fabric_id'] : null;
             $cid = array_key_exists('color_id',$l)  ? $l['color_id']  : null;
@@ -47,18 +48,24 @@ class OrderComponentCheckController extends Controller
                     ], 422));
                 }
                 
-                // Fetch the historical order item if order_id is present to see if it's historical
+                $isHistorical = false;
                 $histId = null;
                 $orderItemId = $l['order_item_id'] ?? null;
-                if ($orderItemId && $data['order_id']) {
-                    $histLine = \App\Models\OrderItem::where('id', $orderItemId)->where('order_id', $data['order_id'])->first();
+                $orderId = $data['order_id'] ?? null;
+
+                if ($orderItemId && $orderId) {
+                    $histLine = \App\Models\OrderItem::where('id', $orderItemId)
+                        ->where('order_id', $orderId)
+                        ->first();
+
                     if ($histLine && $histLine->product_id == $pid && $histLine->variable?->fabric_id == $fid && $histLine->variable?->color_id == $cid) {
+                        $isHistorical = true;
                         $histId = $histLine->variable?->resolved_component_id;
                     }
                 }
                 
-                if ($histId) {
-                    $resolvedComponentId = $resolver->resolveForStoredLine($product, $histId, $fid, $cid)->getKey();
+                if ($isHistorical) {
+                    $resolvedComponentId = $resolver->resolveForStoredLine($product, $histId, $fid, $cid)?->getKey();
                 } else {
                     $resolvedComponentId = $resolver->resolveForNewLine($product, $fid, $cid)?->getKey();
                 }
@@ -128,6 +135,7 @@ class OrderComponentCheckController extends Controller
             if ($qty <= 1e-6) return null;
 
             return [
+                'order_item_id' => $l['order_item_id'] ?? null,
                 'product_id' => $pid,
                 'quantity'   => $qty,
                 'fabric_id'  => $fid,

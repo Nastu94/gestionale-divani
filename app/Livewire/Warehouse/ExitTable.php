@@ -46,6 +46,7 @@ class ExitTable extends Component
     public array   $filters = [       // filtri di colonna
         'customer'      => null,
         'order_number'  => null,
+        'reference'     => null,
         'product'       => null,
         'color_note'    => null,
         'order_date'    => null,
@@ -66,6 +67,7 @@ class ExitTable extends Component
         'dir'      => ['except' => 'asc'],
         'filters.customer'       => ['except' => ''],
         'filters.order_number'   => ['except' => ''],
+        'filters.reference'      => ['except' => ''],
         'filters.product'        => ['except' => ''],
         'filters.color_note'     => ['except' => ''],
         'filters.order_date'     => ['except' => ''],
@@ -427,7 +429,7 @@ class ExitTable extends Component
 
         /*― White-list dei campi ordinabili ―*/
         $allowedSorts = [
-            'customer', 'order_number', 'product', 'color_note',
+            'customer', 'order_number', 'reference', 'product', 'color_note',
             'order_date', 'delivery_date', 'shipping_zone',
             'value', 'qty_in_phase',
         ];
@@ -485,6 +487,9 @@ class ExitTable extends Component
             ->when($this->filters['shipping_zone'] ?? null, function ($q, $v) {
                 $q->where('o.shipping_zone', 'like', "%{$v}%");
             })
+            ->when($this->filters['reference'] ?? null, function ($q, $v) {
+                $q->where('o.reference', 'like', "%{$v}%");
+            })
             ->when($this->filters['order_number']  ?? null,
                 fn ($q, $v) => $q->where('on.number', 'like', "%{$v}%"))
             ->when($this->filters['product']       ?? null,
@@ -527,6 +532,7 @@ class ExitTable extends Component
                     'delivery_date' => $q->orderBy('o.delivery_date', $this->dir),
                     'value'         => $q->orderBy('value',           $this->dir),
                     'shipping_zone'  => $q->orderBy('o.shipping_zone',  $this->dir),
+                    'reference'     => $q->orderBy('o.reference',     $this->dir),
                     default         => null, // nessun ordinamento
                 };
             })

@@ -33,9 +33,14 @@ class AuditTessuCatalogCommand extends Command
     {
         $this->info('Avvio audit catalogo TESSU (Modalità Read-Only)...');
 
+        if ($this->option('product')) {
+            $this->error('Il filtro prodotto non è ancora disponibile. Riprovare senza --product.');
+            return self::FAILURE;
+        }
+
         $fabricIds = $this->parseIds($this->option('fabric'));
         $colorIds = $this->parseIds($this->option('color'));
-        $productIds = $this->parseIds($this->option('product'));
+        $productIds = null;
         $format = $this->option('format');
 
         $results = $auditService->audit($fabricIds, $colorIds, $productIds);

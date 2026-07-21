@@ -152,6 +152,7 @@ class ReconcileSupplyForWindowJob implements ShouldQueue
                 $lines = [];
                 foreach ($order->items as $it) {
                     $lines[] = [
+                        'order_item_id' => (int) $it->id,
                         'product_id' => (int) $it->product_id,
                         'quantity'   => (float) $it->quantity,
                         'fabric_id'  => $it->variable?->fabric_id,

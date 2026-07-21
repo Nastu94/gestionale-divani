@@ -248,7 +248,7 @@ class ProductReturnController extends Controller
                     'color_name'  => $l->color->name ?? null,
                     'condition'   => $l->condition,
                     'reason'      => $l->reason,
-                    'note'        => $l->note,
+                    'notes'       => $l->notes,
                     'restock'     => (bool) $l->restock,
                 ];
             })->values(),
@@ -298,7 +298,7 @@ class ProductReturnController extends Controller
                 'color_id'   => $l['color_id'] ?? null,
                 'condition'  => $l['condition'] ?? null,
                 'reason'     => $l['reason'] ?? null,
-                'note'       => $l['note'] ?? ($l['notes'] ?? null),  // rinomina notes → note
+                'notes'      => (string) ($l['notes'] ?? $l['note'] ?? ''),
                 'restock'    => (bool) ($l['restock'] ?? false),
             ];
         }
@@ -327,11 +327,39 @@ class ProductReturnController extends Controller
             'lines.*.color_id'            => 'nullable|integer|exists:colors,id',
             'lines.*.condition'           => 'nullable|string|max:255',
             'lines.*.reason'              => 'nullable|string|max:255',
-            'lines.*.note'                => 'nullable|string',
+            'lines.*.notes'               => 'nullable|string',
             'lines.*.restock'             => 'nullable|boolean',
         ]);
 
         Log::info('@ProductReturnController::store, Dati validati:', ['data' => $data]);
+
+        // Se c’è almeno un restock, serve l’ordine di origine
+        $hasRestock = collect($data['lines'])->contains(fn (array $row) => !empty($row['restock']));
+        if ($hasRestock && empty($data['order_id'])) {
+            return $this->respondError('Per rimettere a stock un prodotto reso è necessario selezionare l’ordine di origine.');
+        }
+
+        // ───────────── Validazione TESSU (Whitelist) ─────────────
+        $resolver = app(\App\Services\TessuComponentResolver::class);
+        foreach ($data['lines'] as $row) {
+            $product = \App\Models\Product::find($row['product_id']);
+            if ($product && $resolver->tessuSlot($product)) {
+                if (empty($row['fabric_id']) || empty($row['color_id'])) {
+                    return $this->respondError("Il prodotto '{$product->name}' richiede la selezione di un tessuto e colore validi.");
+                }
+                if (!in_array($row['fabric_id'], $product->fabricIds()) ||
+                    !in_array($row['color_id'], $product->colorIds())) {
+                    return $this->respondError("Il tessuto o colore selezionato per '{$product->name}' non è consentito dalla whitelist.");
+                }
+                
+                // Valida l'esistenza di un componente esatto e attivo
+                try {
+                    $resolver->resolveForNewLine($product, $row['fabric_id'], $row['color_id']);
+                } catch (\App\Exceptions\BusinessRuleException $e) {
+                    return $this->respondError($e->getMessage());
+                }
+            }
+        }
 
         // Recupera (o fallisce) il magazzino resi: type = 'return' (fallback su code='MG-RETURN')
         $returnsWarehouse = Warehouse::query()
@@ -381,7 +409,7 @@ class ProductReturnController extends Controller
                         'color_id'   => $row['color_id']  ?? null,
                         'condition'  => $row['condition'] ?? null,
                         'reason'     => $row['reason']    ?? null,
-                        'note'       => $row['note']      ?? null,
+                        'notes'      => $row['notes']     ?? null,
                         'restock'    => (bool)($row['restock'] ?? false),
                         'warehouse_id'=> $returnsWarehouse->id,
                     ]);
@@ -477,6 +505,48 @@ class ProductReturnController extends Controller
             return $this->respondError('Per rimettere a stock (restock) serve un ordine di origine.');
         }
 
+        // ───────────── Validazione TESSU (Whitelist per nuove righe) ─────────────
+        $existingLines = $return->lines()->get()->keyBy('id');
+        $resolver = app(\App\Services\TessuComponentResolver::class);
+        foreach ($lines as $row) {
+            $existingLine = !empty($row['id']) ? $existingLines->get($row['id']) : null;
+
+            if (!empty($row['id']) && !$existingLine) {
+                return $this->respondError('La riga del reso indicata non appartiene a questo reso.');
+            }
+
+            $isHistoricalUnchanged = $existingLine
+                && (int) $existingLine->product_id === (int) $row['product_id']
+                && (int) ($existingLine->fabric_id ?? 0) === (int) ($row['fabric_id'] ?? 0)
+                && (int) ($existingLine->color_id ?? 0) === (int) ($row['color_id'] ?? 0);
+
+            if ($existingLine && !$isHistoricalUnchanged) {
+                return $this->respondError('Prodotto, tessuto e colore di una riga reso esistente non possono essere modificati. Eliminare la riga e crearne una nuova.');
+            }
+
+            $isHistorical = $existingLine !== null;
+            
+            if (!$isHistorical) {
+                $product = \App\Models\Product::find($row['product_id']);
+                if ($product && $resolver->tessuSlot($product)) {
+                    if (empty($row['fabric_id']) || empty($row['color_id'])) {
+                        return $this->respondError("Il prodotto '{$product->name}' richiede la selezione di un tessuto e colore validi.");
+                    }
+                    if (!in_array($row['fabric_id'], $product->fabricIds()) ||
+                        !in_array($row['color_id'], $product->colorIds())) {
+                        return $this->respondError("Il tessuto o colore selezionato per '{$product->name}' non è consentito dalla whitelist.");
+                    }
+                    
+                    // Valida l'esistenza di un componente esatto e attivo
+                    try {
+                        $resolver->resolveForNewLine($product, $row['fabric_id'], $row['color_id']);
+                    } catch (\App\Exceptions\BusinessRuleException $e) {
+                        return $this->respondError($e->getMessage());
+                    }
+                }
+            }
+        }
+
         // Magazzino resi
         $returnsWarehouse = Warehouse::query()
             ->where('type', 'return')
@@ -559,6 +629,7 @@ class ProductReturnController extends Controller
                 continue;
             }
             $out[] = [
+                'id'         => data_get($row, 'id') !== null ? (int) data_get($row, 'id') : null,
                 'product_id' => (int) $prodId,
                 'quantity'   => (float) data_get($row, 'quantity', 0),
                 'fabric_id'  => data_get($row, 'fabric_id') !== null ? (int) data_get($row, 'fabric_id') : null,
@@ -584,29 +655,29 @@ class ProductReturnController extends Controller
      */
     private function upsertReturnLines(ProductReturn $return, Warehouse $w, array $incomingLines, int $originOrderId): void
     {
-        $existing = $return->lines()
-            ->get()
-            ->keyBy(fn ($l) => $this->lineKey($l->product_id, $l->fabric_id, $l->color_id));
+        $existing = $return->lines()->get()->keyBy('id');
 
-        $incomingByKey = [];
+        $incomingIds = [];
         foreach ($incomingLines as $r) {
-            $k = $this->lineKey((int) $r['product_id'], $r['fabric_id'] ?? null, $r['color_id'] ?? null);
-            $incomingByKey[$k] = $r;
+            if (!empty($r['id'])) {
+                $incomingIds[] = $r['id'];
+            }
         }
 
         // 1) Eliminazioni: righe presenti prima ma non più in input
-        foreach ($existing as $key => $line) {
-            if (!array_key_exists($key, $incomingByKey)) {
+        foreach ($existing as $id => $line) {
+            if (!in_array($id, $incomingIds)) {
                 $this->deleteLineAndStock($line, $w, $originOrderId);
             }
         }
 
         // 2) Creazioni/Aggiornamenti + sync stock
-        foreach ($incomingByKey as $key => $row) {
-            if ($existing->has($key)) {
+        foreach ($incomingLines as $row) {
+            $id = $row['id'] ?? null;
+            if ($id && $existing->has($id)) {
                 // Update
                 /** @var ProductReturnLine $line */
-                $line = $existing->get($key);
+                $line = $existing->get($id);
                 $line->quantity  = $row['quantity'];
                 $line->condition = $row['condition'];
                 $line->reason    = $row['reason'];

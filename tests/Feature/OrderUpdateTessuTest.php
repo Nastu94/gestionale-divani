@@ -17,7 +17,7 @@ use App\Services\OrderUpdateService;
 
 class OrderUpdateTessuTest extends TestCase
 {
-    use RefreshDatabase;
+    use \Tests\Traits\CreatesTessuSchema;
 
     protected $product;
     protected $fabric1;
@@ -33,7 +33,9 @@ class OrderUpdateTessuTest extends TestCase
     {
         parent::setUp();
         
-        $this->category = Category::create(['name' => 'Tessuto', 'type' => 'raw_material']);
+        $this->createTessuSchema();
+        
+        $this->category = \App\Models\ComponentCategory::create(['code' => 'TESSU', 'name' => 'Tessuto', 'type' => 'raw_material']);
         
         $this->fabric1 = Fabric::create(['code' => 'F1', 'name' => 'Tessuto 1', 'active' => true]);
         $this->color1 = Color::create(['code' => 'C1', 'name' => 'Colore 1', 'active' => true]);

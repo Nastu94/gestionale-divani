@@ -138,46 +138,36 @@ class TessuCatalogAuditService
 
                 $pFabrics = $product->fabrics->pluck('id')->toArray();
                 $pColors = $product->colors->pluck('id')->toArray();
-                $validPairs = collect($resolver->validActivePairs($product))->pluck('component_id')->toArray();
 
-                // Analizza la matrice per questo prodotto
-                foreach ($pFabrics as $fid) {
-                    foreach ($pColors as $cid) {
-                        $compKey = $fid . ':' . $cid;
-                        $comps = $componentGrouped->get($compKey) ?? collect();
-                        
-                        // Per il prodotto, cerchiamo se c'è almeno un componente valido
-                        $validComp = $comps->first(fn($c) => in_array($c->id, $validPairs));
+                // 1. Whitelist vuota o incompleta
+                if (empty($pFabrics) || empty($pColors)) {
+                    $results['product_availability']->push([
+                        'product_id' => $product->id,
+                        'product_name' => $product->name,
+                        'status' => empty($pFabrics) && empty($pColors) ? 'empty_whitelist' : 'incomplete_whitelist',
+                        'message' => 'Tessuti: ' . count($pFabrics) . ', Colori: ' . count($pColors),
+                    ]);
+                    continue;
+                }
 
-                        if ($validComp) {
-                            $status = 'valid';
-                            $comp = $validComp;
-                        } else {
-                            $comp = $comps->first(); // Ne prendiamo uno a caso se ci sono errori
-                            
-                            if (!$comp) {
-                                $status = 'missing_component';
-                                $results['stats']['missing_components']++;
-                            } elseif ((int)$comp->category_id !== $tessuCategoryId) {
-                                $status = 'wrong_category';
-                            } elseif (!is_null($comp->deleted_at)) {
-                                $status = 'archived_component';
-                            } elseif (!(bool)$comp->is_active) {
-                                $status = 'inactive_component';
-                            } else {
-                                $status = 'wrong_category_or_invalid';
-                            }
-                        }
-
-                        $results['product_availability']->push([
-                            'product_id' => $product->id,
-                            'product_name' => $product->name,
-                            'fabric_id' => $fid,
-                            'color_id' => $cid,
-                            'status' => $status,
-                            'component_id' => $comp?->id,
-                        ]);
-                    }
+                // 2. Coppie realmente mappate e attive (non facciamo prodotto cartesiano)
+                $validPairs = $resolver->validActivePairs($product);
+                
+                if (empty($validPairs)) {
+                    $results['stats']['missing_components']++;
+                    $results['product_availability']->push([
+                        'product_id' => $product->id,
+                        'product_name' => $product->name,
+                        'status' => 'no_valid_components',
+                        'message' => 'Nessun componente attivo per le ' . (count($pFabrics) * count($pColors)) . ' combinazioni in whitelist.',
+                    ]);
+                } else {
+                    $results['product_availability']->push([
+                        'product_id' => $product->id,
+                        'product_name' => $product->name,
+                        'status' => 'ok',
+                        'message' => 'Componenti attivi trovati: ' . count($validPairs) . ' su ' . (count($pFabrics) * count($pColors)) . ' combinazioni teoriche.',
+                    ]);
                 }
             }
         }

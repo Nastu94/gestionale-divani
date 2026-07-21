@@ -481,14 +481,18 @@
 
 {{-- ===================== SCRIPT ALPINE ===================== --}}
 <script>
-    if (!window.GD_VARIABLE_OPTIONS) {
-        fetch('/products/variables/options', { headers:{ Accept:'application/json' }})
-            .then(r => r.json())
-            .then(data => {
-            // atteso: { fabrics:[{id,name},...], colors:[{id,name},...] }
-            window.GD_VARIABLE_OPTIONS = data || {fabrics:[], colors:[]};
+    if (!window.GD_VARIABLE_OPTIONS_PROMISE) {
+        window.GD_VARIABLE_OPTIONS_PROMISE = fetch('/products/variables/options', { headers:{ Accept:'application/json' }})
+            .then(async r => {
+                if (!r.ok) throw new Error('API Error');
+                const data = await r.json();
+                window.GD_VARIABLE_OPTIONS = data || {fabrics:[], colors:[]};
+                return window.GD_VARIABLE_OPTIONS;
             })
-            .catch(() => { window.GD_VARIABLE_OPTIONS = {fabrics:[], colors:[]}; });
+            .catch(() => {
+                window.GD_VARIABLE_OPTIONS = {fabrics:[], colors:[]};
+                return window.GD_VARIABLE_OPTIONS;
+            });
     }
 
     window.GD_findName = (arr, id) =>
@@ -1048,6 +1052,7 @@
                         order_id      : this.editMode ? this.orderId : null,
                         delivery_date : this.delivery_date,
                         lines         : this.lines.map(l => ({
+                            order_item_id: l.order_item_id || null,
                             product_id : l.product.id,
                             quantity   : l.qty,
                             fabric_id  : l.fabric_id || null,
@@ -1101,12 +1106,16 @@
                 this.variablesLoadError = false;
 
                 try {
-                    const r = await fetch(`/products/${productId}/variables`, { headers: { Accept:'application/json' } });
-                    if (!r.ok) throw new Error(String(r.status));
-                    const js = await r.json();
+                    const [js, globalOptions] = await Promise.all([
+                        fetch(`/products/${productId}/variables`, { headers: { Accept:'application/json' } }).then(r => {
+                            if (!r.ok) throw new Error(String(r.status));
+                            return r.json();
+                        }),
+                        window.GD_VARIABLE_OPTIONS_PROMISE
+                    ]);
 
-                    const allF = (window.GD_VARIABLE_OPTIONS && window.GD_VARIABLE_OPTIONS.fabrics) || [];
-                    const allC = (window.GD_VARIABLE_OPTIONS && window.GD_VARIABLE_OPTIONS.colors)  || [];
+                    const allF = globalOptions.fabrics || [];
+                    const allC = globalOptions.colors  || [];
 
                     const allowedF = new Set((js.fabric_ids || []).map(n => Number(n)));
                     const allowedC = new Set((js.color_ids  || []).map(n => Number(n)));

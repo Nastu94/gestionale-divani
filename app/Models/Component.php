@@ -85,6 +85,8 @@ class Component extends Model
      */
     protected $fillable = [
         'category_id', // ID della categoria (FK)
+        'fabric_id',
+        'color_id',
         'code',        // SKU interno
         'description', // Descrizione breve
         'material',    // Materiale principale

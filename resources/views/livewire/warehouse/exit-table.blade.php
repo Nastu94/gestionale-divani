@@ -134,15 +134,23 @@
                             @endif
                         </div>
 
-                        {{-- Aggiorna --}}
-                        <div>
+                        {{-- Pulsanti destri (Espandi + Aggiorna) --}}
+                        <div class="flex items-center gap-2">
+                            <button
+                                type="button"
+                                @click="extended = !extended"
+                                class="inline-flex items-center px-3 py-1.5 bg-indigo-600 rounded-md text-xs font-semibold text-white uppercase
+                                    hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-900 transition"
+                            >
+                                <i class="fas p-1" :class="extended ? 'fa-compress' : 'fa-expand'"></i>
+                                <span x-text="extended ? 'Comprimi tabella' : 'Estendi tabella'"></span>
+                            </button>
+
                             <button wire:click="$refresh"
                                     class="inline-flex items-center px-3 py-1.5
                                         bg-indigo-600 hover:bg-indigo-500
-                                        text-xs font-semibold text-white rounded-md">
-
+                                        text-xs font-semibold text-white uppercase rounded-md transition">
                                 <i class="fas fa-sync-alt mr-1"></i> Aggiorna
-
                                 <span wire:loading.inline wire:target="$refresh" class="ml-2">
                                     <i class="fas fa-circle-notch fa-spin"></i>
                                 </span>
@@ -186,6 +194,8 @@
 
                                 {{-- ZONA SPEDIZIONE --}}
                                 <x-th-menu-live
+                                    x-show="extended"
+                                    x-cloak
                                     field="shipping_zone"
                                     label="Zona spedizione"
                                     :sort="$sort"
@@ -206,6 +216,8 @@
 
                                 {{-- RIF. ORDINE --}}
                                 <x-th-menu-live
+                                    x-show="extended"
+                                    x-cloak
                                     field="reference"
                                     label="Rif. Ordine"
                                     :sort="$sort"
@@ -235,6 +247,8 @@
 
                                 {{-- DATA ORDINE --}}
                                 <x-th-menu-live
+                                    x-show="extended"
+                                    x-cloak
                                     field="order_date"
                                     label="Data ordine"
                                     :sort="$sort"
@@ -253,6 +267,8 @@
 
                                 {{-- VALORE € --}}
                                 <x-th-menu-live
+                                    x-show="extended"
+                                    x-cloak
                                     field="value"
                                     label="Valore €"
                                     :sort="$sort"
@@ -311,7 +327,7 @@
                                         {{ $row->customer ?? '—' }}
                                     </td>
 
-                                    <td class="px-6 py-2 whitespace-nowrap">
+                                    <td x-show="extended" x-cloak class="px-6 py-2 whitespace-nowrap">
                                         {{ $row->shipping_zone ?? '—' }}
                                     </td>
 
@@ -321,7 +337,7 @@
                                     </td>
 
                                     {{-- Rif. ordine --}}
-                                    <td class="px-6 py-2 whitespace-nowrap">
+                                    <td x-show="extended" x-cloak class="px-6 py-2 whitespace-nowrap">
                                         {{ $row->reference ?? '—' }}
                                     </td>
 
@@ -348,7 +364,7 @@
                                     </td>
 
                                     {{-- Data ordine / consegna --}}
-                                    <td class="px-6 py-2  whitespace-nowrap">
+                                    <td x-show="extended" x-cloak class="px-6 py-2  whitespace-nowrap">
                                         {{ \Carbon\Carbon::parse($row->order_date)->format('Y-m-d') ?? '—' }}
                                     </td>
                                     <td class="px-6 py-2 whitespace-nowrap">
@@ -356,7 +372,7 @@
                                     </td>
 
                                     {{-- Valore € --}}
-                                    <td class="px-6 py-2 text-right whitespace-nowrap">
+                                    <td x-show="extended" x-cloak class="px-6 py-2 text-right whitespace-nowrap">
                                         € {{ number_format($row->value, 2, ',', '.') }}
                                     </td>
                                     <td class="px-6 py-2 text-right">{{ $row->qty_in_phase }}</td>
@@ -365,7 +381,7 @@
                                 {{-- RIGA TOOLBAR --}}
                                 @if($canToggle)
                                     <tr wire:key="tb-{{ $row->id }}" x-show="openId === {{ $row->id }}" x-cloak>
-                                        <td :colspan="10" class="px-6 py-3 bg-gray-200 dark:bg-gray-700">
+                                        <td :colspan="extended ? 11 : 7" class="px-6 py-3 bg-gray-200 dark:bg-gray-700">
                                             <div class="flex items-center space-x-4 text-xs">
                                                 {{-- ► Avanza fase (qty default 100 %) --}}
                                                 @if($canAdvance)
@@ -423,7 +439,7 @@
                             {{-- RIGA NESSUN RISULTATO --}}
                             @if ($exitRows->isEmpty())
                                 <tr>
-                                    <td colspan="10" class="px-6 py-2 text-center text-gray-500">Nessun risultato trovato.</td>
+                                    <td :colspan="extended ? 11 : 7" class="px-6 py-2 text-center text-gray-500">Nessun risultato trovato.</td>
                                 </tr>
                             @endif
                         </tbody>

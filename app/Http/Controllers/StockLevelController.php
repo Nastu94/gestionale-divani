@@ -258,7 +258,7 @@ class StockLevelController extends Controller
 
         /* whitelist ordinamenti                      */
         $allowedSorts = [
-            'customer','order_number','product',
+            'customer','order_number','product','reference',
             'order_date','delivery_date','value','qty_in_phase',
         ];
         if (! in_array($sort, $allowedSorts, true)) {
@@ -302,6 +302,8 @@ class StockLevelController extends Controller
                         $qq->where('p.sku',  'like', "%$v%")
                         ->orWhere('p.name','like', "%$v%");
                 }))
+            ->when($filters['reference']     ?? null,
+                fn ($q, $v) => $q->where('o.reference', 'like', "%$v%"))
             ->when($filters['order_date']    ?? null,
                 fn ($q, $v) => $q->whereDate('o.ordered_at',    $v))
             ->when($filters['delivery_date'] ?? null,
@@ -318,6 +320,8 @@ class StockLevelController extends Controller
                 fn ($q) => $q->orderBy('on.number',       $dir))
             ->when($sort === 'product',
                 fn ($q) => $q->orderBy('p.sku',           $dir))
+            ->when($sort === 'reference',
+                fn ($q) => $q->orderBy('o.reference',     $dir))
             ->when($sort === 'qty_in_phase',
                 fn ($q) => $q->orderBy('pq.qty_in_phase', $dir))
             ->when(in_array($sort, ['order_date','delivery_date','value'], true),

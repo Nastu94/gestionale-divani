@@ -811,6 +811,7 @@ class OrderCustomerController extends Controller
 
         /** @var \Illuminate\Support\Collection<int,\App\Models\Component> $resolvedMap */
         $resolvedMap = \App\Models\Component::query()
+            ->withTrashed()
             ->whereIn('id', $resolvedIds)
             ->with(['componentSuppliers:id,component_id,last_cost'])
             ->get()
@@ -853,19 +854,32 @@ class OrderCustomerController extends Controller
 
             foreach ($product->components as $component) {
                 $isVar = (bool) ($component->pivot->is_variable ?? false);
+                $isTessu = $isVar && (($component->pivot->variable_slot ?? '') === 'TESSU');
 
                 // Se variabile e ho un resolved_component_id valido → sostituisco
-                $compEff = ($isVar && $resolvedId && $resolvedMap->has($resolvedId))
-                    ? $resolvedMap->get($resolvedId)
-                    : $component;
+                if ($isTessu) {
+                    if ($resolvedId && $resolvedMap->has($resolvedId)) {
+                        $compEff = $resolvedMap->get($resolvedId);
+                    } else {
+                        $compEff = (object) [
+                            'code' => 'ERR-TESSU',
+                            'description' => 'Componente TESSU storico mancante',
+                            'unit_of_measure' => $component->unit_of_measure ?? 'pz',
+                        ];
+                    }
+                } else {
+                    $compEff = ($isVar && $resolvedId && $resolvedMap->has($resolvedId))
+                        ? $resolvedMap->get($resolvedId)
+                        : $component;
+                }
 
                 // qty componente richiesto per la riga d’ordine
                 $qtyComp = $qtyOrdered * (float) ($component->pivot->quantity ?? 0);
 
                 // costo indicativo: supplier col last_cost più basso
-                $priceComp = optional(
-                    $compEff->componentSuppliers->sortBy('last_cost')->first()
-                )->last_cost ?? 0.0;
+                $priceComp = ($compEff instanceof \App\Models\Component)
+                    ? (optional($compEff->componentSuppliers->sortBy('last_cost')->first())->last_cost ?? 0.0)
+                    : 0.0;
 
                 $rows->push([
                     'code'   => $compEff->code,
@@ -1102,12 +1116,30 @@ class OrderCustomerController extends Controller
             /** @var \App\Models\Product $product */
             $product   = Product::findOrFail($productId);
 
-            // whitelist sicurezza
-            if ($fabricId !== null && ! in_array($fabricId, $product->fabricIds(), true)) {
-                abort(response()->json(['message' => "Il tessuto selezionato non è consentito per il prodotto #{$productId}."], 422));
+            // Identificazione storico vs nuovo per resolver (strict match)
+            $historicalResolvedId = null;
+            $isHistoricalLine = false;
+
+            if ($orderItemId && $historicalItemsCache->has($orderItemId)) {
+                $histItem = $historicalItemsCache->get($orderItemId);
+                if ($histItem->product_id === $productId) {
+                    $histFabricId = $histItem->variable?->fabric_id;
+                    $histColorId = $histItem->variable?->color_id;
+                    if ($histFabricId == $fabricId && $histColorId == $colorId) {
+                        $historicalResolvedId = $histItem->variable?->resolved_component_id;
+                        $isHistoricalLine = true;
+                    }
+                }
             }
-            if ($colorId !== null && ! in_array($colorId, $product->colorIds(), true)) {
-                abort(response()->json(['message' => "Il colore selezionato non è consentito per il prodotto #{$productId}."], 422));
+
+            // whitelist sicurezza (saltata per le righe storiche ineditate)
+            if (!$isHistoricalLine) {
+                if ($fabricId !== null && ! in_array($fabricId, $product->fabricIds(), true)) {
+                    abort(response()->json(['message' => "Il tessuto selezionato non è consentito per il prodotto #{$productId}."], 422));
+                }
+                if ($colorId !== null && ! in_array($colorId, $product->colorIds(), true)) {
+                    abort(response()->json(['message' => "Il colore selezionato non è consentito per il prodotto #{$productId}."], 422));
+                }
             }
 
             // Breakdown prezzo da modello (lordo variabili)
@@ -1141,22 +1173,7 @@ class OrderCustomerController extends Controller
             }
             $surchargeTotalApplied = $fabricAmt + $colorAmt;
 
-            // Identificazione storico vs nuovo per resolver
-            $historicalResolvedId = null;
-            if ($orderItemId && $historicalItemsCache->has($orderItemId)) {
-                $histItem = $historicalItemsCache->get($orderItemId);
-                if ($histItem->product_id === $productId) {
-                    $histFabricId = $histItem->variable?->fabric_id;
-                    $histColorId = $histItem->variable?->color_id;
-                    // Strict match su varianti per considerarla ineditata lato BOM
-                    if ($histFabricId == $fabricId && $histColorId == $colorId) {
-                        $historicalResolvedId = $histItem->variable?->resolved_component_id;
-                    }
-                }
-            }
-
             // componente effettivo risolto (slot variabile BOM)
-            $isHistoricalLine = ($orderItemId !== null);
             $resolvedComponentId = $this->resolveResolvedComponentId($product, $fabricId, $colorId, $isHistoricalLine, $historicalResolvedId);
 
             return [

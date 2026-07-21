@@ -301,7 +301,7 @@
 
                         if ($isVar) {
                             if ($comp->pivot->variable_slot === 'TESSU') {
-                                $eff = $resolvedMap->get('tessu_' . $orderItem->id) ?? $comp;
+                                $eff = $resolvedMap->get('tessu_' . $orderItem->id);
                             } else {
                                 $eff = ($resolvedId && $resolvedMap->has($resolvedId))
                                     ? $resolvedMap->get($resolvedId)

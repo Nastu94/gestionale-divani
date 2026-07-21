@@ -123,3 +123,31 @@ Per i prodotti viene conservato l’URL completo della lista. Per Magazzino → 
 La tabella `ddts` possedeva già il campo `packages`, mentre l’ordine cliente non disponeva di un valore equivalente.
 
 Aggiunto `orders.packages` tramite migration. Il campo è gestito in creazione, modifica, caricamento e reset del modal. Nei DDT singoli viene copiato; nei DDT accorpati viene sommato.
+
+---
+
+## Gestione reale varianti TESSU 
+Negli avanzamenti e nei consumi veniva scalato sempre il componente fittizio `TESSU-00001` ignorando il reale tessuto e colore selezionato nell'ordine. Questo falsava il magazzino.
+
+Introdotto `TessuComponentResolver`. Nei calcoli BOM e nei consumi il sistema ora risolve esattamente il componente TESSU reale basandosi su `fabric_id` e `color_id`. Il placeholder generico resta valido solo per lo storico già in database.
+
+---
+
+## Riferimento ordine nelle Uscite
+Nella vista Magazzino → Uscite non era possibile visualizzare né filtrare i documenti in base al riferimento ordine fornito dal cliente.
+
+Integrata la colonna "Riferimento" nella tabella. Il dato è ora visibile, ricercabile nei filtri testuali, ordinabile e stampabile nei PDF.
+
+---
+
+## Race condition e perdita note nei Resi
+L'apertura rapida della modale Resi andava in crash per il caricamento asincrono delle variabili. Inoltre, in fase di creazione le note inserite andavano perse e i rientri a magazzino non imponevano un ordine di origine.
+
+Risolta la race condition usando i dati forniti nativamente dal backend. Allineato stabilmente il campo `notes` su tutto il flusso (db, controller, frontend) ed estesa la validazione per rendere obbligatorio l'ordine in caso di restock.
+
+---
+
+## Integrità varianti storiche nei Resi
+Il frontend bloccava la modifica (es. cambio quantità) di righe storiche in cui tessuto o colore erano stati rimossi dalla whitelist. Il backend consentiva invece di modificarne l'identità nativa.
+
+Implementato bypass frontend per la validazione whitelist esclusivamente sulle varianti storiche inalterate. Blindato il controller backend in modo che prodotto, tessuto e colore di una riga esistente non possano mai più essere modificati.
