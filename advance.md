@@ -211,17 +211,10 @@ final readonly class AdvanceOrderItemPhaseAction
 
                 /* scarico fisico lotti (eccetto passaggio fase 0→1) */
                 if ($fromPhase > 0) {
-                    if (! $this->shouldSkipConsumptionForReuse($item, $fromPhase)) {
-                        $this->ensureSourcePhaseReservations(
-                            $item,
-                            $fromPhase
-                        );
-                    }
-
                     app(StockLotConsumptionService::class)
                         ->consumeForAdvance(
                             $item,
-                            $fromPhase,
+                            $this->fromPhase->value,   // 👈 enum → int
                             $this->quantity
                         );
                 }
@@ -509,138 +502,6 @@ final readonly class AdvanceOrderItemPhaseAction
         }
 
         return $cand ?: $bomComponent;
-    }
-
-    private function shouldSkipConsumptionForReuse(OrderItem $item, int $fromPhase): bool
-    {
-        return OrderItemPhaseEvent::query()
-            ->where('order_item_id', $item->id)
-            ->where('from_phase', $fromPhase + 1)
-            ->where('to_phase', $fromPhase)
-            ->where('rollback_mode', 'reuse')
-            ->exists();
-    }
-
-    private function ensureSourcePhaseReservations(OrderItem $item, int $fromPhase): void
-    {
-        $item->loadMissing(
-            'variable',
-            'product.components.category.phaseLinks'
-        );
-
-        if ($item->product === null) {
-            throw ValidationException::withMessages([
-                'product' => 'Prodotto disattivato, riattivarlo per proseguire con l\'avanzamento di fase.',
-            ]);
-        }
-
-        $components = $item->product->components()
-            ->with('category.phaseLinks')
-            ->get()
-            ->filter(fn ($c) =>
-                $c->category
-                ->phasesEnum()
-                ->contains(fn ($p) => $p->value === $fromPhase)
-            );
-
-        if ($components === null) {
-            throw ValidationException::withMessages([
-                'stock' => 'Errore interno: impossibile determinare i componenti della fase. Controlla la relazione prodotto->componenti.',
-            ]);
-        }
-
-        $requirements = [];
-
-        foreach ($components as $bomComponent) {
-            $effective = $this->effectiveComponentForItem($item, $bomComponent);
-            $qty = (float) $bomComponent->pivot->quantity * $this->quantity;
-            
-            if (!isset($requirements[$effective->id])) {
-                $requirements[$effective->id] = [
-                    'component' => $effective,
-                    'required'  => 0.0,
-                ];
-            }
-            $requirements[$effective->id]['required'] += $qty;
-        }
-
-        ksort($requirements);
-
-        foreach ($requirements as $componentId => $data) {
-            $required = $data['required'];
-            $effective = $data['component'];
-
-            $levels = StockLevel::query()
-                ->where('component_id', $componentId)
-                ->orderBy('created_at')
-                ->orderBy('id')
-                ->lockForUpdate()
-                ->get();
-
-            $reservations = StockReservation::query()
-                ->whereIn('stock_level_id', $levels->pluck('id'))
-                ->lockForUpdate()
-                ->get();
-
-            $reservedForCurrentOrder = $reservations
-                ->where('order_id', $item->order_id)
-                ->sum('quantity');
-
-            $missing = max($required - $reservedForCurrentOrder, 0.0);
-
-            if ($missing <= 0.000001) {
-                continue;
-            }
-
-            $freeStock = 0.0;
-            foreach ($levels as $level) {
-                $reservedOnLevel = $reservations->where('stock_level_id', $level->id)->sum('quantity');
-                $freeStock += max($level->quantity - $reservedOnLevel, 0.0);
-            }
-
-            if ($freeStock < $missing - 0.000001) {
-                $reqStr = rtrim(rtrim(sprintf('%.2f', $required), '0'), '.');
-                $resStr = rtrim(rtrim(sprintf('%.2f', $reservedForCurrentOrder), '0'), '.');
-                $freeStr = rtrim(rtrim(sprintf('%.2f', $freeStock), '0'), '.');
-                
-                throw ValidationException::withMessages([
-                    'stock' => "Stock libero insufficiente per {$effective->code}:\nnecessari {$reqStr}, già prenotati {$resStr}, disponibili liberi {$freeStr}."
-                ]);
-            }
-
-            $left = $missing;
-            foreach ($levels as $level) {
-                if ($left <= 0.000001) break;
-
-                $reservedOnLevel = $reservations->where('stock_level_id', $level->id)->sum('quantity');
-                $free = max($level->quantity - $reservedOnLevel, 0.0);
-
-                if ($free <= 0.000001) continue;
-
-                $take = min($free, $left);
-
-                StockReservation::create([
-                    'stock_level_id' => $level->id,
-                    'order_id'       => $item->order_id,
-                    'quantity'       => $take,
-                ]);
-
-                StockMovement::create([
-                    'stock_level_id' => $level->id,
-                    'type'           => 'reserve',
-                    'quantity'       => $take,
-                    'note'           => "Prenotazione automatica pre-consumo fase {$fromPhase} OC #{$item->order_id}",
-                ]);
-
-                $left -= $take;
-            }
-
-            if ($left > 0.000001) {
-                throw ValidationException::withMessages([
-                    'stock' => "Errore inaspettato durante il recupero prenotazioni per {$effective->code}.",
-                ]);
-            }
-        }
     }
 
 }
