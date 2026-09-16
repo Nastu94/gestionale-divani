@@ -6,8 +6,10 @@ use App\Enums\ProductionPhase;
 use App\Models\Alert;
 use App\Models\User;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Testing\TestResponse;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
 
@@ -35,6 +37,7 @@ class DeliveryAlertVisibilityTest extends TestCase
 
         Schema::create('orders', function (Blueprint $table) {
             $table->id();
+            $table->date('delivery_date')->nullable();
         });
 
         Schema::create('order_items', function (Blueprint $table) {
@@ -249,9 +252,162 @@ class DeliveryAlertVisibilityTest extends TestCase
         $this->assertSame(1, $view->getData()['tiles'][0]['badge_count']);
     }
 
-    private function createOrder(): int
+    public function test_pending_pieces_column_sums_only_product_quantities_before_shipping(): void
     {
-        return DB::table('orders')->insertGetId([]);
+        $orderId = $this->createOrder();
+        $splitItemId = $this->createItem($orderId, 6);
+        $this->moveQuantity($splitItemId, 4, ProductionPhase::INSERTED, ProductionPhase::ASSEMBLY);
+        $this->moveQuantity($splitItemId, 2, ProductionPhase::ASSEMBLY, ProductionPhase::FINISHING);
+        $this->moveQuantity($splitItemId, 1, ProductionPhase::FINISHING, ProductionPhase::SHIPPING);
+        $shippedItemId = $this->createItem($orderId, 3);
+        $this->advanceTo($shippedItemId, 3, ProductionPhase::SHIPPING);
+        $this->createItem($orderId, 2);
+        $this->createItem($orderId, 100, null);
+        $fifteenDays = $this->createDeliveryAlert($orderId);
+        $twentyDays = $this->createDeliveryAlert($orderId, ['type' => 'delivery_20_days']);
+
+        $otherOrderId = $this->createOrder();
+        $this->createItem($otherOrderId, 20);
+        $otherAlert = $this->createDeliveryAlert($otherOrderId);
+        $unrelated = $this->createDeliveryAlert($orderId, ['type' => 'low_stock', 'payload' => null]);
+
+        $response = $this->get(route('alerts.index'))->assertOk();
+        $response->assertSee('Pezzi da completare');
+
+        $this->assertSame('7', $this->pendingPiecesCell($response, $fifteenDays));
+        $this->assertSame('7', $this->pendingPiecesCell($response, $twentyDays));
+        $this->assertSame('20', $this->pendingPiecesCell($response, $otherAlert));
+        $this->assertSame('Non applicabile', $this->pendingPiecesCell($response, $unrelated));
+    }
+
+    public function test_pending_pieces_column_updates_after_partial_shipping_and_rollback(): void
+    {
+        $orderId = $this->createOrder();
+        $itemId = $this->createItem($orderId, 3);
+        $alert = $this->createDeliveryAlert($orderId, ['payload' => ['order_id' => (string) $orderId]]);
+        $this->advanceTo($itemId, 3, ProductionPhase::FINISHING);
+
+        $response = $this->get(route('alerts.index'))->assertOk();
+        $this->assertSame('3', $this->pendingPiecesCell($response, $alert));
+
+        $this->moveQuantity($itemId, 2, ProductionPhase::FINISHING, ProductionPhase::SHIPPING);
+
+        $response = $this->get(route('alerts.index'))->assertOk();
+        $this->assertSame('1', $this->pendingPiecesCell($response, $alert));
+
+        $this->moveQuantity($itemId, 0.5, ProductionPhase::SHIPPING, ProductionPhase::FINISHING);
+
+        $response = $this->get(route('alerts.index'))->assertOk();
+        $this->assertSame('1,5', $this->pendingPiecesCell($response, $alert));
+
+        $this->moveQuantity($itemId, 1.5, ProductionPhase::FINISHING, ProductionPhase::SHIPPING);
+
+        $this->assertSame([], $this->visibleAlertIds());
+    }
+
+    public function test_expired_delivery_messages_show_the_current_due_date_without_changing_saved_alerts(): void
+    {
+        config(['app.timezone' => 'Europe/Rome']);
+        $this->travelTo(Carbon::parse('2026-09-16 12:00:00', 'Europe/Rome'));
+        $orderId = $this->createOrder('2026-07-31');
+        $this->createItem($orderId);
+        $originalMessage = "ALERT CONSEGNA: L'ordine #100 per Cliente di prova scade tra 15 giorni (Consegna prevista: 31/07/2026).";
+        $alert = $this->createDeliveryAlert($orderId, ['message' => $originalMessage]);
+        $savedAttributes = $alert->fresh()->getAttributes();
+
+        $response = $this->get(route('alerts.index'))->assertOk();
+
+        $this->assertSame(
+            "ALERT CONSEGNA: L'ordine #100 per Cliente di prova (Consegna prevista: 31/07/2026 - SCADUTA).",
+            $this->alertCell($response, $alert, 1)
+        );
+        $this->assertSame($savedAttributes, $alert->fresh()->getAttributes());
+    }
+
+    public function test_delivery_messages_use_today_and_the_rescheduled_order_date(): void
+    {
+        config(['app.timezone' => 'Europe/Rome']);
+        $this->travelTo(Carbon::parse('2026-09-16 12:00:00', 'Europe/Rome'));
+        $orderId = $this->createOrder('2026-09-16');
+        $this->createItem($orderId);
+        $prefix = "ALERT CONSEGNA: L'ordine #100 per Cliente di prova ";
+        $alert = $this->createDeliveryAlert($orderId, [
+            'type' => 'delivery_20_days',
+            'message' => $prefix.'scade tra 20 giorni (Consegna prevista: 31/07/2026).',
+            'payload' => ['order_id' => (string) $orderId, 'delivery_date' => '2026-07-31'],
+        ]);
+
+        $response = $this->get(route('alerts.index'))->assertOk();
+        $this->assertSame(
+            $prefix.'scade oggi (Consegna prevista: 16/09/2026).',
+            $this->alertCell($response, $alert, 1)
+        );
+
+        DB::table('orders')->where('id', $orderId)->update(['delivery_date' => '2026-09-17']);
+
+        $response = $this->get(route('alerts.index'))->assertOk();
+        $this->assertSame(
+            $prefix.'scade domani (Consegna prevista: 17/09/2026).',
+            $this->alertCell($response, $alert, 1)
+        );
+
+        DB::table('orders')->where('id', $orderId)->update(['delivery_date' => '2026-09-20']);
+
+        $response = $this->get(route('alerts.index'))->assertOk();
+        $this->assertSame(
+            $prefix.'scade tra 4 giorni (Consegna prevista: 20/09/2026).',
+            $this->alertCell($response, $alert, 1)
+        );
+        $this->assertSame('2026-07-31', $alert->fresh()->payload['delivery_date']);
+
+        DB::table('orders')->where('id', $orderId)->update(['delivery_date' => null]);
+
+        $response = $this->get(route('alerts.index'))->assertOk();
+        $this->assertSame(
+            $prefix.'(Consegna prevista: non indicata).',
+            $this->alertCell($response, $alert, 1)
+        );
+    }
+
+    public function test_delivery_becomes_expired_at_midnight_in_the_application_timezone(): void
+    {
+        config(['app.timezone' => 'Europe/Rome']);
+        $this->travelTo(Carbon::parse('2026-09-16 21:59:59', 'UTC'));
+        $orderId = $this->createOrder('2026-09-16');
+        $this->createItem($orderId);
+        $alert = $this->createDeliveryAlert($orderId, [
+            'message' => 'Consegna di prova scade tra 15 giorni (Consegna prevista: 16/09/2026).',
+        ]);
+
+        $response = $this->get(route('alerts.index'))->assertOk();
+        $this->assertSame(
+            'Consegna di prova scade oggi (Consegna prevista: 16/09/2026).',
+            $this->alertCell($response, $alert, 1)
+        );
+
+        $this->travelTo(Carbon::parse('2026-09-16 22:00:00', 'UTC'));
+
+        $response = $this->get(route('alerts.index'))->assertOk();
+        $this->assertSame(
+            'Consegna di prova (Consegna prevista: 16/09/2026 - SCADUTA).',
+            $this->alertCell($response, $alert, 1)
+        );
+    }
+
+    public function test_unrelated_alert_messages_are_not_rewritten(): void
+    {
+        $orderId = $this->createOrder('2026-07-31');
+        $message = 'Avviso generico (Consegna prevista: 31/07/2026).';
+        $alert = $this->createDeliveryAlert($orderId, ['type' => 'low_stock', 'message' => $message]);
+
+        $response = $this->get(route('alerts.index'))->assertOk();
+
+        $this->assertSame($message, $this->alertCell($response, $alert, 1));
+    }
+
+    private function createOrder(?string $deliveryDate = null): int
+    {
+        return DB::table('orders')->insertGetId(['delivery_date' => $deliveryDate]);
     }
 
     private function createItem(int $orderId, int $quantity = 1, ?int $productId = 1): int
@@ -281,7 +437,7 @@ class DeliveryAlertVisibilityTest extends TestCase
         }
     }
 
-    private function moveQuantity(int $itemId, int $quantity, ProductionPhase $from, ProductionPhase $to): void
+    private function moveQuantity(int $itemId, int|float $quantity, ProductionPhase $from, ProductionPhase $to): void
     {
         DB::table('order_item_phase_events')->insert([
             'order_item_id' => $itemId,
@@ -296,5 +452,30 @@ class DeliveryAlertVisibilityTest extends TestCase
     private function visibleAlertIds(): array
     {
         return $this->get(route('alerts.index'))->assertOk()->viewData('alerts')->getCollection()->modelKeys();
+    }
+
+    private function pendingPiecesCell(TestResponse $response, Alert $alert): string
+    {
+        return $this->alertCell($response, $alert, 2);
+    }
+
+    private function alertCell(TestResponse $response, Alert $alert, int $column): string
+    {
+        $document = new \DOMDocument;
+        $previousErrors = libxml_use_internal_errors(true);
+        try {
+            $this->assertTrue($document->loadHTML($response->getContent()));
+        } finally {
+            libxml_clear_errors();
+            libxml_use_internal_errors($previousErrors);
+        }
+
+        foreach ((new \DOMXPath($document))->query('//table/tbody/tr') as $row) {
+            if ($row->getAttribute('onclick') === "window.location='".route('alerts.show', $alert)."'") {
+                return trim($row->getElementsByTagName('td')->item($column)->textContent);
+            }
+        }
+
+        $this->fail('Riga alert non presente nella pagina: '.$alert->id);
     }
 }

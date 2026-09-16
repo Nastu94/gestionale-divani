@@ -20,15 +20,27 @@
                                     <tr>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Tipo</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Messaggio</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Pezzi da completare</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Data</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Letto</th>
                                     </tr>
                                 </thead>
                                 <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                                     @foreach($alerts as $alert)
+                                        @php
+                                            $orderId = data_get($alert->payload, 'order_id');
+                                            $pieces = $orderId ? $piecesToComplete->get((int) $orderId, 0) : null;
+                                        @endphp
                                         <tr onclick="window.location='{{ route('alerts.show', $alert) }}'" class="cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors {{ $alert->is_read ? 'opacity-50' : 'font-semibold' }}">
                                             <td class="px-6 py-4 whitespace-nowrap text-sm">{{ $alert->type }}</td>
-                                            <td class="px-6 py-4 text-sm">{{ $alert->message }}</td>
+                                            <td class="px-6 py-4 text-sm">{{ $deliveryMessages[$alert->id] ?? $alert->message }}</td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm">
+                                                @if($pieces !== null)
+                                                    {{ rtrim(rtrim(number_format((float) $pieces, 2, ',', '.'), '0'), ',') }}
+                                                @else
+                                                    Non applicabile
+                                                @endif
+                                            </td>
                                             <td class="px-6 py-4 whitespace-nowrap text-sm">{{ $alert->triggered_at->format('d/m/Y H:i') }}</td>
                                             <td class="px-6 py-4 whitespace-nowrap text-sm">
                                                 @if($alert->is_read)
