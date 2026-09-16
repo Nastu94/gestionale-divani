@@ -12,7 +12,8 @@ class AlertController extends Controller
      */
     public function index()
     {
-        $alerts = Alert::orderBy('is_read')
+        $alerts = Alert::visible()
+            ->orderBy('is_read')
             ->orderByDesc('triggered_at')
             ->paginate(20);
 

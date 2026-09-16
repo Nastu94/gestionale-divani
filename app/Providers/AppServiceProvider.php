@@ -62,7 +62,7 @@ class AppServiceProvider extends ServiceProvider
                         $tile['badge_count'] = Order::where('cause','!=','purchase')->count();
                         break;
                     case 'alerts_critical':
-                        $tile['badge_count'] = Alert::where('triggered_at','<=', now())->count();
+                        $tile['badge_count'] = Alert::visible()->where('triggered_at','<=', now())->count();
                         break;
                     case 'alerts_low':
                         $tile['badge_count'] = Alert::where('type','low_stock')->count();

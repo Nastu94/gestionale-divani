@@ -40,7 +40,7 @@
 
     {{-- Menu a fisarmonica: itero solo le sezioni con almeno una voce accessibile --}}
     @php
-        $unreadAlertsCount = \App\Models\Alert::where('is_read', false)->count();
+        $unreadAlertsCount = \App\Models\Alert::visible()->where('is_read', false)->count();
     @endphp
     @foreach(config('menu.sidebar') as $i => $section)
         @php
