@@ -1521,7 +1521,6 @@ class OrderCustomerController extends Controller
                 // Se non è stato confermato, continuiamo con fallback.
                 Log::warning('confirmManual: chiamata al flusso pubblico eseguita ma ordine non risulta confermato', [
                     'order_id' => $order->id,
-                    'token'    => $order->confirm_token,
                 ]);
 
             } catch (\Throwable $e) {
@@ -1529,8 +1528,8 @@ class OrderCustomerController extends Controller
                 // passiamo al fallback.
                 Log::warning('confirmManual: impossibile usare il flusso pubblico, fallback forzato', [
                     'order_id' => $order->id,
-                    'token'    => $order->confirm_token,
-                    'error'    => $e->getMessage(),
+                    /** Il testo dell'eccezione potrebbe contenere il token nei parametri di una query. */
+                    'exception' => get_class($e),
                 ]);
             }
         }

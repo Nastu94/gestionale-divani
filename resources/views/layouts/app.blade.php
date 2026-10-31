@@ -65,6 +65,10 @@
             </main>
         </div>
 
+        @can('alerts.view')
+            <livewire:order-rejection-notifier />
+        @endcan
+
         @stack('modals')
         @stack('scripts')
         @livewireScripts

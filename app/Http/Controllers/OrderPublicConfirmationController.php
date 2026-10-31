@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Alert;
 use App\Models\Order;
 use App\Models\StockLevel;
 use App\Models\StockReservation;
@@ -36,7 +37,7 @@ class OrderPublicConfirmationController extends Controller
     }
 
     /** Recupera ordine da token valido (o null se scaduto/non valido) */
-    protected function findValidByToken(string $token): ?Order
+    protected function findValidByToken(string $token, bool $lock = false): ?Order
     {
         $min = now()->subDays($this->ttlDays());
         return Order::query()
@@ -44,6 +45,7 @@ class OrderPublicConfirmationController extends Controller
             ->whereNotNull('confirmation_requested_at')
             ->where('confirmation_requested_at', '>=', $min)
             ->whereNull('occasional_customer_id')   // solo STANDARD
+            ->when($lock, fn ($query) => $query->lockForUpdate())
             ->first();
     }
 
@@ -123,16 +125,29 @@ class OrderPublicConfirmationController extends Controller
             }
         }
 
-        DB::transaction(function () use ($order) {
-            // Stato confermato
-            $order->status       = 1;
-            $order->confirmed_at = now();
-            $order->reason       = null;           // coerente con conferma
-            // Invalida token (monouso)
-            $order->confirm_token             = null;
-            $order->confirmation_requested_at = null;
-            $order->save();
+        $order = DB::transaction(function () use ($token) {
+            /** Rilegge e blocca il token: un'altra richiesta potrebbe averlo consumato dopo il controllo iniziale. */
+            $locked = $this->findValidByToken($token, true);
+            if (!$locked || (int) $locked->status === 1) {
+                return null;
+            }
+
+            $locked->status                    = 1;
+            $locked->confirmed_at              = now();
+            $locked->reason                    = null;
+            $locked->confirm_token             = null;
+            $locked->confirmation_requested_at = null;
+            $locked->save();
+
+            return $locked;
         });
+
+        if (!$order) {
+            return $this->respond($request, [
+                'ok' => false,
+                'message' => __('orders.confirm.link_expired'),
+            ], 410);
+        }
 
         $poNumbers = [];
 
@@ -261,15 +276,48 @@ class OrderPublicConfirmationController extends Controller
             'reason' => ['required','string','max:1000'],
         ]);
 
-        DB::transaction(function () use ($order, $data) {
-            // Stato non confermato; salviamo motivazione rifiuto
-            $order->status = 0;
-            $order->reason = $data['reason'];
-            // Invalida token (monouso)
-            $order->confirm_token             = null;
-            $order->confirmation_requested_at = null;
-            $order->save();
+        $order = DB::transaction(function () use ($token, $data) {
+            /** Il blocco condiviso con la conferma impedisce di usare due volte lo stesso link. */
+            $locked = $this->findValidByToken($token, true);
+            if (!$locked || (int) $locked->status === 1) {
+                return null;
+            }
+
+            $locked->status                    = 0;
+            $locked->reason                    = $data['reason'];
+            $locked->confirm_token             = null;
+            $locked->confirmation_requested_at = null;
+            $locked->save();
+
+            $number = $locked->orderNumber?->number ?? $locked->id;
+            $customer = $locked->customer?->company ?: 'Cliente non indicato';
+
+            /** Rifiuto e avviso vengono salvati insieme; il token originale non viene conservato nell'alert. */
+            Alert::firstOrCreate(
+                ['dedupe_key' => 'order_rejected:'.$locked->id.':'.hash('sha256', $token)],
+                [
+                    'type' => 'order_rejected',
+                    'message' => "L'ordine #{$number} per {$customer} è stato rifiutato. Motivo: ".$data['reason'],
+                    'payload' => [
+                        'order_id' => $locked->id,
+                        'order_number' => $number,
+                        'customer' => $customer,
+                        'reason' => $data['reason'],
+                    ],
+                    'is_read' => false,
+                    'triggered_at' => now(),
+                ]
+            );
+
+            return $locked;
         });
+
+        if (!$order) {
+            return $this->respond($request, [
+                'ok' => false,
+                'message' => __('orders.confirm.link_expired'),
+            ], 410);
+        }
 
         // Dopo commit: email ai commerciali e al cliente con la motivazione
         DB::afterCommit(function () use ($order, $data) {
@@ -312,8 +360,8 @@ class OrderPublicConfirmationController extends Controller
         }
 
         // Per HTML: mostriamo la stessa pagina con banner esito
-        return view('pages.orders.public.confirm-result', $payload + [
+        return response()->view('pages.orders.public.confirm-result', $payload + [
             'ttl_days' => $this->ttlDays(),
-        ]);
+        ], $status);
     }
 }

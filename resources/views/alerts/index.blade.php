@@ -29,10 +29,12 @@
                                     @foreach($alerts as $alert)
                                         @php
                                             $orderId = data_get($alert->payload, 'order_id');
-                                            $pieces = $orderId ? $piecesToComplete->get((int) $orderId, 0) : null;
+                                            $pieces = $orderId && $alert->type !== 'order_rejected'
+                                                ? $piecesToComplete->get((int) $orderId, 0)
+                                                : null;
                                         @endphp
                                         <tr onclick="window.location='{{ route('alerts.show', $alert) }}'" class="cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors {{ $alert->is_read ? 'opacity-50' : 'font-semibold' }}">
-                                            <td class="px-6 py-4 whitespace-nowrap text-sm">{{ $alert->type }}</td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm">{{ $alert->type === 'order_rejected' ? 'Ordine rifiutato' : $alert->type }}</td>
                                             <td class="px-6 py-4 text-sm">{{ $deliveryMessages[$alert->id] ?? $alert->message }}</td>
                                             <td class="px-6 py-4 whitespace-nowrap text-sm">
                                                 @if($pieces !== null)
