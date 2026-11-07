@@ -78,7 +78,7 @@
                         {{-- Azione bulk: stampa righe selezionate --}}
                         <div>
                             @if($selectedCount > 0)
-                                <div class="inline-flex items-center gap-3 rounded-md border border-purple-200 bg-purple-50 px-3 py-2 text-xs text-purple-900">
+                                <div class="inline-flex flex-wrap items-center gap-3 rounded-md border border-purple-200 bg-purple-50 px-3 py-2 text-xs text-purple-900">
                                     <span>
                                         <strong>{{ $selectedCount }}</strong>
                                         {{ $selectedCount === 1 ? 'riga selezionata' : 'righe selezionate' }}
@@ -102,6 +102,16 @@
                                             Preparazione...
                                         </span>
                                     </button>
+
+                                    @can('stock.exit')
+                                        <button type="button"
+                                                wire:click="openExportModal"
+                                                wire:loading.attr="disabled"
+                                                wire:target="openExportModal,exportSelectedRows"
+                                                class="inline-flex items-center rounded-md bg-purple-600 px-3 py-1.5 font-semibold text-white hover:bg-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-300 disabled:opacity-60">
+                                            Esporta Excel
+                                        </button>
+                                    @endcan
 
                                     @if($phase == 3)
                                         <button type="button"
@@ -455,6 +465,55 @@
             </div>
         </div>
     </div>
+
+    <dialog wire:ignore.self
+            x-data="{ show: $wire.entangle('exportOpen') }"
+            x-effect="if (show && !$el.open) { $el.showModal() } else if (!show && $el.open) { $el.close() }"
+            @keydown.escape.stop.prevent="show = false"
+            @cancel.prevent="show = false"
+            @close="show = false"
+            aria-labelledby="exit-export-title"
+            aria-describedby="exit-export-description"
+            style="width: min(32rem, calc(100vw - 2rem)); max-height: calc(100vh - 2rem);"
+            class="rounded-lg shadow-lg p-5 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 backdrop:bg-black/40">
+        <h2 id="exit-export-title" class="text-lg font-semibold mb-2">Esporta Excel</h2>
+        <p id="exit-export-description" class="text-sm mb-4">
+            Scegli le colonne da includere per {{ $selectedCount === 1 ? 'la riga selezionata' : 'le '.$selectedCount.' righe selezionate' }} della pagina corrente.
+        </p>
+
+        <form wire:submit="exportSelectedRows">
+            <fieldset wire:loading.attr="disabled" wire:target="exportSelectedRows">
+                <legend class="text-sm font-semibold mb-2">Colonne da esportare</legend>
+                <div class="grid gap-3" style="grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));">
+                    @foreach($exportColumnOptions as $field => $label)
+                        <label wire:key="exit-export-column-{{ $field }}" class="flex items-center gap-2 text-sm">
+                            <input type="checkbox" value="{{ $field }}" wire:model="selectedExportColumns"
+                                   class="rounded border-gray-300 text-purple-600 focus:ring-purple-500">
+                            <span>{{ $label }}</span>
+                        </label>
+                    @endforeach
+                </div>
+            </fieldset>
+
+            @foreach(['selectedExportColumns', 'selectedExportColumns.*', 'selectedExitRowIds', 'selectedExitRowIds.*', 'phase', 'perPage'] as $exportError)
+                @error($exportError)
+                    <p class="mt-2 text-sm text-red-600 dark:text-red-400" role="alert">{{ $message }}</p>
+                @enderror
+            @endforeach
+
+            <div class="flex flex-wrap justify-end gap-2 mt-4">
+                <button type="button" @click="show = false"
+                        class="rounded px-3 py-2 text-sm border border-gray-300">
+                    Annulla
+                </button>
+                <button type="submit" wire:loading.attr="disabled" wire:target="exportSelectedRows"
+                        class="rounded bg-purple-600 px-3 py-2 text-sm font-semibold text-white hover:bg-purple-500 disabled:opacity-60">
+                    <span wire:loading.remove wire:target="exportSelectedRows">Scarica Excel</span>
+                    <span wire:loading wire:target="exportSelectedRows">Preparazione...</span>
+                </button>
+            </div>
+        </form>
+    </dialog>
 
     {{--  Modal Avanza  ----------------------------------------------------}}
     <dialog  wire:ignore

@@ -24,18 +24,46 @@ use App\Services\ForceReservationPlanner;
 use App\Services\ForceReservationExecutor;
 use App\Services\Ddt\DdtService;
 use App\Services\WorkOrders\WorkOrderService;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Validation\Rule;
 use Livewire\Component;
 use Livewire\WithPagination;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+use PhpOffice\PhpSpreadsheet\Cell\DataType;
+use PhpOffice\PhpSpreadsheet\Shared\Date;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ExitTable extends Component
 {
     use WithPagination;
+
+    /** La lista fissa impedisce di richiedere colonne arbitrarie e mantiene l'ordine della tabella. */
+    private const EXPORT_COLUMNS = [
+        'customer' => 'Cliente',
+        'shipping_zone' => 'Zona spedizione',
+        'order_number' => 'Nr. ordine',
+        'reference' => 'Rif. ordine',
+        'product' => 'Prodotto',
+        'color_note' => 'Tessuto / Colore / Nota',
+        'order_date' => 'Data ordine',
+        'delivery_date' => 'Consegna',
+        'value' => 'Valore €',
+        'qty_in_phase' => 'Q.ty fase',
+    ];
+
+    public bool $exportOpen = false;
+    public array $selectedExportColumns = [
+        'customer', 'shipping_zone', 'order_number', 'reference', 'product',
+        'color_note', 'order_date', 'delivery_date', 'value', 'qty_in_phase',
+    ];
 
     /*
      Proprietà pubbliche → Livewire le sincronizza su URL 
@@ -387,6 +415,118 @@ class ExitTable extends Component
     public function clearSelectedExitRows(): void
     {
         $this->selectedExitRowIds = [];
+        $this->exportOpen = false;
+    }
+
+    public function openExportModal(): void
+    {
+        abort_unless(auth()->user()?->can('stock.exit'), 403);
+
+        if (empty($this->selectedExitRowIds)) {
+            session()->flash('error', 'Seleziona almeno una riga da esportare.');
+            return;
+        }
+
+        $this->resetValidation();
+        $this->exportOpen = true;
+    }
+
+    public function exportSelectedRows(): StreamedResponse
+    {
+        abort_unless(auth()->user()?->can('stock.exit'), 403);
+
+        $this->validate([
+            'selectedExitRowIds' => ['required', 'array', 'min:1', 'max:500'],
+            'selectedExitRowIds.*' => ['required', 'integer', 'min:1', 'distinct'],
+            'selectedExportColumns' => ['required', 'array', 'min:1', 'max:10'],
+            'selectedExportColumns.*' => ['required', 'string', 'distinct', Rule::in(array_keys(self::EXPORT_COLUMNS))],
+            'phase' => ['integer', Rule::in([0, 1, 2, 3])],
+            'perPage' => ['integer', 'min:1', 'max:500'],
+        ], [
+            'selectedExitRowIds.*' => 'Seleziona da 1 a 500 righe valide della pagina corrente.',
+            'selectedExitRowIds.*.*' => 'La selezione delle righe non è valida. Seleziona nuovamente le righe.',
+            'selectedExportColumns.required' => 'Seleziona almeno una colonna da esportare.',
+            'selectedExportColumns.min' => 'Seleziona almeno una colonna da esportare.',
+            'selectedExportColumns.*.*' => 'La selezione delle colonne non è valida.',
+            'phase.*' => 'La fase selezionata non è valida.',
+            'perPage.*' => 'Puoi esportare al massimo 500 righe della pagina corrente.',
+        ]);
+
+        $ids = array_map('intval', $this->selectedExitRowIds);
+        /** Rilegge la pagina con gli stessi filtri: non esporta ID aggiunti alla richiesta o righe spostate nel frattempo. */
+        $rows = $this->exitRowsQuery()->paginate($this->perPage)->getCollection()
+            ->filter(fn ($row) => in_array((int) $row->id, $ids, true))
+            ->values();
+
+        if ($rows->pluck('id')->unique()->count() !== count($ids)) {
+            throw ValidationException::withMessages([
+                'selectedExitRowIds' => 'Una o più righe non sono più disponibili nella pagina e nella fase correnti. Aggiorna la tabella e selezionale nuovamente.',
+            ]);
+        }
+
+        $columns = array_intersect_key(self::EXPORT_COLUMNS, array_flip($this->selectedExportColumns));
+        $phaseLabel = ProductionPhase::from($this->phase)->label();
+        $this->exportOpen = false;
+
+        return response()->streamDownload(function () use ($rows, $columns, $phaseLabel) {
+            $spreadsheet = new Spreadsheet();
+
+            try {
+                $sheet = $spreadsheet->getActiveSheet();
+                $sheet->setTitle('Uscite - '.$phaseLabel);
+                $sheet->getDefaultRowDimension()->setRowHeight(-1);
+                $spreadsheet->getDefaultStyle()->getFont()->setName('Calibri')->setSize(11);
+
+                foreach (array_keys($columns) as $index => $field) {
+                    $column = Coordinate::stringFromColumnIndex($index + 1);
+                    $sheet->setCellValueExplicit($column.'1', $columns[$field], DataType::TYPE_STRING);
+                    $sheet->getColumnDimension($column)->setWidth(match ($field) {
+                        'customer', 'shipping_zone', 'reference' => 28,
+                        'product' => 34,
+                        'color_note' => 40,
+                        default => 16,
+                    });
+
+                    foreach ($rows as $rowIndex => $row) {
+                        $cell = $column.($rowIndex + 2);
+                        $value = match ($field) {
+                            'product' => $row->product_name,
+                            'color_note' => implode(' / ', array_filter([$row->fabric_name, $row->color_name, $row->color_notes])),
+                            default => $row->{$field},
+                        };
+
+                        if (in_array($field, ['value', 'qty_in_phase'], true)) {
+                            $sheet->setCellValueExplicit($cell, (float) $value, DataType::TYPE_NUMERIC);
+                            $sheet->getStyle($cell)->getNumberFormat()->setFormatCode($field === 'value' ? '#,##0.00 "€"' : '0.00');
+                        } elseif (in_array($field, ['order_date', 'delivery_date'], true) && $value !== null && $value !== '') {
+                            $sheet->setCellValueExplicit($cell, Date::PHPToExcel(\Carbon\Carbon::parse($value)), DataType::TYPE_NUMERIC);
+                            $sheet->getStyle($cell)->getNumberFormat()->setFormatCode('yyyy-mm-dd');
+                        } else {
+                            /** I testi degli ordini restano testo anche se iniziano con =, + o altri caratteri interpretati da Excel. */
+                            $sheet->setCellValueExplicit($cell, (string) ($value ?? ''), DataType::TYPE_STRING);
+                        }
+                    }
+                }
+
+                $lastColumn = Coordinate::stringFromColumnIndex(count($columns));
+                $lastRow = $rows->count() + 1;
+                $sheet->getStyle('A1:'.$lastColumn.$lastRow)->getAlignment()->setWrapText(true)->setVertical('top');
+                $sheet->getStyle('A1:'.$lastColumn.'1')->applyFromArray([
+                    'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
+                    'fill' => ['fillType' => 'solid', 'startColor' => ['rgb' => '374151']],
+                ]);
+                $sheet->getRowDimension(1)->setRowHeight(32);
+                $sheet->freezePane('A2');
+                $sheet->setAutoFilter('A1:'.$lastColumn.$lastRow);
+                $sheet->getPageSetup()->setOrientation('landscape')->setFitToWidth(1)->setFitToHeight(0);
+                (new Xlsx($spreadsheet))->save('php://output');
+            } finally {
+                $spreadsheet->disconnectWorksheets();
+            }
+        }, 'uscite-'.Str::slug($phaseLabel).'-'.now()->format('Y-m-d-His').'.xlsx', [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Cache-Control' => 'private, no-store',
+        ]);
     }
 
     /**
@@ -415,18 +555,9 @@ class ExitTable extends Component
         return "warehouse_exit_print:{$token}";
     }
 
-    /*──────────────────────────────────────────────────────────────*
-     |  Render: costruisce KPI + query dei record da mostrare       |
-     *──────────────────────────────────────────────────────────────*/
-    public function render()
+    /** Usa la stessa query per la tabella e per la verifica delle righe da esportare. */
+    private function exitRowsQuery(): Builder
     {
-        /*――――――― KPI cards: pezzi totali per fase ―――――――*/
-        $kpiCounts = DB::table('v_order_item_phase_qty')
-            ->selectRaw('phase, SUM(qty_in_phase) AS qty')
-            ->where('qty_in_phase', '>', 0)
-            ->groupBy('phase')
-            ->pluck('qty', 'phase');    // array [ phase => qty ]
-
         /*― White-list dei campi ordinabili ―*/
         $allowedSorts = [
             'customer', 'order_number', 'reference', 'product', 'color_note',
@@ -436,6 +567,8 @@ class ExitTable extends Component
         if ($this->sort !== '' && ! in_array($this->sort, $allowedSorts, true)) {
             $this->sort = ''; // fallback di sicurezza
         }
+        /** La direzione arriva anche dalla richiesta: nella query sono ammessi soltanto asc e desc. */
+        $this->dir = strtolower($this->dir) === 'desc' ? 'desc' : 'asc';
 
         /* ---------- sub-query con qty aggregate ---------- */
         $phase   = $this->phase;
@@ -448,7 +581,7 @@ class ExitTable extends Component
             ->groupBy('order_item_id');
 
         /*――――――― Query principale ―――――――*/
-        $rows = OrderItem::query()
+        return OrderItem::query()
             ->joinSub($pqSub, 'pq', 'pq.order_item_id', '=', 'order_items.id')
             ->join('orders   as o',  'o.id',  '=', 'order_items.order_id')
             ->leftJoin('customers as c',      'c.id',  '=', 'o.customer_id')
@@ -518,7 +651,7 @@ class ExitTable extends Component
                     '(order_items.quantity * order_items.unit_price) >= ?', [$v]
                 ))
 
-            /*―――― Ordinamento (match expression PHP 8.4) ――――*/
+            /** L'ordinamento è condiviso dalla tabella e dall'export. */
             ->tap(function ($q) {
                 match ($this->sort) {
                     'customer'      => $q->orderByRaw('COALESCE(c.company, oc.company) '.$this->dir),
@@ -537,8 +670,20 @@ class ExitTable extends Component
                 };
             })
 
-            /*―――― Paginazione ――――*/
-            ->paginate($this->perPage);
+            /** Gli spareggi rendono stabile l'ordine anche tra la visualizzazione e il download. */
+            ->orderBy('order_items.id')
+            ->orderBy('opv.id');
+    }
+
+    public function render()
+    {
+        $kpiCounts = DB::table('v_order_item_phase_qty')
+            ->selectRaw('phase, SUM(qty_in_phase) AS qty')
+            ->where('qty_in_phase', '>', 0)
+            ->groupBy('phase')
+            ->pluck('qty', 'phase');
+
+        $rows = $this->exitRowsQuery()->paginate($this->perPage);
 
         /*――――― Render view Blade con dati Livewire ―――――*/
         return view('livewire.warehouse.exit-table', [
@@ -550,6 +695,7 @@ class ExitTable extends Component
             'sort'      => $this->sort,
             'dir'       => $this->dir,
             'filters'   => $this->filters,
+            'exportColumnOptions' => self::EXPORT_COLUMNS,
         ]);
     }
 
