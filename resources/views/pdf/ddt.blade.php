@@ -48,9 +48,12 @@
             height: 273mm;
         }
 
-        /* Contenuto: riserva spazio al footer dell'ultima pagina */
+        /** Lo spazio del footer completo serve soltanto nell'ultima pagina. */
         .content {
-            padding-bottom: 70mm; /* spazio “di sicurezza” per evitare overlap col footer */
+            padding-bottom: 10mm;
+        }
+        .last-page-content {
+            padding-bottom: 70mm;
         }
 
         /* Footer fisso in basso nella singola pagina */
@@ -78,6 +81,9 @@
         td { padding: 6px 6px; vertical-align: top; }
 
         .tbl-head { border-bottom: 2px solid {{ $blue }}; }
+        .items { table-layout: fixed; }
+        .items td { word-wrap: break-word; }
+        .row-order-details { font-size: 9px; text-transform: none; margin-top: 3px; }
         .right { text-align: right; }
         .center { text-align: center; }
 
@@ -96,15 +102,10 @@
             font-weight: 700;
         }
 
-        .order-ref {
-            margin-top: 8px;
-            font-size: 10px;
-            font-weight: 700;
-        }
-
         .order-note {
             margin-top: 4px;
             font-size: 10px;
+            word-wrap: break-word;
         }
     </style>
 </head>
@@ -114,7 +115,7 @@
     @php $isLast = $loop->last; @endphp
 
     <div class="page">
-        <div class="content">
+        <div class="content{{ $isLast ? ' last-page-content' : '' }}">
 
             {{-- HEADER --}}
             <table>
@@ -191,7 +192,7 @@
             </table>
 
             {{-- TABELLA ARTICOLI (solo righe di questa pagina) --}}
-            <table style="margin-top: 14px;">
+            <table class="items" style="margin-top: 14px;">
                 <thead class="tbl-head">
                     <tr>
                         <th style="width: 10%;">Codice</th>
@@ -215,11 +216,11 @@
                             $var = $it?->variable;
                             $details = [];
 
-                            // Riferimento Ordine per ogni riga (utile se DDT accorpato)
-                            $rowOrderNo = $it?->order?->orderNumber?->number ?? $it?->order_id;
-                            if ($rowOrderNo) {
-                                $details[] = "Rif. Ordine: $rowOrderNo";
-                            }
+                            /** Nei DDT accorpati ogni articolo mantiene data e riferimento del proprio ordine. */
+                            $rowOrder = $it?->order;
+                            $rowOrderNo = $rowOrder?->orderNumber?->number ?? $it?->order_id;
+                            $rowOrderDate = $rowOrder?->ordered_at ? \Carbon\Carbon::parse($rowOrder->ordered_at)->format('d/m/Y') : 'Non indicata';
+                            $rowReference = trim((string) ($rowOrder?->reference ?? ''));
 
                             if ($var) {
                                 $fabric = $var->fabric?->name ?? '';
@@ -237,8 +238,12 @@
                             <td>{{ $sku }}</td>
                             <td style="text-transform: uppercase;">
                                 {{ $desc }}
+                                <div class="row-order-details">
+                                    <strong>Ordine:</strong> {{ $rowOrderNo ?? 'Non indicato' }} - <strong>Data ordine:</strong> {{ $rowOrderDate }}
+                                    <br><strong>Riferimento cliente:</strong> {{ $rowReference !== '' ? $rowReference : 'Non indicato' }}
+                                </div>
                                 @if(!empty($details))
-                                    <br><small style="color: #555; text-transform: none;">{{ implode(' - ', $details) }}</small>
+                                    <small style="display: block; color: #555; text-transform: none;">{{ implode(' - ', $details) }}</small>
                                 @endif
                             </td>
                             <td class="center">{{ number_format((float)$r->quantity, 0, ',', '.') }}</td>
@@ -251,7 +256,7 @@
                 </tbody>
             </table>
 
-            {{-- RIFERIMENTO ORDINE: SOLO ALLA FINE, DOPO L'ULTIMA RIGA (quindi nell'ultima pagina) --}}
+            {{-- Data e riferimento sono accanto agli articoli; qui restano le note dei rispettivi ordini. --}}
             @if($isLast)
                 @php
                     $uniqueOrders = $ddt->rows->map->orderItem->map->order->unique('id');
@@ -259,18 +264,11 @@
                 @foreach($uniqueOrders as $o)
                     @php
                         $oNo = $o->orderNumber?->number ?? $o->id;
-                        $oDate = $o->ordered_at ? \Carbon\Carbon::parse($o->ordered_at)->format('d/m/Y') : '';
                     @endphp
-                    <div class="order-ref">
-                        Rif. Conferma d'ordine {{ $oNo }} @if($oDate) del {{ $oDate }} @endif
-                        @if(!empty($o->reference))
-                            <br>Rif. Cliente: {{ $o->reference }}
-                        @endif
-                    </div>
-
                     {{-- Nota ordine / DDT: stampata solo se presente --}}
                     @if(!empty($o->note))
                         <div class="order-note" style="white-space: pre-line;">
+                            <strong>Note ordine {{ $oNo }}:</strong>
                             {{ $o->note }}
                         </div>
                     @endif

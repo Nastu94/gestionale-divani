@@ -39,8 +39,11 @@ class DdtPdfService
         /* Recipient/Destination normalizzati */
         $parties = $this->resolveRecipientAndDestination($ddt->order);
 
-        /* Paginazione: numero righe per pagina (taralo se cambia l'altezza righe) */
-        $rowsPerPage = 10;
+        /** I riferimenti lunghi richiedono piu spazio: evitiamo che gli articoli invadano il footer. */
+        $hasLongReferences = $ddt->rows->contains(fn ($row) =>
+            mb_strlen(trim((string) ($row->orderItem?->order?->reference ?? ''))) > 120
+        );
+        $rowsPerPage = $hasLongReferences ? 3 : 6;
         $pages = $ddt->rows->values()->chunk($rowsPerPage);
 
         /**

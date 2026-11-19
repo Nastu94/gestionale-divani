@@ -152,6 +152,47 @@ class WarehouseExitExportTest extends TestCase
         $book->disconnectWorksheets();
     }
 
+    public static function phasesForOrderDetails(): array
+    {
+        return [[0], [1], [2], [3]];
+    }
+
+    #[DataProvider('phasesForOrderDetails')]
+    public function test_excel_includes_each_orders_original_date_and_reference_in_every_phase(int $phase): void
+    {
+        $first = $this->createRow('Cliente Alfa di prova', '0001');
+        $second = $this->createRow('Cliente Beta di prova', '0002');
+        foreach ([$first => ['2026-10-03', 'RIF-CLIENTE-A'], $second => ['2026-10-07', 'RIF-CLIENTE-B']] as $id => [$date, $reference]) {
+            $orderId = DB::table('order_items')->where('id', $id)->value('order_id');
+            DB::table('orders')->where('id', $orderId)->update(['ordered_at' => $date, 'reference' => $reference]);
+            if ($phase > 0) {
+                DB::table('order_item_phase_events')->insert([
+                    'order_item_id' => $id, 'from_phase' => 0, 'to_phase' => $phase,
+                    'quantity' => 3, 'changed_by' => $this->operator->id,
+                    'created_at' => '2026-11-19 10:20:00', 'updated_at' => '2026-11-19 10:20:00',
+                ]);
+            }
+        }
+        $before = DB::table('orders')->orderBy('id')->get()->toJson();
+        $component = Livewire::test(ExitTable::class)->set('phase', $phase)
+            ->set('sort', 'order_number')->set('dir', 'asc')
+            ->set('selectedExitRowIds', [$first, $second])->call('openExportModal')
+            ->assertSet('selectedExportColumns', fn ($columns) => in_array('reference', $columns, true) && in_array('order_date', $columns, true))
+            ->call('exportSelectedRows')->assertHasNoErrors()->assertFileDownloaded();
+
+        $book = $this->readDownload($component);
+        $sheet = $book->getActiveSheet();
+        $this->assertSame('Rif. ordine', $sheet->getCell('D1')->getValue());
+        $this->assertSame('Data ordine', $sheet->getCell('G1')->getValue());
+        $this->assertSame('RIF-CLIENTE-A', $sheet->getCell('D2')->getValue());
+        $this->assertSame('RIF-CLIENTE-B', $sheet->getCell('D3')->getValue());
+        $this->assertSame('2026-10-03', Date::excelToDateTimeObject($sheet->getCell('G2')->getValue())->format('Y-m-d'));
+        $this->assertSame('2026-10-07', Date::excelToDateTimeObject($sheet->getCell('G3')->getValue())->format('Y-m-d'));
+        $book->disconnectWorksheets();
+        $this->assertSame($before, DB::table('orders')->orderBy('id')->get()->toJson());
+        Mail::assertNothingSent();
+    }
+
     public function test_text_is_not_interpreted_as_excel_formulas_and_null_dates_stay_empty(): void
     {
         $id = $this->createRow('=1+1', '000123');

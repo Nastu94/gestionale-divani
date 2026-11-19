@@ -74,7 +74,7 @@
         .box .big { font-size: 14pt; font-weight: 800; margin-bottom: 4pt; }
         .muted { font-size: 9pt; color: #333; }
 
-        .items { margin-top: 12pt; }
+        .items { margin-top: 12pt; table-layout: fixed; }
         .items thead th {
             text-align: left;
             font-size: 11pt;
@@ -91,6 +91,13 @@
         .refline {
             padding: 8pt 6pt;
             font-weight: 800;
+            word-wrap: break-word;
+        }
+        .order-details {
+            margin-top: 3pt;
+            font-size: 9pt;
+            font-weight: normal;
+            text-transform: none;
         }
 
         /* ✅ Footer fisso (come DDT) */
@@ -135,6 +142,9 @@
     
     $order = $wo->order;
     $orderNo = $order?->orderNumber?->number ?? $wo->order_id;
+    /** La data dell'ordine resta distinta dall'emissione del buono, anche nelle ristampe. */
+    $orderDate = $order?->ordered_at ? \Carbon\Carbon::parse($order->ordered_at)->format('d/m/Y') : 'Non indicata';
+    $orderReference = trim((string) ($order?->reference ?? ''));
 
     $phaseName = \App\Enums\ProductionPhase::tryFrom((int) $wo->phase)?->label()
         ?? (string) $wo->phase;
@@ -192,9 +202,6 @@
                     <span style="font-size:10px;color:#666;">LOGO</span>
                 </div>
             @endif
-            <div style="font-size:9px;color:#999;">
-    DEBUG logoDataUri: {{ empty($logoDataUri) ? 'NO' : 'YES' }}
-</div>
         </td>
         <td class="company">
             <div class="name">{{ $issuerName }}</div>
@@ -269,14 +276,16 @@
             <th>Descrizione</th>
             <th class="right" style="width: 14%;">Quantità</th>
         </tr>
+        {{-- Il riepilogo si ripete insieme alle intestazioni se il buono occupa piu pagine. --}}
+        <tr>
+            <th colspan="3" class="refline">
+                Rif. Ordine {{ $orderNo }} - Buono {{ $wo->number }}/{{ $wo->year }} - Fase: {{ $phaseName }}
+                <div class="order-details"><strong>Data ordine:</strong> {{ $orderDate }}</div>
+                <div class="order-details"><strong>Riferimento cliente:</strong> {{ $orderReference !== '' ? $orderReference : 'Non indicato' }}</div>
+            </th>
+        </tr>
     </thead>
     <tbody>
-        <tr>
-            <td colspan="3" class="refline">
-                Rif. Ordine {{ $orderNo }} — Buono {{ $wo->number }}/{{ $wo->year }} — Fase: {{ $phaseName }}
-            </td>
-        </tr>
-
         @foreach($wo->lines as $l)
             @php
                 $variants = trim(implode(' ', array_filter([$l->fabric, $l->color])));
